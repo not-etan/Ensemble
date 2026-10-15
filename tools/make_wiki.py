@@ -95,11 +95,8 @@ def main():
     for title, body in pages:
         write(slug(title), body)
 
-    tabs = [t for t, _ in pages][:6]
-    more = [t for t, _ in pages][6:]
-    side = ["**[[Home]]**", "", "**The tabs**", ""]
-    side += ["- [[%s|%s]]" % (t, slug(t)) for t in tabs]
-    side += ["", "**More**", ""] + ["- [[%s|%s]]" % (t, slug(t)) for t in more]
+    side = ["[[Home]]", "", "**Tabs**", ""]
+    side += ["- [[%s|%s]]" % (t, slug(t)) for t, _ in pages]
     side += ["", "---", "", "[Repository](%s) · [Changelog](%s/blob/main/CHANGELOG.md)" % (REPO, REPO)]
     write("_Sidebar", side)
     write("_Footer", ["This wiki is generated from [`docs/Guide.md`](%s/blob/main/docs/Guide.md). "
