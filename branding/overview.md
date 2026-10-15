@@ -8,7 +8,7 @@ Keystone Command is a Mythic+ companion addon that helps players of every skill 
 
 ## ✨ Who it's for
 
-- 🌱 **Newer players** learn how each dungeon works: every trash pack and boss in order, what each mechanic does and how to answer it, with short explanations of why it matters.
+- 🌱 **Newer players** learn how each dungeon works: every trash pack and boss in order, what each mechanic does and how to answer it, with short explanations of why they matter.
 - 🪜 **Players pushing higher** learn the details that time keys: the must-kick casts, must-dispel debuffs and must-stop channels, the utility each dungeon asks for, and which classes bring it.
 - 🏆 **Experienced players** decide faster, with instant applicant ratings, a clear view of every gap and who covers what, and a written plan to share with the group, all without tabbing out to check a single external guide.
 
