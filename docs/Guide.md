@@ -147,8 +147,6 @@ Type `/kc verify`. It checks, in your client, everything that couldn't be confir
 
 For the most complete report, run it while hosting a listing with at least one applicant and while in a party. It changes nothing; the last report is also saved in the SavedVariables file.
 
-`/kc verify season` is for updating the addon: one copyable block with the game's current Mythic+ dungeon pool (challenge and instance map IDs, timers), each dungeon's bosses from the encounter journal with their abilities' spell IDs, and this week's affixes, each marked as already in the addon or NEW. Open the Group Finder's Mythic+ tab first so the game has loaded the list.
-
 ## Reporting a problem
 
 Type `/kc report` (or Settings > Data > *Copy a bug report*). It opens the same copyable window with a bug report that starts with three lines to fill in (what happened, what you expected, how to make it happen again), followed by:
@@ -162,30 +160,6 @@ Type `/kc report` (or Settings > Data > *Copy a bug report*). It opens the same 
 - the `/kc verify` summary with up to 12 FAIL and WARN lines.
 
 Nothing is sent anywhere: you copy it and paste it into your report. `/kc verify` says whether error capture is active in your client.
-
-## Keeping the data current (by hand)
-
-All data lives in two plain Lua files you edit directly; re-check them after hotfixes or Mythic+ tuning changes.
-
-**`DungeonData.lua`**: one entry per dungeon, each with a list of requirements:
-
-- `need` / `alt`: capability keys from `UD.CAPS` in `UtilityDatabase.lua` (typos are caught at load and printed in chat).
-- `severity`: `critical` / `high` / `medium` / `low`. `minProviders`: how many players should be able to answer it.
-- `source`: the ability and where it happens. `note`: optional tip. `category`: optional override (`tank` for tank-mitigation items).
-- `confidence`: `verified` once confirmed in a current Season 2 guide or in game; otherwise `needs_verification` (shown as `[unconfirmed]`, never worse than THIN).
-- Tunable thresholds (kicks a kick-heavy dungeon wants, applicant rating bands, the high-key level, the raid buff synergy bonus) are in `DD.HEURISTICS` at the top.
-- `DD.AREAS`: for the walkthrough, which trash section(s) each trash requirement happens in, by the boss the section leads to (`{ 1, 3 }` = before the first and third boss). Boss mechanics come from each boss card's `reqs` in `BossData.lua`.
-- `DD.LUST`: the default Bloodlust timing per dungeon, `{ at = "b2", note = "on pull" }` (`b` = boss N, `t` = the trash before boss N), with its source in `DD.LUST_SOURCE`.
-
-**`UtilityDatabase.lua`**: what each class/spec brings, plus each spec's primary stat and damage school (`SPEC_STAT`, `SPEC_SCHOOL`) and who each raid buff helps (`affects` on `UD.BUFFS`), which drive buff synergy. Flags on a source: `talent`, `core` (a talent every build takes, such as an interrupt or the class dispel: shown as a talent but counted as reliable), `pet`, `long`, `conditional`, `fallback`, `verify`. Every class and spec was checked against Wowhead's Patch 12.1.0 Abilities and Talents guides, then against Blizzard's 12.1.5 patch notes (no tracked utility changed). Anything marked `verify = true` could not be confirmed for 12.1; remove the flag once confirmed in game.
-
-**Spell IDs (icons and tooltips):** class abilities are in `UD.SPELL_IDS` (`UtilityDatabase.lua`), dungeon abilities in `DD.SPELL_IDS` (`DungeonData.lua`), raid buffs on `UD.BUFFS` (`spell =`). Dungeon ability names are matched in each requirement's `source` text, so a new ability only needs its `"Name" = spellID` entry. If two dungeons use the same name for different spells, give the dungeon its own `spellIds = { ["Name"] = id }` (see Den of Nalorakk's Lightning Bolt). Nearly every ability named in the current dungeon data has its ID (from Method.gg's Season 2 guides and ability trackers; `python3 tests/run_tests.py --data` lists any without one); one missing from the table still shows color-coded with a "?" icon and a name-only tooltip (Wowhead's spell pages show the ID in the URL).
-
-**`Affixes.lua`**: each affix's IDs, name match, key-level bracket, advice and requirements (same fields as dungeon requirements). **Cooldowns** for kick and dispel assignments are in `UD.COOLDOWNS` (`UtilityDatabase.lua`); assignment tuning is `Assignments.TUNING`.
-
-**New season:** add each dungeon to `DungeonData.lua` with its challenge map ID in `DD.CHALLENGE_MAP_IDS` (`/kc verify season` lists the game's dungeons, IDs, bosses and affixes), and update `Affixes.lua` if the affixes change.
-
-**New client build:** change the single `## Interface:` line in `KeystoneCommand.toc` (e.g. `120105`).
 
 ## License
 
