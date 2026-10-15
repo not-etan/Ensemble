@@ -4,7 +4,7 @@
 
 **Learn the dungeon. Build the group. Make the plan. Command the key.**
 
-Keystone Command is a Mythic+ companion addon that helps players of every skill level build stronger groups, understand each dungeon and walk into every key with a plan everyone can follow. It brings group building, dungeon knowledge and planning together in one place, so you spend less time checking guides and more time playing the game.
+Keystone Command is a Mythic+ companion addon that helps players of every skill level understand each dungeon, build stronger groups and walk into every key with a plan everyone can follow. It brings group building, dungeon knowledge and planning together in one place, so you spend less time checking guides and more time playing the game.
 
 **Who it's for:**
 
