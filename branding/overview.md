@@ -139,7 +139,7 @@ Type **`/kc report`** in game (or use Settings › Data). Fill in the first few 
 
 ## 🤖 AI disclaimer
 
-Keystone Command was built with help from Claude, which wrote much of the code and helped compile the class and dungeon data. That data was checked against current guides and tested in game, but mistakes can slip through, so please let me know if something looks off. The addon itself doesn't use AI and never sends anything outside the game.
+Keystone Command was built with help from Claude, which wrote much of the code and data. Everything is checked against current guides and tested in game, but if something looks off, let me know. The addon itself doesn't use AI.
 
 ---
 
