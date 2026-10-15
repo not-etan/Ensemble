@@ -47,9 +47,10 @@ Keystone Command is a Mythic+ companion addon that helps players of every skill 
 - 📨 **Invite from the card**, with a compact panel beside the Group Finder and ratings in Blizzard's own tooltip.
 - 📝 **Ready-to-copy lines:** "What we need" for your listing ("LF 2 DPS. Need: Poison dispel, Brez."), and a Sign Up note with your spec, rating, best run and what you'd bring.
 
-### 🏰 Dungeons and affixes
+### 🏰 Dungeons and bosses
 - 🗺️ **Every Season 2 dungeon:** Altar of Fangs, Murder Row, Den of Nalorakk, The Blinding Vale, Voidscar Arena, Ruby Life Pools, Kings' Rest and Temple of Sethraliss.
-- 📖 **Walkthrough:** every trash section and boss in order, with what each mechanic does and how to answer it, filtered by role if you like.
+- 📖 **Walkthrough:** every trash section and boss in order, with what each mechanic does and how to answer it, filtered by role if you like. Every boss has a short card with notes for everyone plus tank, healer and DPS lines.
+- 🪟 **Boss window:** opens when you enter the dungeon, follows your progress and highlights your own assignments. Resize, lock or fade it in combat, and rewrite any card or post it to chat.
 - 🥇 **Best key:** rank every dungeon by how well your current group covers it.
 - 📅 **This week's affixes:** read from the game and included in every check and plan.
 
@@ -60,11 +61,6 @@ Keystone Command is a Mythic+ companion addon that helps players of every skill 
 - 🧭 **Pull by pull:** see each pull's kicks and dispels and who takes them.
 - 🔗 **Route support:** the plan and walkthrough follow your Mythic Dungeon Tools route. Not affiliated with MDT, so its updates may briefly break this.
 - 💬 **Post to party chat:** the whole plan, one line per player, or just the gaps, in one click.
-
-### 🐉 Boss cards
-- 🪧 **A card for every boss:** short notes for everyone plus separate tank, healer and DPS lines.
-- 🪟 **Boss window:** opens when you enter the dungeon, follows your progress and highlights your own assignments.
-- ✏️ **Make them yours:** resize, lock, fade in combat, rewrite any card or post it to chat.
 
 ### 🎓 Learning and history
 - 💡 **Learning mode:** plain-language explanations throughout, or switch it off for a compact expert view.
