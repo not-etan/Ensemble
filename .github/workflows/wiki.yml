@@ -1,0 +1,46 @@
+# Rebuild the GitHub wiki from docs/Guide.md whenever the guide changes on main.
+# The wiki is generated: edit docs/Guide.md, never the Wiki tab.
+name: Sync wiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/Guide.md
+      - tools/make_wiki.py
+      - .github/workflows/wiki.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wiki
+  cancel-in-progress: true
+
+jobs:
+  wiki:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}.wiki
+          path: wiki
+
+      - name: Build pages
+        run: python3 tools/make_wiki.py docs/Guide.md wiki
+
+      - name: Push to the wiki
+        working-directory: wiki
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Wiki already up to date."
+          else
+            git commit -m "Sync from docs/Guide.md (${GITHUB_SHA::7})"
+            git push
+          fi
