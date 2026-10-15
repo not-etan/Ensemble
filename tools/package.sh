@@ -7,7 +7,7 @@
 #                                addons' readmes if the zip is extracted into AddOns)
 set -e
 cd "$(dirname "$0")/.."
-rm -f KeystoneCommand/README.md KeystoneCommand/CODE_REVIEW.md
+rm -f KeystoneCommand/README.md
 VER=$(sed -n 's/^## Version: *//p' KeystoneCommand/KeystoneCommand.toc | tr -d '\r')
 mkdir -p dist
 rm -rf dist/stage && mkdir -p dist/stage

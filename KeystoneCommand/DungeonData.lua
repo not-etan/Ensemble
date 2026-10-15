@@ -55,7 +55,7 @@ local DD = { list = {}, order = {} }
 ns.Dungeons = DD
 
 -- How current the game data is: shown in the Dungeons tab, Settings > Data, /kc report and
--- /kc verify. Update both with every data pass (SEASON_UPDATE.md, Step 2: Hotfixes).
+-- /kc verify. Update both with every data pass.
 DD.DATA_PATCH = "12.1.5"
 DD.DATA_CHECKED = "October 13, 2026"   -- newest hotfix post the data was checked against
 function DD:FreshnessText()

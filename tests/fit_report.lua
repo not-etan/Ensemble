@@ -1,5 +1,5 @@
 -- python3 tests/run_tests.py --fit
--- Fit rating measurement report (dev kit only; not shipped). Rates every spec as an
+-- Fit rating measurement report (not shipped). Rates every spec as an
 -- applicant and as a listing searcher against fixed party states in four dungeons, with no
 -- key level and at +12, and prints the score spread and band counts per case, plus the
 -- pieces that explain clustering (immediate / look-ahead parts, "no real difference" cases).
