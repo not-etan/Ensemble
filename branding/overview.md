@@ -124,7 +124,7 @@ Everything runs inside the game. There's no companion app, no web service and no
 No. It doesn't pull live data from other sites or addons.
 
 📚 **Where does the information come from?**
-The current patch's guides, mainly **Wowhead** and **Method.gg**, with boss cards also checked against **Icy Veins**, **Raider.IO's** written boss guides and the game itself. It's all built into the addon.
+The same current-patch guides most players already use, like **Wowhead**, **Method.gg**, **Icy Veins** and **Raider.IO**, gathered into one place and checked in game.
 
 🏆 **I'm an experienced player. Is this for me?**
 Yes. Turn off learning mode for a compact view and you still get instant applicant ratings, a cooldown-aware plan and history insights.
