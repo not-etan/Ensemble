@@ -44,22 +44,15 @@ Keystone Command is a Mythic+ companion addon that helps players of every skill 
 [*]🧠 [b]Talent-aware:[/b] abilities that depend on an optional talent are marked, so you know what's guaranteed.
 [/list]
 
-[size=4][b]📥 Group Finder applicants[/b][/size]
+[size=4][b]📥 Applicant ratings[/b][/size]
 [list]
-[*]🚦 [b]Fit rating:[/b] every applicant rated Great, Good, Fair or Poor with a score out of 100, based on how well their spec fits your group and key.
-[*]✅ [b]Group after:[/b] a plain line saying whether your group is ready once they join, or what's still missing.
+[*]🚦 [b]Fit rating:[/b] every applicant rated Great, Good, Fair or Poor with a score out of 100, based on how well their spec fits your group and key. Browsing for a group? Every Mythic+ listing shows how strong a pick you'd be.
+[*]✅ [b]Group after:[/b] a plain line saying whether the group is ready once they join (or once you do), or what's still missing.
 [*]🧗 [b]Experience:[/b] their best run of this dungeon this season counts too, more so at higher keys.
-[*]🧾 [b]Why this score?[/b] A point-by-point breakdown of every rating.
+[*]🧾 [b]Why this score?[/b] A point-by-point breakdown of every rating, and on listings, what you'd add.
 [*]⚖️ [b]Compare, sort and filter:[/b] pin two applicants side by side, sort by fit, rating or item level, and hide Poor fits.
 [*]📨 [b]Invite from the card[/b], with a compact panel beside the Group Finder and ratings in Blizzard's own tooltip.
-[*]📝 [b]"What we need":[/b] a ready-made line for your listing, such as "LF 2 DPS. Need: Poison dispel, Brez."
-[/list]
-
-[size=4][b]🔎 Groups you could join[/b][/size]
-[list]
-[*]🏷️ [b]Your fit on every listing:[/b] a marker on each Mythic+ group showing how strong a pick you'd be.
-[*]💬 [b]Details on hover:[/b] what you'd add and what the group would still need after you join.
-[*]✍️ [b]A line for your Sign Up note:[/b] your spec, rating, best run of that dungeon and what you'd bring, ready to copy.
+[*]📝 [b]Ready-to-copy lines:[/b] "What we need" for your listing ("LF 2 DPS. Need: Poison dispel, Brez."), and a Sign Up note with your spec, rating, best run and what you'd bring.
 [/list]
 
 [size=4][b]🏰 Dungeons and affixes[/b][/size]

@@ -41,19 +41,14 @@ Keystone Command is a Mythic+ companion addon that helps players of every skill 
 - 🌟 **Raid buffs:** the buffs your group brings and how well each suits it.
 - 🧠 **Talent-aware:** abilities that depend on an optional talent are marked, so you know what's guaranteed.
 
-### 📥 Group Finder applicants
-- 🚦 **Fit rating:** every applicant rated Great, Good, Fair or Poor with a score out of 100, based on how well their spec fits your group and key.
-- ✅ **Group after:** a plain line saying whether your group is ready once they join, or what's still missing.
+### 📥 Applicant ratings
+- 🚦 **Fit rating:** every applicant rated Great, Good, Fair or Poor with a score out of 100, based on how well their spec fits your group and key. Browsing for a group? Every Mythic+ listing shows how strong a pick you'd be.
+- ✅ **Group after:** a plain line saying whether the group is ready once they join (or once you do), or what's still missing.
 - 🧗 **Experience:** their best run of this dungeon this season counts too, more so at higher keys.
-- 🧾 **Why this score?** A point-by-point breakdown of every rating.
+- 🧾 **Why this score?** A point-by-point breakdown of every rating, and on listings, what you'd add.
 - ⚖️ **Compare, sort and filter:** pin two applicants side by side, sort by fit, rating or item level, and hide Poor fits.
 - 📨 **Invite from the card**, with a compact panel beside the Group Finder and ratings in Blizzard's own tooltip.
-- 📝 **"What we need":** a ready-made line for your listing, such as "LF 2 DPS. Need: Poison dispel, Brez."
-
-### 🔎 Groups you could join
-- 🏷️ **Your fit on every listing:** a marker on each Mythic+ group showing how strong a pick you'd be.
-- 💬 **Details on hover:** what you'd add and what the group would still need after you join.
-- ✍️ **A line for your Sign Up note:** your spec, rating, best run of that dungeon and what you'd bring, ready to copy.
+- 📝 **Ready-to-copy lines:** "What we need" for your listing ("LF 2 DPS. Need: Poison dispel, Brez."), and a Sign Up note with your spec, rating, best run and what you'd bring.
 
 ### 🏰 Dungeons and affixes
 - 🗺️ **Every Season 2 dungeon:** Altar of Fangs, Murder Row, Den of Nalorakk, The Blinding Vale, Voidscar Arena, Ruby Life Pools, Kings' Rest and Temple of Sethraliss.
