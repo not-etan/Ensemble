@@ -70,7 +70,7 @@ Keystone Command is a Mythic+ companion addon that helps players of every skill 
 - ⏱️ **Kick and dispel plan:** rotations shared out by cooldown, with backups for dangerous casts and a "kick first" order. Click any assignment to change who takes it.
 - 🥁 **Bloodlust timing:** a sensible default for every dungeon that you can move, annotate or add to.
 - 🧭 **Pull by pull:** see each pull's kicks and dispels and who takes them.
-- 🔗 **Route support:** if you use Mythic Dungeon Tools, the pull-by-pull plan and the dungeon walkthrough follow your selected route. Keystone Command isn't affiliated with or supported by Mythic Dungeon Tools, so an update to it may break this until Keystone Command catches up.
+- 🔗 **Route support:** the plan and walkthrough follow your Mythic Dungeon Tools route. Not affiliated with MDT, so its updates may briefly break this.
 - 💬 **Post to party chat:** the whole plan, one line per player, or just the gaps, in one click.
 
 ### 🐉 Boss cards
