@@ -9,24 +9,15 @@
 
 Keystone Command is a Mythic+ companion addon that helps players of every skill level understand each dungeon, build stronger groups and walk into every key with a plan everyone can follow. It brings group building, dungeon knowledge and planning together in one place, so you spend less time checking guides and more time playing the game.
 
-**Who it's for:**
+## ✨ Who it's for
 
-- 🌱 **Newer players** get the dungeon knowledge that usually takes a stack of guides to piece together.
-- 🪜 **Players pushing higher** learn the mechanics and roles that matter on the way to +12 and beyond.
-- 🏆 **Experienced players** get instant applicant ratings and a ready-made plan without tabbing out to check a single, external guide.
+- 🌱 **Newer players** learn how each dungeon works: every trash pack and boss in order, what each mechanic does and how to answer it, with short explanations of why it matters.
+- 🪜 **Players pushing higher** learn the details that time keys: the must-kick casts, must-dispel debuffs and must-stop channels, the utility each dungeon asks for, and which classes bring it.
+- 🏆 **Experienced players** decide faster, with instant applicant ratings, a clear view of every gap and who covers what, and a written plan to share with the group, all without tabbing out to check a single external guide.
 
 🎮 **Game version:** World of Warcraft Retail, *Midnight* Season 2 (patch 12.1.5).
 
 🔄 **Kept current:** dungeon data is checked against Blizzard's hotfixes. Last checked: patch 12.1.5 and hotfixes through October 13, 2026. The Dungeon tab shows this date too.
-
----
-
-## ✨ Why use it
-
-- ⚡ **Decide fast.** See at a glance whether your group is ready and who would fix what's missing.
-- 📚 **Skip the guide-checking.** Every dungeon's must-kick casts, must-dispel debuffs and must-stop channels are built in, linked to the classes that can handle them.
-- 🎓 **Learn as you go.** Short explanations show why a group needs something, not just that it does.
-- 🗺️ **Walk in with a plan.** Kicks, dispels and Bloodlust timing are worked out before the first pull.
 
 ---
 
