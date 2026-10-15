@@ -1,0 +1,39 @@
+## Interface: 120105
+## Title: Keystone Command
+## Notes: Learn the dungeon. Build the group. Make the plan. Command the key. Type /kc to open.
+## Author: Keystone Command
+## Version: 1.2.1
+## SavedVariables: KeystoneCommandDB
+## OptionalDeps: MythicDungeonTools
+## IconTexture: Interface\AddOns\KeystoneCommand\Media\Logo
+## AddonCompartmentFunc: KeystoneCommand_OnAddonCompartmentClick
+## AddonCompartmentFuncOnEnter: KeystoneCommand_OnAddonCompartmentEnter
+## AddonCompartmentFuncOnLeave: KeystoneCommand_OnAddonCompartmentLeave
+## Category: Dungeons & Raids
+
+# The "## Interface:" line above is the ONLY place the client build number lives.
+# For a point release (e.g. 120105) change that single line. Multiple builds may be
+# listed comma-separated (e.g. "120100, 120105") -- verify the comma form is still
+# accepted by the 12.x client before relying on it.
+
+Core.lua
+UtilityDatabase.lua
+DungeonData.lua
+BossData.lua
+Affixes.lua
+Links.lua
+GroupFinderTracker.lua
+Analysis.lua
+Assignments.lua
+BossCards.lua
+Route.lua
+Walkthrough.lua
+ApplicantFit.lua
+ListingFit.lua
+History.lua
+UI.lua
+BossWindow.lua
+Tour.lua
+FinderSearch.lua
+Verify.lua
+Report.lua
