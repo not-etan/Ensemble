@@ -15,7 +15,7 @@ Copy the `KeystoneCommand` folder into `World of Warcraft/_retail_/Interface/Add
 
 ## Use
 
-- `/kc` opens the window (also the minimap button, which shows the addon's logo, or the Addon Compartment menu). The first time, a seven-step tour points out the tabs, the dungeon picker, the slots, Needs, the Plan tab, the Applicants tab and the glossary (Skip ends it; replay it from Settings > General or `/kc tour`).
+- **Opening it:** `/kc` opens the window (also the minimap button, which shows the addon's logo, or the Addon Compartment menu). The first time, a seven-step tour points out the tabs, the dungeon picker, the slots, Needs, the Plan tab, the Applicants tab and the glossary (Skip ends it; replay it from Settings > General or `/kc tour`).
 - **Who it's for:** Lindormi's Guidance teaches routes up to +4; Keystone Command covers the mechanics and roles that take a group from there to +10 and beyond, for new players, players stepping up and experienced hosts alike.
 - **Tabs, by question:** *Composition* (who to bring), *Applicants* (who's applying to your listing), *Dungeon* (what to know, in the order you meet it), *Plan* (who handles what), then *History* and *Settings*.
 - **Data date:** the Dungeon tab, Settings > Data, `/kc report` and `/kc verify` show which patch the data is for and the newest Blizzard hotfix post it was checked against.
@@ -35,34 +35,56 @@ Copy the `KeystoneCommand` folder into `World of Warcraft/_retail_/Interface/Add
 - **Summary view:** shows the strip and only the gap rows (with all their detail); a line says how many covered needs are hidden. "Full view" switches back.
 - **"+N more" everywhere expands:** every "+N more" (requirements, classes, reasons, casts, applicants, remaining gaps) opens in place and has a "show fewer" to fold it again.
 - **Raid buffs & synergy:** each slot shows the raid buff that player brings (e.g. `+Battle Shout`). The analysis lists the group's buffs and how well each one fits this group: Chaos Brand is rated STRONG SYNERGY with several magic damage dealers, Mystic Touch shows LITTLE VALUE in an all-caster group, Battle Shout helps Strength/Agility users, Arcane Intellect helps Intellect users, Skyfury favors melee. Universal buffs (Mark of the Wild, Fortitude, Blessing of the Bronze, Hunter's Mark) are listed as helping everyone. Buffs you don't have are never shown as missing. Synergy gives a small bonus to suggestions and applicant ratings, but real utility gaps always outweigh it.
-- **Abilities, buffs and debuffs** are shown with their icon in front and colored by type (cyan interrupts and interruptible casts, orange crowd control/channels, blue Magic, purple Curse, green Poison, brown Disease, red Bleed/tank busters, gold defensives, green raid buffs). Hover any of them for the in-game tooltip, which also names the type in words; shift-click puts the spell link in chat.
+- **Abilities, buffs and debuffs:** shown with their icon in front and colored by type (see *Colors* below). Hover any of them for the in-game tooltip, which also names the type in words; shift-click puts the spell link in chat.
 - **Check against:** the dungeon is picked for you. In the planner it's the dungeon of the keystone in your bags; for your party and on the Applicants tab it's the dungeon your group is listed for, or, with no listing, the dungeon you're standing in. The note beside the dropdown says which. Pick any of the eight Season 2 dungeons (each shown with its in-game dungeon icon) to override it, or "Auto" to go back. A party pick only lasts until the group's dungeon changes (a new listing or zoning into another dungeon); a planner pick lasts until you get a keystone for a different dungeon. Entries marked `[unconfirmed]` come from unverified data and never show as MISSING.
 - **Suggested for open slots (left column):** for each empty slot's role, up to four classes ranked best fit first, each with the specs that fit best and a "Why:" note: the gaps it closes (dungeon needs first, e.g. "covers Poison dispel for Cytotoxin"), missing utility it adds ("adds battle rez"), and raid buff synergy with the players already in. Only empty slots get suggestions; players already in a slot are never suggested away. No duplicates: a class already filling a role isn't suggested for that role again, and each class appears once per role; the only exception is a different role (a Holy Paladin healer doesn't stop a Retribution Paladin being suggested for DPS). In the planner, click a class to put its best spec in the open slot. Under the suggestions, the planner shows your four most recent saved comps (click one to load it).
 - **Applicants under the slots (while you host):** the left column shows your best-fit applicants instead, one row each with the rating, name, spec, headline and an **Invite** button. Click a row to **preview** that applicant in an open slot: the slot shows them, Needs is checked as if they'd joined and each row whose status changes says what it was ("was MISSING", or "new" for a row that wasn't there); rows that don't change carry no marker. Click the row again (or "click to clear" above Needs) to stop. "Open tab" goes to the Applicants tab for compare, filters and the full breakdown; "List view" switches back to the usual left column even while you host ("Show applicants here" switches again; also Settings > Group Finder > "Applicants on the Composition tab").
 - **Best key for this group:** the "Best key" button beside the dungeon picker (or `/kc bestkey`) ranks all eight Season dungeons by how well the current group covers them: ready, or how many needs are missing or thin, with the worst ones named. Your own keystone is marked and checked at its level. Click a dungeon to check the group against it.
 
+#### Colors
+
+| Color | Means |
+|---|---|
+| Cyan | Interrupts and interruptible casts |
+| Orange | Crowd control and channels |
+| Blue | Magic |
+| Purple | Curse |
+| Green | Poison, and raid buffs |
+| Brown | Disease |
+| Red | Bleeds and tank busters |
+| Gold | Defensives |
+
+Every tooltip also names the type in words, so color is never the only signal.
+
 ### Applicants
 
 While you host a listing, every applicant (or premade applying together) gets a color-coded fit rating against your current party and the key you're running. The rating answers one question: **how good a pick is this person for this slot?**
 
-- **Great** (green), **Good** (blue), **Fair** (amber), **Poor** (red), always shown with an icon and the word, plus a 0-100 fit score. 100 is as good as the best spec of their role could be for this slot, 0 no better than the weakest. Bands: Great 80+, Good 45+, Fair 15+, Poor below. Applicants whose role is already filled are always Poor.
+| Rating | Color | Fit score |
+|---|---|---|
+| Great | Green | 80 to 100 |
+| Good | Blue | 45 to 79 |
+| Fair | Amber | 15 to 44 |
+| Poor | Red | below 15 |
+
+- **Fit score:** every rating is shown with an icon and the word, plus a score from 0 to 100. 100 is as good as the best spec of their role could be for this slot, 0 no better than the weakest. Applicants whose role is already filled are always Poor.
 - **Group after:** a separate line in plain words says whether the group is OK once they join: "Ready", or what's left ("1 missing (Poison dispel), 1 thin (Interrupt), 1 slot open"). It uses the same needs as the Needs panel and is never a second score. It's on every applicant card, each row under the Composition slots (short form, the full line on hover), each row of the panel beside the Group Finder, Compare, the breakdown and Blizzard's applicant tooltip.
 - **No real difference:** when the best and weakest pick for the slot are less than 5 points apart, everyone gets the same rating and the card says to decide on experience (the list is then ordered by experience).
 - **Critical gaps first:** a critical gap is a critical dungeon need that's missing, or a critical gap such as no interrupts. An applicant who **fully** closes one, with a dependable ability of their own, never rates below anyone who doesn't, whatever their experience. One who only **partly** closes it, with a weaker source (a talent, a pet, a long cooldown, a conditional or unconfirmed ability, or a spec the game hasn't shared yet: a Shadow Priest's Mass Dispel, a Warlock's Imp), still gets credit for it, but less: at least halfway between the weakest pick and the best pick that closes nothing, and never raised past that. In Temple of Sethraliss with a Protection and a Fury Warrior at +12, a Shadow Priest covering Imbued Conduction with Mass Dispel alone rates 50 (Good) instead of tying the Elemental Shaman's 100.
 - **Experience:** when the key level is known and the game shares it, each applicant's best run of the listed dungeon this season (Blizzard's own per-dungeon score) is weighed against the key level: timed at or above the key = 100, timed up to two below = 80, lower or over time scales down, no run of this dungeon = 30. The score blends it with the pick rating: 10% up to +5, 20% at +6 to +9, 30% from +10. With no key level or no data the score is the utility fit alone, never a penalty. Cards show "best here +14", the breakdown shows both parts ("Utility 82, experience 100").
 - **Host coaching:** an applicant who closes the group's last missing dungeon need is headlined "Fills your only gap: ..." (or "Fills all your gaps: ..."). At keys up to +9, a less experienced applicant who fits well gets a note that it's a good key to give them the run.
 - **What we need:** the "What we need" button (Applicants tab, the panel by the Group Finder, and the Plan tab while you're in a party) opens a short line for your listing's description, such as "LF 2 DPS. Need: Poison dispel, Brez. Nice to have: Kicks.": open roles, then confirmed missing needs, then thin ones, kept to about 120 characters. The game doesn't let addons fill in the listing, so it opens in the copy window.
-- **Why 78?** under the rating opens the score taken apart: each gap the applicant closes or opens and how much it counts ("+24.0 covers Poison dispel for Cytotoxin"), raid buff synergy, then each step that leads to the final score: where they sit between the best and weakest pick for their role, how their experience blends in, and the critical-gap rule when it applies.
+- **Why this score:** *Why 78?* under the rating opens the score taken apart: each gap the applicant closes or opens and how much it counts ("+24.0 covers Poison dispel for Cytotoxin"), raid buff synergy, then each step that leads to the final score: where they sit between the best and weakest pick for their role, how their experience blends in, and the critical-gap rule when it applies.
 - **Waiting time:** every applicant card (and the panel beside the Group Finder) shows how long they've been waiting ("waiting 2:40", amber after 3 minutes), counted from when the addon first saw them (a /reload restarts the count).
 - **In the Group Finder itself:** hovering an applicant in Blizzard's list adds their fit rating, headline, "Group after:" line and biggest reason to the game's own tooltip (Settings > "Fit ratings in applicant tooltips").
-- Click an applicant for the breakdown: the utility their spec brings, what it adds to your existing classes, where it overlaps, which of the dungeon's requirements it covers, and every gap still left after inviting them with the classes that could cover it.
-- With other slots still open, the headline looks ahead ("OK if the last slot brings Poison dispel, e.g. Balance Druid") and the notes name the best way to fill the rest. The look-ahead doesn't change the rating.
-- Set the keystone level with the -/+ buttons (or it's read from your own keystone when it matches).
-- A compact version of the list docks under the Group Finder window while you host, as wide as the window with applicants in two columns. "Dock right" in its header moves it beside the window instead (single column); "Dock below" moves it back. Drag it anywhere to move it freely; it stays there until you click its "Dock" button, tick "Keep the panel docked" in Settings, or type `/kc panel below` / `/kc panel right`. Turn it off in Settings.
+- **Breakdown:** click an applicant to see the utility their spec brings, what it adds to your existing classes, where it overlaps, which of the dungeon's requirements it covers, and every gap still left after inviting them with the classes that could cover it.
+- **Looking ahead:** with other slots still open, the headline looks ahead ("OK if the last slot brings Poison dispel, e.g. Balance Druid") and the notes name the best way to fill the rest. The look-ahead doesn't change the rating.
+- **Key level:** set it with the -/+ buttons (or it's read from your own keystone when it matches).
+- **Group Finder panel:** a compact version of the list docks under the Group Finder window while you host, as wide as the window with applicants in two columns. "Dock right" in its header moves it beside the window instead (single column); "Dock below" moves it back. Drag it anywhere to move it freely; it stays there until you click its "Dock" button, tick "Keep the panel docked" in Settings, or type `/kc panel below` / `/kc panel right`. Turn it off in Settings.
 - **Invite:** each applicant card (and each row under the Composition slots) has an Invite button that invites that application to your group, a premade group as one. It changes to "Invited" afterward. It's off, with the reason in its tooltip, when you're not the leader or an assistant, when the group has no room for them, or when they've already been invited. Inviting needs a click by the game's rules, so the addon never invites on its own.
 - **Compare:** click "Compare" on two applicant cards to see them side by side: fit, utility, experience, M+ rating and item level (the better value in green), the missing utility only one of them brings, the dungeon needs each one closes, their overlaps, and a one-line verdict. Pinning a third replaces the oldest; click "Pinned" to unpin.
 - **Sort and filter:** sort the cards by Fit (utility plus experience; ties go to the higher M+ rating), M+ rating or item level, and tick "Hide Poor" to hide applicants rated Poor. The panel beside the Group Finder keeps its fit order.
-- When you list a group for a Season dungeon, the window opens on the Applicants tab automatically (untick "Open Applicants when you list a group" in Settings to stop it). It only triggers when a listing is created, not on edits or `/reload`, and never in combat.
+- **Opens on its own:** when you list a group for a Season dungeon, the window opens on the Applicants tab automatically (untick "Open Applicants when you list a group" in Settings to stop it). It only triggers when a listing is created, not on edits or `/reload`, and never in combat.
 
 ### Groups you could join (Group Finder search results)
 
@@ -72,12 +94,12 @@ When you browse listings for a Season dungeon, each one gets a marker for how we
 - *You'd add, though they may already have it:* needs the group covers only through an optional talent. Other players' talents can't be seen, so these are never counted as certain.
 - *Not guaranteed:* needs that would still be thin, or covered only through a talent, after you join.
 - *Group after you:* "Ready", or what the group would still need from someone else once you join, with the cast that needs it ("1 missing: Freedom (Regurgitate)"), plus how many needs stay thin or rest on a talent nobody can see.
-- Your own talents **can** be read: in *You'd add*, a talent ability you have counts as certain. The rating doesn't use them: it rates you exactly as it rates every other spec it compares you with (and as a host sees you), with talents uncertain and Bloodlust assumed, so you never rate above the best spec of your role.
-- The rating (Great, Good, Fair, Poor and a 0-100 score) is your pick rating for that group, on the same scale as applicant ratings: how strong an applicant you'd be for its open slot compared with every other spec of your role, with the same "no real difference" and critical-gap rules. A group with no open slot for your role is Poor. Listings are checked against the dungeon's own needs only: this week's affixes depend on the key level, and the game doesn't let addons read listing titles, so affixes are left out rather than guessed.
-- Marker (Settings > Group Finder): a **colored edge stripe** on each listing, a bar on the left plus a faint tint showing your pick rating for that group; solid for Great/Good, dashed for Fair, dotted for Poor, so it never relies on color alone. Options: turn it off, leave Poor fits unmarked, and turn the tooltip lines off.
+- **Your talents:** your own talents *can* be read: in *You'd add*, a talent ability you have counts as certain. The rating doesn't use them: it rates you exactly as it rates every other spec it compares you with (and as a host sees you), with talents uncertain and Bloodlust assumed, so you never rate above the best spec of your role.
+- **The rating:** Great, Good, Fair or Poor and a 0-100 score, your pick rating for that group, on the same scale as applicant ratings: how strong an applicant you'd be for its open slot compared with every other spec of your role, with the same "no real difference" and critical-gap rules. A group with no open slot for your role is Poor. Listings are checked against the dungeon's own needs only: this week's affixes depend on the key level, and the game doesn't let addons read listing titles, so affixes are left out rather than guessed.
+- **Marker** (Settings > Group Finder): a colored edge stripe on each listing, a bar on the left plus a faint tint showing your pick rating for that group; solid for Great/Good, dashed for Fair, dotted for Poor, so it never relies on color alone. Options: turn it off, leave Poor fits unmarked, and turn the tooltip lines off.
 - **A line for your Sign Up note:** when you click Sign Up, a small box under Blizzard's dialog holds a line about you: "Enh Shaman, 2950, timed +13 here. Brings Bloodlust, Poison dispel." (your spec, your M+ rating, your best run of that dungeon this season, and what you'd add to that group, kept to about 120 characters). Click it, Ctrl+C, and paste it into the note yourself: the addon never types into Blizzard's dialog. Settings > Group Finder > "A line for your Sign Up note" turns it off.
-- Bloodlust / Heroism is assumed whenever a member's spec can bring it, even through a pet or talent, since nobody who can bring it leaves it at home. Composition and applicant checks keep their usual caution.
-- Listings are evaluated a few at a time as they appear, so a long result list never stalls the game.
+- **Bloodlust:** Bloodlust / Heroism is assumed whenever a member's spec can bring it, even through a pet or talent, since nobody who can bring it leaves it at home. Composition and applicant checks keep their usual caution.
+- **Speed:** listings are evaluated a few at a time as they appear, so a long result list never stalls the game.
 
 ### Dungeon
 
@@ -96,7 +118,7 @@ Who handles what, for your party or the planner's group, in the dungeon you're c
 
 - **Your assignments:** what you personally do in this key, from the plan: your kicks (and your place in each rotation), dispels, stops, and what you back up. In your party it's you; in the planner it's the first slot holding your current spec (otherwise it tells you to add it).
 - **Bloodlust:** when to use it, numbered in dungeon order ("1. Mchimba the Embalmer (on pull)"). Each dungeon starts with a default: no major guide gives a timing, so the defaults follow WoWCarry's Season 2 guides (one source, labeled a suggestion; Ruby Life Pools uses the common first-and-last-boss default). Tanks and routes differ, so it's yours to set: click a line to move it to another boss or trash section (or to a pull of your Mythic Dungeon Tools route), add a short note ("at 40%") or remove it; "+ Add a Bloodlust" adds one (up to four); "Reset to the default" undoes your changes. Your timing is saved per dungeon. It shows in the Dungeon walkthrough, in the boss window ("LUST" on that boss or pull) and as the second line of the assignments post ("Lust: Mchimba the Embalmer (on pull) > Dazar, the First King (on pull)").
-- **Your route** (with Mythic Dungeon Tools): see below.
+- **Your route** (with Mythic Dungeon Tools): see *Your route, pull by pull* under Boss cards.
 - **Assignments:** for the selected dungeon: the must-kick casts, must-dispel debuffs (with their type), must-stop channels, plus tank and other mechanics, critical and high first (a red cross marks critical). Under each, one short line says who handles it ("Kick: Prot Warrior > Arms Warrior (~8s), backup Outlaw Rogue"); hover it for the abilities, cooldowns and order. Dangerous casts get a two-player kick rotation, shortest cooldown first, with the combined rate and a backup. Assignments are spread by cooldown: every cast adds load in proportion to the kicker's cooldown, so a 24s Counterspell takes fewer casts than a 15s Pummel and a 45s Silence is used only when nothing shorter is free. Healers kick only when the others are already loaded, and each kick they take counts for more. Dispels get a primary and a backup; healers are preferred for cleansing the group, others for purge and soothe, and one ability that covers two debuff types (Nature's Cure) is treated as one cooldown. Warnings show when only a long-cooldown kick or dispel is available, when nobody can kick a cast (the plan names who can stop it instead), or when a critical debuff has no backup dispeller. Kicks are owned per cast: "1st" takes the next cast, "2nd" the one after. A "Two casts at once? Kick first:" line ranks the casts by danger. Cooldowns are base values; talents can shorten some.
 - **Changing an assignment:** click an assignment line to choose who takes it. For a kick, click players to add them to the rotation or take them out (the order you add them is the kick order); for a dispel, pick the dispeller. Changed lines say "(set by you)", and the backup is still picked for you. "Back to automatic" in the same menu undoes one; "Reset all assignments to automatic" undoes them all. Changes last for this session and stop applying the moment that player changes spec or leaves; the boss window, your assignments and the post all follow them.
 - **Post assignments to party chat:** sends a short header, the Bloodlust line, then **one line per player with their name first** ("Ryvax: KICK Essence Disruption [Temple Disruptor] 2nd, Lightning Bolt [Storm Adept] 2nd."), then the kick-first order and anything nobody can handle ("Nobody can remove Bleed (Cutpurse): use defensives."). Lines go out a moment apart so chat doesn't throttle them; a player whose line is too long for one chat message gets a second line ("Ryvax (cont.): ..."), so nothing is dropped or cut. A long Bloodlust plan goes on to a "Lust (cont.):" line the same way. If the game is blocking addon chat at that moment (it can inside a key), the text opens in the copy window instead so you can paste it.
@@ -112,7 +134,26 @@ Who handles what, for your party or the planner's group, in the dungeon you're c
 - **Window size and text size:** drag the bottom-right grip to resize the window. A bigger window gives the panels more room; the text stays the same size. Text size is its own setting: Settings > Appearance > Text size (80% to 125%) or `/kc text 110`. Click "Unlocked/Locked" in the title bar, tick "Lock window" in Settings, or type `/kc lock` to stop moving and resizing; `/kc unlock` reverses it.
 - **Colors:** Settings > Appearance sets the accent color with a color wheel, a hex box (e.g. `#A78BFA`), ten presets or "Use my class color". Changes apply instantly.
 - **Settings:** one window with sections down the left: *General* (presets, which group Composition and Plan show, summary view, explanations, auto dungeon, auto-open on listing, minimap button, the tour), *What to check*, *Group Finder* (applicant panels and tooltips, listing markers, the Sign Up line), *Party chat*, *Boss cards* (auto-open, all roles, fade in combat, lock, text size, MDT route), *Appearance* and *Data* (record keys, clear history, reset everything, copy a bug report). Resetting everything (also `/kc reset confirm`) wipes saved comps, the planner comp, every setting, run history, boss-card edits, Bloodlust timing and the error log, and clears this session's hand-picked assignments and boss progress; it can't be undone. Hover any option for a one-line explanation; each section has its own *Reset section*. **Presets:** *Learning* or *Expert*, then adjust anything. The addon is also listed in Blizzard's Options > AddOns.
-- Slash commands: `/kc composition|applicants|dungeons|plan|history|settings`, `/kc planner`, `/kc party`, `/kc glossary`, `/kc tour`, `/kc bestkey`, `/kc dungeon <name|auto|none>`, `/kc lock`, `/kc unlock`, `/kc text <80-125>`, `/kc panel below|right|dock`, `/kc boss [dungeon]`, `/kc verify`, `/kc report`, `/kc minimap`, `/kc reset confirm`.
+
+#### Slash commands
+
+| Command | What it does |
+|---|---|
+| `/kc` | Open or close the window |
+| `/kc composition` · `applicants` · `dungeons` · `plan` · `history` · `settings` | Open a tab |
+| `/kc planner` · `/kc party` | Show the planner or your party |
+| `/kc glossary` · `/kc tour` | Open the glossary or replay the tour |
+| `/kc bestkey` | Rank every dungeon for your group |
+| `/kc dungeon <name \| auto \| none>` | Choose the dungeon to check against |
+| `/kc boss [dungeon]` | Open or close the boss window |
+| `/kc text <80-125>` | Set the text size |
+| `/kc panel below \| right \| dock` | Move the applicant panel |
+| `/kc lock` · `/kc unlock` | Lock or unlock the window |
+| `/kc minimap` | Show or hide the minimap button |
+| `/kc verify` | Check the addon against your game client |
+| `/kc report` | Build a bug report to copy |
+| `/kc reset confirm` | Reset all saved data and settings |
+
 
 ## Boss cards
 
@@ -126,7 +167,7 @@ Every boss in the 8 Season 2 dungeons (28 in all) has a short card: lines for ev
 - **Editing:** Edit (in the window or the Dungeon tab) opens a box with one `ROLE: text` line per note. Your version is saved per boss and kept through updates; if the built-in card changes later, the card says "default updated". Reset to default any time.
 - **Chat:** Post sends the card as one line per role (ALL first, with the boss name), a moment apart; a role whose notes don't fit one chat message goes on to a second line for that role instead of being cut. Your personal assignments aren't posted (Post assignments covers everyone's). When the game is blocking addon chat, which can happen inside keys, the text opens in a copy window instead; posting before the key starts avoids that.
 - **Dungeon tab:** every card sits in the walkthrough where you meet that boss, with Edit card, Post to chat and Open in the boss window.
-- `/kc verify` checks the boss window's events and the encounter journal, and lists any unconfirmed boss lines.
+- **Checking it:** `/kc verify` checks the boss window's events and the encounter journal, and lists any unconfirmed boss lines.
 
 ## Checking the addon against your game client
 
