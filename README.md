@@ -12,8 +12,8 @@ Keystone Command is a Mythic+ companion addon that helps players of every skill 
 **Who it's for:**
 
 - 🌱 **Newer players** get the dungeon knowledge that usually takes a stack of guides to piece together.
-- 🪜 **Players pushing higher** learn the mechanics and roles that matter on the way to +10 and beyond.
-- 🏆 **Experienced players** get the same answers in seconds, before a good applicant moves on.
+- 🪜 **Players pushing higher** learn the mechanics and roles that matter on the way to +12 and beyond.
+- 🏆 **Experienced players** get instant applicant ratings and a ready-made plan without checking a single guide.
 
 🎮 **Game version:** World of Warcraft Retail, *Midnight* Season 2 (patch 12.1.5).
 
