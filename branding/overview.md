@@ -54,14 +54,13 @@ Keystone Command is a Mythic+ companion addon that helps players of every skill 
 - 💬 **Post to party chat:** the whole plan, one line per player, or just the gaps, in one click.
 
 ### 🎓 Learning and history
-- 💡 **Learning mode:** plain-language explanations throughout, or switch it off for a compact expert view.
+- 💡 **Learning mode:** plain-language explanations throughout, or switch it off for a compact expert view, with one-click Learning and Expert presets.
 - 📚 **Glossary and tour:** every term one click away, plus a quick tour on first open.
 - 📈 **Run history:** your keys saved locally, with timed rates with and without each gap and a takeaway from every run.
 
 ### 🎨 Customization
 - ↔️ **Resizable window** with adjustable text size and accent colors.
 - 🎚️ **Choose what to check:** turn off needs you don't care about.
-- 🎛️ **Learning and Expert presets** to set everything up in one click.
 - 🌍 **Works on any client language.** Checks use the game's IDs, though the addon's own text is English only.
 
 ---
@@ -69,11 +68,11 @@ Keystone Command is a Mythic+ companion addon that helps players of every skill 
 ## 🚀 Getting started
 
 1. 📦 **Install it,** then type **`/kc`** or click the minimap button.
-2. 🧩 **Planning a group?** Open **Composition** and fill the slots.
-3. 📥 **Hosting a key?** List it as usual. The **Applicants** tab opens with every applicant rated.
-4. 🔎 **Looking for a group?** Browse the Group Finder. Every Mythic+ listing shows how well you'd fit.
-5. 🗝️ **In a group?** Open **Plan** for assignments and Bloodlust timing, then post it to chat.
-6. 🏰 **New to a dungeon?** Open the **Dungeon** tab for a walkthrough.
+2. 🏰 **New to a dungeon?** Open the **Dungeon** tab for a walkthrough.
+3. 🧩 **Planning a group?** Open **Composition** and fill the slots.
+4. 📥 **Hosting a key?** List it as usual. The **Applicants** tab opens with every applicant rated.
+5. 🔎 **Looking for a group?** Browse the Group Finder. Every Mythic+ listing shows how well you'd fit.
+6. 🗝️ **In a group?** Open **Plan** for assignments and Bloodlust timing, then post it to chat.
 
 ### ⌨️ Slash commands
 
@@ -117,14 +116,20 @@ No. It doesn't pull live data from other sites or addons.
 📚 **Where does the information come from?**
 The same current-patch guides most players already use, like **Wowhead**, **Method.gg**, **Icy Veins** and **Raider.IO**, gathered into one place and checked in game.
 
-🏆 **I'm an experienced player. Is this for me?**
-Yes. Turn off learning mode for a compact view and you still get instant applicant ratings, a cooldown-aware plan and history insights.
+🧩 **Do I need any other addons?**
+No. Everything works on its own. Mythic Dungeon Tools is optional, for following your route.
+
+🚦 **Does the rating judge people by their M+ score?**
+No. It rates how well a spec fits your group and this dungeon, plus their best run of it this season. Their overall M+ rating and item level are shown, and only break ties when sorting.
+
+🗓️ **What happens when a new season starts?**
+The addon notices the dungeon pool changed and warns you until it's updated. Between seasons, the data is checked against every hotfix.
 
 ---
 
 ## 🐞 Found a problem?
 
-Type **`/kc report`** in game (or use Settings › Data). Fill in the first few lines, copy the window with Ctrl+A and Ctrl+C, and paste it in a comment here, with a 📸 screenshot if it's visual. For wrong ability or dungeon info, mention where you saw the correct version and I'll check it against the current patch.
+Type **`/kc report`** in game (or use Settings › Data). Fill in the first few lines, copy the window with Ctrl+A and Ctrl+C, and paste it in a comment on the addon's page or in a GitHub issue, with a 📸 screenshot if it's visual. For wrong ability or dungeon info, mention where you saw the correct version and I'll check it against the current patch.
 
 ---
 
