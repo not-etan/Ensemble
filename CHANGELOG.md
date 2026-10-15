@@ -11,6 +11,7 @@
 - **Faster with many applicants:** a new or departing application re-rates only that application instead of everyone (about 4 ms instead of about 75 ms with 12 applicants and 4 open slots, plain Lua 5.1 in the test harness).
 - **Inside a key:** enemy forces and the roster scan treat values the game hides from addons as unknown instead of risking an error, and a roster scan that errors no longer escapes its timer. `/kc verify` reports both, and now also lists the functions the addon can do without and what each one missing costs.
 - **Reset** (`/kc reset`, Settings > Data) says everything it wipes: saved comps, the planner comp, every setting, run history, boss-card edits, Bloodlust timing and the error log. It also clears this session's hand-picked assignments and boss progress.
+- **Inside a key:** party inspects (how the addon learns other players' specs) now treat IDs the game hides from addons as unknown, like the roster scan already did, and an error inside the inspect timer is contained and reported by `/kc verify` instead of escaping.
 - **Docs:** the overview is shorter, with a new opening, and the README and overview no longer suggest support for other addons: Mythic Dungeon Tools route features carry a note that Keystone Command isn't affiliated with MDT, and the Raider.IO panel mention is gone.
 - The listing-marker frames are kept in the addon's own table instead of a field on the Group Finder's result buttons, and the listing fit cache is cleared with each new search.
 

@@ -16,7 +16,7 @@ Copy the `KeystoneCommand` folder into `World of Warcraft/_retail_/Interface/Add
 ## Use
 
 - **Opening it:** `/kc` opens the window (also the minimap button, which shows the addon's logo, or the Addon Compartment menu). The first time, a seven-step tour points out the tabs, the dungeon picker, the slots, Needs, the Plan tab, the Applicants tab and the glossary (Skip ends it; replay it from Settings > General or `/kc tour`).
-- **Who it's for:** Lindormi's Guidance teaches routes up to +4; Keystone Command covers the mechanics and roles that take a group from there to +10 and beyond, for new players, players stepping up and experienced hosts alike.
+- **Who it's for:** newer players learning how each dungeon works, players pushing toward +12 and beyond learning the details that time keys (must-kicks, dispels, what each dungeon asks for and which classes bring it), and experienced players who want fast decisions and a plan to share with the group.
 - **Tabs, by question:** *Composition* (who to bring), *Applicants* (who's applying to your listing), *Dungeon* (what to know, in the order you meet it), *Plan* (who handles what), then *History* and *Settings*.
 - **Data date:** the Dungeon tab, Settings > Data, `/kc report` and `/kc verify` show which patch the data is for and the newest Blizzard hotfix post it was checked against.
 - **Words:** a *need* is something a group should be able to do (Bloodlust, Poison dispel, kicks); a *gap* is a need the group is MISSING or THIN on; an *assignment* is one player's job in the plan (kick this cast, dispel that debuff). The glossary (`?` in the title bar, or `/kc glossary`) lists every term.

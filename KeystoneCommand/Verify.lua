@@ -527,7 +527,7 @@ local function CheckGroup()
     Add(inKey and "OK" or "INFO", "party reads hidden by the game: none" .. (inKey and " during this key" or " so far (re-run inside a key to check)"))
   end
   if errs > 0 then
-    Add("FAIL", string.format("roster scans that errored: %d (last: %s); the next roster change scans again", errs, tostring(T.lastRescanError)))
+    Add("FAIL", string.format("roster scans or inspects that errored: %d (last: %s); the next roster change tries again", errs, tostring(T.lastRescanError)))
   end
 end
 

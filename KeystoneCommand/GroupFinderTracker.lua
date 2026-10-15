@@ -141,16 +141,20 @@ Tracker.Readable = Readable
 ---------------------------------------------------------------------------
 -- Inspect queue (spec of other party members)
 ---------------------------------------------------------------------------
+-- GUIDs go through Readable: inside a key the game may hide them (secret values), and a
+-- hidden GUID can't be compared or used as a table key. A hidden one matches nothing.
 local function UnitForGUID(guid)
-  if UnitGUID("player") == guid then return "player" end
+  guid = Readable(guid)
+  if not guid then return nil end
+  if Readable(UnitGUID("player")) == guid then return "player" end
   for i = 1, 4 do
     local u = "party" .. i
-    if UnitGUID(u) == guid then return u end
+    if Readable(UnitGUID(u)) == guid then return u end
   end
   if IsInRaid() then
     for i = 1, 40 do
       local u = "raid" .. i
-      if UnitGUID(u) == guid then return u end
+      if Readable(UnitGUID(u)) == guid then return u end
     end
   end
   return nil
@@ -164,7 +168,13 @@ local function ScheduleInspect()
   if inspectTimer or not Tracker.enabled then return end
   inspectTimer = C_Timer.NewTimer(INSPECT_INTERVAL, function()
     inspectTimer = nil
-    Tracker:ProcessInspectQueue()
+    -- Same as the rescan timer: nothing above a timer callback catches an error, so keep it
+    -- contained (the next roster change queues the inspect again) and count it for /kc verify.
+    local ok, err = pcall(Tracker.ProcessInspectQueue, Tracker)
+    if not ok then
+      Tracker.rescanErrors = (Tracker.rescanErrors or 0) + 1
+      Tracker.lastRescanError = tostring(err)
+    end
   end)
 end
 
@@ -446,12 +456,13 @@ end
 ---------------------------------------------------------------------------
 frame:SetScript("OnEvent", function(_, event, arg1)
   if event == "INSPECT_READY" then
-    local guid = arg1
+    local guid = Readable(arg1)
+    if not guid then return end
     local unit = guid and UnitForGUID(guid)
     -- Another addon (or the Inspect window) inspected someone outside the group: nothing to do.
     if not unit and not (inspectPending and inspectPending.guid == guid) then return end
     if unit and GetInspectSpecialization then
-      local s = GetInspectSpecialization(unit)
+      local s = Readable(GetInspectSpecialization(unit))
       if type(s) == "number" and s > 0 then specByGUID[guid] = s end
     end
     if inspectPending and inspectPending.guid == guid then
@@ -463,7 +474,7 @@ frame:SetScript("OnEvent", function(_, event, arg1)
   elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
     -- arg1 = unit whose spec changed; invalidate their cached spec.
     if arg1 and arg1 ~= "player" then
-      local guid = UnitGUID(arg1)
+      local guid = Readable(UnitGUID(arg1))
       if guid then specByGUID[guid] = nil end
     end
     Tracker:RequestUpdate()

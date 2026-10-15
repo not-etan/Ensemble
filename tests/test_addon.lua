@@ -3630,6 +3630,37 @@ do
   local okTimer = pcall(RunTimers)
   UnitExists = realExists
   ok(okTimer and T.rescanErrors == 1 and T.lastRescanError:find("client error", 1, true), "roster: a rescan error inside the timer is contained and counted")
+  -- Secret values: the inspect path (INSPECT_READY, PLAYER_SPECIALIZATION_CHANGED, the inspect
+  -- timer). A hidden GUID or spec must never error and never be stored as a key.
+  local trk
+  for _, fr in ipairs(ALLFRAMES) do if fr._events.INSPECT_READY then trk = fr end end
+  local realGUID, realInsp = UnitGUID, GetInspectSpecialization
+  local sGuid = mark("H58")
+  local okReady = pcall(trk._scripts.OnEvent, trk, "INSPECT_READY", sGuid)
+  ok(okReady, "inspect: a hidden GUID in INSPECT_READY is ignored, no error")
+  UnitGUID = function(u) if u == "party1" then return mark("H58") end return realGUID(u) end
+  local okSpec = pcall(trk._scripts.OnEvent, trk, "PLAYER_SPECIALIZATION_CHANGED", "party1")
+  ok(okSpec, "inspect: a hidden GUID on a spec change is ignored, no error")
+  local okReady2 = pcall(trk._scripts.OnEvent, trk, "INSPECT_READY", "H58")
+  ok(okReady2, "inspect: a party member whose GUID is hidden matches nothing, no error")
+  UnitGUID = realGUID
+  GetInspectSpecialization = function() return mark(256) end
+  local okReady3 = pcall(trk._scripts.OnEvent, trk, "INSPECT_READY", "H58")
+  ok(okReady3, "inspect: a hidden spec from GetInspectSpecialization is ignored, no error")
+  GetInspectSpecialization = realInsp
+  -- The inspect timer contains its own errors and counts them.
+  T.rescanErrors = 0
+  local realCan = CanInspect
+  CanInspect = function() error("inspect client error") end
+  NOW = (NOW or 0) + 10   -- past INSPECT_TIMEOUT, so an earlier pending inspect is dropped
+  ROSTER.party2 = { guid = "NEW58", name = "Newcomer", class = "MAGE", role = "DAMAGER" }  -- spec unknown: queued for inspect
+  T:Rescan()
+  local okInsp = pcall(RunTimers)
+  CanInspect = realCan
+  ROSTER.party2 = nil
+  ok(okInsp and T.rescanErrors >= 1 and T.lastRescanError:find("inspect client error", 1, true),
+    "inspect: an error inside the inspect timer is contained and counted")
+  T.rescanErrors = 1
   -- /kc verify reports both, and the guarded functions it didn't list before (item 10).
   T.secretReads = 3
   ACTIVE_CHALLENGE = 249
@@ -3642,7 +3673,7 @@ do
   IsPlayerSpell = nil
   local text = nsV.Verify:Build()
   IsPlayerSpell, UnitIsGroupLeader, C_SpellBook = realIPS, realLead, realSB
-  ok(text:find("party reads hidden by the game (secret values): 3", 1, true) and text:find("roster scans that errored: 1", 1, true),
+  ok(text:find("party reads hidden by the game (secret values): 3", 1, true) and text:find("roster scans or inspects that errored: 1", 1, true),
     "verify: roster secret reads and contained errors reported")
   ok(text:find("enemy forces during this key: not readable (the game hides it from addons here: a secret value)", 1, true),
     "verify: enemy forces hidden by a secret value is reported")
