@@ -33,6 +33,15 @@ Keystone Command is a Mythic+ companion addon that helps players of every skill 
 
 [size=5][b][color=#7EB7FF]🧰 Features[/color][/b][/size]
 
+[size=4][b]🏰 Dungeons and bosses[/b][/size]
+[list]
+[*]🗺️ [b]Every Season 2 dungeon:[/b] Altar of Fangs, Murder Row, Den of Nalorakk, The Blinding Vale, Voidscar Arena, Ruby Life Pools, Kings' Rest and Temple of Sethraliss.
+[*]📖 [b]Walkthrough:[/b] every trash section and boss in order, with what each mechanic does and how to answer it, filtered by role if you like. Every boss has a short card with notes for everyone plus tank, healer and DPS lines.
+[*]🪟 [b]Boss window:[/b] opens when you enter the dungeon, follows your progress and highlights your own assignments. Resize, lock or fade it in combat, and rewrite any card or post it to chat.
+[*]🥇 [b]Best key:[/b] rank every dungeon by how well your current group covers it.
+[*]📅 [b]This week's affixes:[/b] read from the game and included in every check and plan.
+[/list]
+
 [size=4][b]📊 Composition[/b][/size]
 [list]
 [*]🛠️ [b]Planner or live party:[/b] plan a comp from scratch or let the slots fill with your real group, then save, load and share comps with an export string.
@@ -53,15 +62,6 @@ Keystone Command is a Mythic+ companion addon that helps players of every skill 
 [*]⚖️ [b]Compare, sort and filter:[/b] pin two applicants side by side, sort by fit, rating or item level, and hide Poor fits.
 [*]📨 [b]Invite from the card[/b], with a compact panel beside the Group Finder and ratings in Blizzard's own tooltip.
 [*]📝 [b]Ready-to-copy lines:[/b] "What we need" for your listing ("LF 2 DPS. Need: Poison dispel, Brez."), and a Sign Up note with your spec, rating, best run and what you'd bring.
-[/list]
-
-[size=4][b]🏰 Dungeons and bosses[/b][/size]
-[list]
-[*]🗺️ [b]Every Season 2 dungeon:[/b] Altar of Fangs, Murder Row, Den of Nalorakk, The Blinding Vale, Voidscar Arena, Ruby Life Pools, Kings' Rest and Temple of Sethraliss.
-[*]📖 [b]Walkthrough:[/b] every trash section and boss in order, with what each mechanic does and how to answer it, filtered by role if you like. Every boss has a short card with notes for everyone plus tank, healer and DPS lines.
-[*]🪟 [b]Boss window:[/b] opens when you enter the dungeon, follows your progress and highlights your own assignments. Resize, lock or fade it in combat, and rewrite any card or post it to chat.
-[*]🥇 [b]Best key:[/b] rank every dungeon by how well your current group covers it.
-[*]📅 [b]This week's affixes:[/b] read from the game and included in every check and plan.
 [/list]
 
 [size=4][b]🗝️ The plan[/b][/size]
