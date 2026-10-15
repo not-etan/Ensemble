@@ -30,17 +30,13 @@ Keystone Command is a Mythic+ companion addon that helps players of every skill 
 ## 🧰 Features
 
 ### 📊 Composition
+- 🛠️ **Planner or live party:** plan a comp from scratch or let the slots fill with your real group, then save, load and share comps with an export string.
 - 🧭 **Group check:** a summary of what your group has, what's thin and what's missing, with one color-coded chip per key need.
 - 🔎 **Every gap explained:** who covers it now, which dungeon casts need it, and which classes could cover it with which ability.
+- 💡 **Filling open slots:** the best-fit classes for each empty slot with a short reason, and a preview of what any spec would add or cost before you pick it.
 - 🏷️ **Slot badges:** what each player brings, with a marker on anyone who's the group's only source of something.
 - 🌟 **Raid buffs:** the buffs your group brings and how well each suits it.
 - 🧠 **Talent-aware:** abilities that depend on an optional talent are marked, so you know what's guaranteed.
-
-### 🧩 Group building
-- 🛠️ **Planner or live party:** plan a comp from scratch, or let the slots fill with your real group.
-- 👆 **Spec preview:** hover a spec to see what it would add or cost before you pick it.
-- 💡 **Suggestions for open slots:** the best-fit classes for each empty slot, with a short reason for each.
-- 💾 **Saved comps:** save, load and share comps with an export string.
 
 ### 📥 Group Finder applicants
 - 🚦 **Fit rating:** every applicant rated Great, Good, Fair or Poor with a score out of 100, based on how well their spec fits your group and key.
