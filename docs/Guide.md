@@ -11,7 +11,7 @@ Everything runs inside the game. The addon has no external data sources, no comp
 
 ## Install
 
-Copy the `KeystoneCommand` folder into `World of Warcraft/_retail_/Interface/AddOns/` so the path is `.../AddOns/KeystoneCommand/KeystoneCommand.toc`, then restart the game or type `/reload`. This readme comes in the zip as `KeystoneCommand-README.md`, beside the folder; it doesn't need to go in `AddOns`.
+Copy the `KeystoneCommand` folder into `World of Warcraft/_retail_/Interface/AddOns/` so the path is `.../AddOns/KeystoneCommand/KeystoneCommand.toc`, then restart the game or type `/reload`.
 
 ## Use
 

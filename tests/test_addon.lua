@@ -3718,5 +3718,16 @@ do
   nsV.UI:Hide()
 end
 
+-- 59. Release packaging: the license inside the addon folder matches the repo's, and the TOC
+-- carries the project IDs the release workflow uploads to.
+do
+  local function slurp(path) local f = io.open(path, "rb"); if not f then return nil end local t = f:read("*a"); f:close(); return t end
+  local inFolder, root = slurp(ADDON_DIR .. "/LICENSE.txt"), slurp(ADDON_DIR .. "/../LICENSE")
+  ok(inFolder and root and inFolder == root, "KeystoneCommand/LICENSE.txt is an exact copy of LICENSE")
+  local toc = slurp(ADDON_DIR .. "/KeystoneCommand.toc") or ""
+  ok(toc:find("\n## X%-Curse%-Project%-ID: 1745945") ~= nil, "TOC has the CurseForge project ID")
+  ok(toc:find("\n## X%-Wago%-ID: b6XyAbKp") ~= nil, "TOC has the Wago project ID")
+end
+
 print(string.format("%d passed, %d failed", passes, fails))
 return fails

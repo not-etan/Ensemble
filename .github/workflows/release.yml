@@ -1,0 +1,33 @@
+# Package and upload a release when a version tag is pushed (e.g. v1.2.2).
+# A tag containing "alpha" or "beta" uploads as that release type; any other tag is a release.
+# Uploads to CurseForge (secret CF_API_KEY), Wago (secret WAGO_API_TOKEN) and the GitHub
+# Release for the tag. Project IDs come from the TOC (X-Curse-Project-ID, X-Wago-ID).
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      CF_API_KEY: ${{ secrets.CF_API_KEY }}
+      WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
+      GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check the tag matches the TOC version
+        run: python3 tools/release_notes.py --check "${GITHUB_REF_NAME}"
+
+      - name: Write this version's release notes
+        run: python3 tools/release_notes.py "${GITHUB_REF_NAME}" > RELEASE_NOTES.md
+
+      - uses: BigWigsMods/packager@v2

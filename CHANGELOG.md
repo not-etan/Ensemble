@@ -13,6 +13,7 @@
 - **Reset** (`/kc reset`, Settings > Data) says everything it wipes: saved comps, the planner comp, every setting, run history, boss-card edits, Bloodlust timing and the error log. It also clears this session's hand-picked assignments and boss progress.
 - **Inside a key:** party inspects (how the addon learns other players' specs) now treat IDs the game hides from addons as unknown, like the roster scan already did, and an error inside the inspect timer is contained and reported by `/kc verify` instead of escaping.
 - **Docs:** the overview is shorter, with a new opening, and the README and overview no longer suggest support for other addons: Mythic Dungeon Tools route features carry a note that Keystone Command isn't affiliated with MDT, and the Raider.IO panel mention is gone.
+- **Releases** are now packaged and uploaded to CurseForge, Wago and GitHub automatically. The zip holds just the `KeystoneCommand` folder (with `LICENSE.txt` inside); the full guide is on the wiki instead of a readme beside the folder.
 - The listing-marker frames are kept in the addon's own table instead of a field on the Group Finder's result buttons, and the listing fit cache is cleared with each new search.
 
 ## 1.2.0

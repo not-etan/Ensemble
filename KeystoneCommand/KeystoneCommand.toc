@@ -10,6 +10,8 @@
 ## AddonCompartmentFuncOnEnter: KeystoneCommand_OnAddonCompartmentEnter
 ## AddonCompartmentFuncOnLeave: KeystoneCommand_OnAddonCompartmentLeave
 ## Category: Dungeons & Raids
+## X-Curse-Project-ID: 1745945
+## X-Wago-ID: b6XyAbKp
 
 # The "## Interface:" line above is the ONLY place the client build number lives.
 # For a point release (e.g. 120105) change that single line. Multiple builds may be
