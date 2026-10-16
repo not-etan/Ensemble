@@ -18,6 +18,7 @@ cp LICENSE dist/stage/KeystoneCommand/LICENSE.txt
 rm -f "dist/KeystoneCommand-$VER.zip"
 (cd dist/stage && zip -qr "../KeystoneCommand-$VER.zip" KeystoneCommand KeystoneCommand-README.md -x '*.DS_Store')
 rm -rf dist/stage
-python3 tools/md_to_bbcode.py branding/overview.md > branding/overview-bbcode.txt
+python3 tools/md_to_bbcode.py branding/overview.md > dist/overview-bbcode.txt
 python3 tools/make_readme.py branding/overview.md > README.md
 echo "dist/KeystoneCommand-$VER.zip"
+echo "dist/overview-bbcode.txt"
