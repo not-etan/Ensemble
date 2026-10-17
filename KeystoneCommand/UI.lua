@@ -1505,12 +1505,33 @@ function UI:BuildPlanPage()
   local left = Panel(page)
   left:SetPoint("TOPLEFT", 12, -48); left:SetPoint("BOTTOMLEFT", 12, 12); left:SetWidth(400)
   pl.leftPanel = left
-  local lt = AccentText(left); lt:SetPoint("TOPLEFT", 10, -8); lt:SetText("Your assignments")
+  -- Panel titles (issue #5): the left panel holds your assignments and the Bloodlust plan, so
+  -- it's "Your plan"; the right one names the dungeon in its title instead of a second header.
+  local lt = AccentText(left); lt:SetPoint("TOPLEFT", 10, -8); lt:SetText("Your plan")
+  pl.leftTitle = lt
   pl.mine = LineList(left, 390, H - 41 - 48 - 12 - 34):Fill(6, -28, -6, 6)
   local right = Panel(page)
   right:SetPoint("TOPLEFT", left, "TOPRIGHT", 10, 0); right:SetPoint("BOTTOMRIGHT", -12, 12)
-  local rt = AccentText(right); rt:SetPoint("TOPLEFT", 10, -8); rt:SetText("Assignments")
-  pl.list = LineList(right, 480, H - 41 - 48 - 12 - 34):Fill(6, -28, -6, 6)
+  pl.rightPanel = right
+  local rt = AccentText(right); rt:SetPoint("TOPLEFT", 10, -8); rt:SetPoint("RIGHT", -10, 0); rt:SetText("Assignments")
+  rt:SetWordWrap(false)
+  pl.rightTitle = rt
+  -- Post buttons (issue #9): real buttons in a row at the bottom of the assignments panel, the
+  -- chat style link beside them; hovering a button previews the exact text it sends.
+  local posts = CreateFrame("Frame", nil, right)
+  posts:SetPoint("BOTTOMLEFT", 8, 8); posts:SetPoint("BOTTOMRIGHT", -8, 8); posts:SetHeight(26)
+  pl.posts = posts
+  pl.postPlanBtn = Button(posts, "Post assignments", 140, 24, function() UI:PostPlan() end)
+  pl.postPlanBtn:SetPoint("LEFT", 0, 0)
+  pl.postGapsBtn = Button(posts, "Post gaps", 96, 24, function() UI:PostGaps() end)
+  pl.postGapsBtn:SetPoint("LEFT", pl.postPlanBtn, "RIGHT", 6, 0)
+  for _, b in ipairs({ pl.postPlanBtn, pl.postGapsBtn }) do
+    if b.SetMotionScriptsWhileDisabled then b:SetMotionScriptsWhileDisabled(true) end  -- the tooltip says why it's off
+  end
+  pl.chatStyleBtn = FlatButton(posts, "Chat style: full", 120, 22, function() UI:OpenSettings("chat") end)
+  pl.chatStyleBtn:SetPoint("LEFT", pl.postGapsBtn, "RIGHT", 8, 0)
+  pl.chatStyleBtn.tooltip = "Choose full or short party-chat posts"
+  pl.list = LineList(right, 480, H - 41 - 48 - 12 - 34 - 34):Fill(6, -28, -6, 40)
   self:LayoutComp()
 end
 
@@ -1534,9 +1555,10 @@ function UI:RefreshPlan()
     mine:Add(HEX.muted .. "Add players on the Composition tab (or join a group) to get assignments.|r", { size = 11 })
   end
   mine:Finish()
+  pl.rightTitle:SetText(dungeonKey and DD.list[dungeonKey] and ("Assignments: " .. DD.list[dungeonKey].name) or "Assignments")
   local L = pl.list
   L:Clear()
-  self:RenderCheatSheet(L, dungeonKey, r, assign)
+  self:RenderCheatSheet(L, dungeonKey, r, assign, true)
   if ns.Assignments:OverrideCount() > 0 then
     L:Space(4)
     L:Add(HEX.accent .. "> Reset all assignments to automatic|r", { size = 11, gap = 3,
@@ -1545,6 +1567,7 @@ function UI:RefreshPlan()
   end
   self:RenderPostGaps(L, r)
   L:Finish()
+  self:UpdatePostButtons(r)
 end
 
 -- Needs detail under each analysis check: what in the dungeon asks for it and which
@@ -1587,8 +1610,10 @@ local SHEET = {
 local SHEET_SEV = { critical = 1, high = 2, medium = 3, low = 4 }
 local SHEET_MAX = 5   -- per category
 
--- The selected dungeon's must-handle casts and debuffs, most dangerous first.
--- Critical and high requirements; a category with none of those shows its medium ones.
+-- The selected dungeon's must-handle casts and debuffs, most dangerous first: critical,
+-- then high, then medium (issue #6: medium ones used to be dropped whenever a category had a
+-- critical or high one, hiding assignments). Low severity stays off the sheet. Each
+-- category folds after SHEET_MAX behind "+N more".
 function UI:CheatSheetRows(dungeonKey)
   local d = dungeonKey and DD.list[dungeonKey]
   if not d then return nil end
@@ -1611,11 +1636,9 @@ function UI:CheatSheetRows(dungeonKey)
         if sa ~= sb then return sa < sb end
         return (a.id or "") < (b.id or "")
       end)
-      local pick, hasTop = {}, false
-      for _, req in ipairs(reqs) do if (SHEET_SEV[req.severity] or 9) <= 2 then hasTop = true end end
+      local pick = {}
       for _, req in ipairs(reqs) do
-        local sev = SHEET_SEV[req.severity] or 9
-        if (hasTop and sev <= 2) or (not hasTop and sev <= 3) then pick[#pick + 1] = req end
+        if (SHEET_SEV[req.severity] or 9) <= SHEET_SEV.medium then pick[#pick + 1] = req end
       end
       if #pick > 0 then out[#out + 1] = { label = def.label, cat = def.cat, reqs = pick } end
     end
@@ -1880,18 +1903,29 @@ function UI:OpenAssignMenu(anchor, row)
   return items
 end
 
-function UI:RenderCheatSheet(side, dungeonKey, r, plan)
+-- AFFIX lines name their need, like DISPEL lines name the type (issue #7: Xal'atath's Guile
+-- has two requirements with the same source, which read as a duplicate).
+local SHEET_NEED_LABEL = {
+  group_defensive = "Group defensives", external_defensive = "Externals", interrupt = "Kicks",
+  stop = "Stops", aoe_stop = "AoE stops",
+}
+function UI:SheetNeedLabel(need)
+  return SHEET_NEED_LABEL[need] or (self.NEEDS_TEXT_LABELS and self.NEEDS_TEXT_LABELS[need]) or UD:CapShort(need)
+end
+
+-- noHeader: the caller's panel title already names the dungeon (the Plan tab).
+function UI:RenderCheatSheet(side, dungeonKey, r, plan, noHeader)
   local rows = self:CheatSheetRows(dungeonKey)
   local fromComp = plan ~= false
   if plan == nil then plan = r and r.filled > 0 and r.dungeon and ns.Assignments:Build(r) or nil end
   if plan == false then plan = nil end
   if self.cp and fromComp then self.cp.lastPlan = plan end
   if not rows then
-    side:Header(fromComp and "Assignments" or "Key needs")
+    if not noHeader then side:Header(fromComp and "Assignments" or "Key needs") end
     side:Add(HEX.muted .. "Pick a dungeon to see its must-kick, must-dispel and must-stop list.|r", { size = 11 })
     return
   end
-  side:Header((fromComp and "Assignments: " or "Key needs: ") .. DD.list[dungeonKey].name)
+  if not noHeader then side:Header((fromComp and "Assignments: " or "Key needs: ") .. DD.list[dungeonKey].name) end
   for _, row in ipairs(rows) do
     side:Add(HEX.accent .. row.label .. "|r", { size = 10, gap = 1 })
     local skey = "sheet:" .. row.cat
@@ -1901,6 +1935,7 @@ function UI:RenderCheatSheet(side, dungeonKey, r, plan)
       local req = row.reqs[i]
       local text = Analysis.Decorate(req.source or "", req.need, req.dungeon)
       if row.cat == "dispels" then text = HEX.muted .. UD:CapLabel(req.need):gsub(" dispel", "") .. ":|r " .. text end
+      if row.cat == "affixes" then text = HEX.muted .. self:SheetNeedLabel(req.need) .. ":|r " .. text end
       if req.severity == "critical" then text = TEX_NO .. " " .. text end
       if req.confidence ~= "verified" then text = text .. HEX.warn .. " [unconfirmed]|r" end
       side:Add(text, { indent = 8, size = 11, gap = 1 })
@@ -2111,36 +2146,45 @@ function UI:PostPlan()
   self:SendLines(self:PlanChatLines(plan, dk), "Assignments")
 end
 
+-- "Copy what we need" for your listing, at the end of the assignments list (live group only).
+-- The Post buttons sit in their own row under the list (UpdatePostButtons).
 function UI:RenderPostGaps(side, r)
   if r.filled == 0 then return end
-  side:Space(6)
-  local plan = self.cp and self.cp.lastPlan
-  if plan and not plan.empty then
-    local preview = self:PlanChatLines(plan, r.dungeon and r.dungeon.key)
-    side:Add(HEX.accent .. "> Post assignments to " .. ((IsInRaid and IsInRaid()) and "raid" or "party") .. " chat|r", {
-      size = 12, gap = 4,
-      onClick = function() UI:PostPlan() end,
-      tooltip = "Sends:\n" .. table.concat(preview, "\n"),
-    })
-  end
-  local inGroup = IsInGroup and IsInGroup()
-  side:Add(HEX.accent .. "> Post gaps to " .. ((IsInRaid and IsInRaid()) and "raid" or "party") .. " chat|r", {
-    size = 12,
-    onClick = function() UI:PostGaps() end,
-    tooltip = (inGroup and "Sends: " or "Not in a group, so this only prints it for you:\n") .. self:GapsMessage(r),
-  })
   if ns.state.mode == "live" then
+    side:Space(6)
     side:Add(HEX.accent .. "> Copy \"what we need\" for your listing|r", {
       size = 12, gap = 4,
       onClick = function() UI:CopyNeedsText() end,
       tooltip = "For your Group Finder listing's description:\n" .. self:NeedsListingText(r, ns.Tracker:GetComp()),
     })
   end
-  side:Add(HEX.muted .. "Chat style: " .. (ns.db.settings.chatStyle == "short" and "short" or "full") .. " (change)|r", {
-    size = 10, indent = 12,
-    onClick = function() UI:OpenSettings("chat") end,
-    tooltip = "Choose full or short party-chat posts",
-  })
+end
+
+-- The Plan tab's Post buttons: enabled when there's something to post, the tooltip previews
+-- the exact text (or says why the button is off).
+function UI:UpdatePostButtons(r)
+  local pl = self.pl
+  if not (pl and pl.postPlanBtn) then return end
+  local channel = ((IsInRaid and IsInRaid()) and "raid") or ((IsInGroup and IsInGroup()) and "party") or nil
+  local sends = channel and ("Sends to " .. channel .. " chat:\n") or "Not in a group, so this only prints it for you:\n"
+  local plan = self.cp and self.cp.lastPlan
+  local hasPlayers = r and r.filled > 0
+  if hasPlayers and plan and not plan.empty then
+    pl.postPlanBtn:Enable()
+    pl.postPlanBtn.tooltip = sends .. table.concat(self:PlanChatLines(plan, r.dungeon and r.dungeon.key), "\n")
+  else
+    pl.postPlanBtn:Disable()
+    pl.postPlanBtn.tooltip = hasPlayers and "No kick or dispel assignments for this dungeon yet." or "Add players first."
+  end
+  if hasPlayers then
+    pl.postGapsBtn:Enable()
+    pl.postGapsBtn.tooltip = sends .. self:GapsMessage(r)
+  else
+    pl.postGapsBtn:Disable()
+    pl.postGapsBtn.tooltip = "Add players first."
+  end
+  for _, b in ipairs({ pl.postPlanBtn, pl.postGapsBtn }) do b:SetAlpha(b:IsEnabled() and 1 or 0.5) end
+  pl.chatStyleBtn.text:SetText("Chat style: " .. (ns.db.settings.chatStyle == "short" and "short" or "full"))
 end
 
 function UI:RenderCoverers(list, keys, ctx, expandId, indent)

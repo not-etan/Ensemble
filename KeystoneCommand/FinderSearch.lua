@@ -14,6 +14,9 @@
 --   LFGListUtil_SetSearchEntryTooltip(tooltip, resultID) - its tooltip is built
 --   LFGListApplicationDialog_Show(dialog, resultID) - the Sign Up dialog opens: a line for
 --                                                    your note (shown, never typed in for you)
+-- The Sign Up line also hooks the dialog frame's OnShow (HookScript, read-only): some addons
+-- replace LFGListApplicationDialog_Show after we hook it (issue #4, EllesmereUIQoL), and then
+-- the function hook never fires. OnShow still does, with dialog.resultID already set.
 -- Rows are recycled as you scroll, so every update re-reads button.resultID.
 
 local _, ns = ...
@@ -315,10 +318,33 @@ function FS:ShowApplyLine(dialog, resultID)
   f:Show()
 end
 
+-- The listing the Sign Up dialog is for: the dialog's own resultID (set before it shows),
+-- else the search panel's selected result. Read only; nil when neither is readable.
+function FS:DialogResultID(dialog)
+  local id = dialog and type(dialog) == "table" and rawget(dialog, "resultID")
+  if type(id) == "number" then return id end
+  local lf = rawget(_G, "LFGListFrame")
+  local panel = type(lf) == "table" and rawget(lf, "SearchPanel")
+  id = type(panel) == "table" and rawget(panel, "selectedResult")
+  return type(id) == "number" and id or nil
+end
+
+-- The globals FS hooks, with the feature each one drives (Verify reports them).
+FS.HOOKED_GLOBALS = {
+  { name = "LFGListSearchEntry_Update", feature = "listing markers in search results" },
+  { name = "LFGListUtil_SetSearchEntryTooltip", feature = "your fit in listing tooltips" },
+  { name = "LFGListApplicationDialog_Show", feature = "the Sign Up note line" },
+}
+
 ---------------------------------------------------------------------------
 -- Hooks
 ---------------------------------------------------------------------------
 function FS:Hook()
+  local dialog = rawget(_G, "LFGListApplicationDialog")
+  if not self.dialogHooked and type(dialog) == "table" and dialog.HookScript then
+    local ok = pcall(dialog.HookScript, dialog, "OnShow", function(d) FS:ShowApplyLine(d, FS:DialogResultID(d)) end)
+    self.dialogHooked = ok or nil
+  end
   if not hooksecurefunc then return end
   if not self.rowsHooked and type(LFGListSearchEntry_Update) == "function" then
     hooksecurefunc("LFGListSearchEntry_Update", function(button) FS:UpdateButton(button) end)
@@ -335,12 +361,12 @@ function FS:Hook()
 end
 
 -- The Group Finder UI is load-on-demand on some clients: try at login and whenever an
--- addon finishes loading until both hooks are in.
+-- addon finishes loading until every hook is in.
 local f = CreateFrame("Frame")
 pcall(f.RegisterEvent, f, "ADDON_LOADED")
 pcall(f.RegisterEvent, f, "PLAYER_LOGIN")
 f:SetScript("OnEvent", function()
-  if not (FS.rowsHooked and FS.tipHooked and FS.applyHooked) then FS:Hook() end
+  if not (FS.rowsHooked and FS.tipHooked and FS.applyHooked and FS.dialogHooked) then FS:Hook() end
 end)
 if ns.On then
   ns:On("SETTINGS_CHANGED", function() FS:RefreshAll() end)

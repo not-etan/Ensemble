@@ -262,7 +262,12 @@ function Report:Build()
   local errs = self:Errors()
   local bg = BugGrabberErrors()
   if #errs == 0 and #bg == 0 then
-    add("Lua errors from this addon: none recorded" .. (self.captureActive and "" or " (error capture not active in this client)"))
+    -- With BugGrabber installed it owns the error handler, so our own capture stays off by
+    -- design: say who is catching errors rather than "not active" (issue #8).
+    local BG = rawget(_G, "BugGrabber")
+    local why = (type(BG) == "table" and type(BG.GetDB) == "function") and " (BugGrabber is catching errors; none from this addon)"
+      or (self.captureActive and "" or " (error capture not active in this client)")
+    add("Lua errors from this addon: none recorded" .. why)
   else
     add("Lua errors from this addon (newest first):")
     local seen = {}

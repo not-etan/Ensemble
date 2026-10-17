@@ -432,7 +432,29 @@ local function CheckSearch()
   Add((C_MythicPlus and C_MythicPlus.GetSeasonBestForMap) and "OK" or "WARN",
     "C_MythicPlus.GetSeasonBestForMap (your best run, in the Sign Up line) " .. ((C_MythicPlus and C_MythicPlus.GetSeasonBestForMap) and "found" or "not found"))
   Note("hooks attached: rows " .. tostring(FS and FS.rowsHooked or false) .. ", tooltips " .. tostring(FS and FS.tipHooked or false)
-    .. ", sign up " .. tostring(FS and FS.applyHooked or false))
+    .. ", sign up " .. tostring(FS and FS.applyHooked or false) .. ", sign up dialog OnShow " .. tostring(FS and FS.dialogHooked or false))
+  -- Another addon that replaces one of these functions after we hook it silences our hook
+  -- (issue #4). issecurevariable names the addon that last wrote the global.
+  if type(issecurevariable) ~= "function" then
+    Add("WARN", "issecurevariable missing: can't tell whether another addon replaced the hooked Group Finder functions")
+  elseif FS and FS.HOOKED_GLOBALS then
+    for _, h in ipairs(FS.HOOKED_GLOBALS) do
+      if type(_G[h.name]) == "function" then
+        local okS, secure, by = pcall(issecurevariable, h.name)
+        if not okS then
+          Add("WARN", h.name .. ": issecurevariable errored")
+        elseif secure then
+          Add("OK", h.name .. " is Blizzard's own (not replaced by another addon)")
+        else
+          local who = (type(by) == "string" and by ~= "") and by or "another addon"
+          local still = (h.name == "LFGListApplicationDialog_Show" and FS.dialogHooked)
+            and " The Sign Up line uses the dialog's OnShow instead, so it still works."
+            or (" " .. h.feature:sub(1, 1):upper() .. h.feature:sub(2) .. " may not appear while it's loaded.")
+          Add("WARN", h.name .. " was replaced by " .. who .. " (affects " .. h.feature .. ")." .. still)
+        end
+      end
+    end
+  end
   local hasPlayer = C_LFGList and C_LFGList.GetSearchResultPlayerInfo
   local hasMember = C_LFGList and C_LFGList.GetSearchResultMemberInfo
   Add((hasPlayer or hasMember) and "OK" or "FAIL", "search result member info: "

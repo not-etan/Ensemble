@@ -1027,17 +1027,30 @@ do
   ok(dump(plan):find("Pick a dungeon to see", 1, true), "cheat sheet empty state")
   nsC:SetManualDungeon("TempleOfSethraliss"); RunTimers()
   local t = dump(plan)
-  ok(t:find("ASSIGNMENTS: TEMPLE OF SETHRALISS", 1, true), "assignments header")
+  -- Issue #5: the panel title names the dungeon; no second header inside the list, and the
+  -- left panel is "Your plan" (its "Your assignments" section stays).
+  ok(UIc.pl.rightTitle:GetText() == "ASSIGNMENTS: TEMPLE OF SETHRALISS" and not t:find("ASSIGNMENTS: TEMPLE OF SETHRALISS", 1, true),
+    "assignments: the dungeon is in the panel title, not repeated as a header")
+  ok(UIc.pl.leftTitle:GetText() == "YOUR PLAN" and t:find("YOUR ASSIGNMENTS", 1, true) == nil, "left panel title is Your plan")
   ok(t:find("KICK", 1, true) and t:find("Lightning Bolt", 1, true) and t:find("Flame Shock", 1, true), "must-kicks listed")
   ok(t:find("DISPEL", 1, true) and t:find("Imbued Conduction", 1, true) and t:find("Magic:", 1, true), "must-dispels listed with type")
   ok(t:find("STOP", 1, true) and t:find("Arrow Barrage", 1, true), "must-stops listed")
   ok(t:find("Hhaddon:KeystoneCommand", 1, true) == nil and t:find("|Haddon:KeystoneCommand", 1, true), "abilities are links with tooltips")
+  -- Issue #6: critical, high and medium casts are all on the sheet, most severe first; low stays off.
   local rows = UIc:CheatSheetRows("TempleOfSethraliss")
+  local SEVN = { critical = 1, high = 2, medium = 3, low = 4 }
+  local sheetIDs = {}
   for _, row in ipairs(rows) do
-    local top = false
-    for _, req in ipairs(row.reqs) do if req.severity == "critical" or req.severity == "high" then top = true end end
-    for _, req in ipairs(row.reqs) do
-      ok(not top or req.severity == "critical" or req.severity == "high", "only critical/high when the category has them: " .. req.id)
+    for i, req in ipairs(row.reqs) do
+      sheetIDs[req.id] = true
+      ok(req.severity ~= "low", "no low-severity cast on the sheet: " .. req.id)
+      ok(i == 1 or SEVN[row.reqs[i - 1].severity] <= SEVN[req.severity], "sheet sorted most severe first: " .. req.id)
+    end
+  end
+  for _, q in ipairs(nsC.Dungeons.list.TempleOfSethraliss.requirements) do
+    local cat = nsC.Dungeons:CategoryOf(q)
+    if not q.invalid and q.severity ~= "low" and nsC.db.settings.dungeonCategories[cat] ~= false then
+      ok(sheetIDs[q.id], "every critical/high/medium requirement is on the sheet: " .. q.id)
     end
   end
   nsC.db.settings.dungeonCategories.dispels = false; UIc:Refresh(); RunTimers()
@@ -1070,9 +1083,15 @@ do
   local msg = UIc:GapsMessage(UIc.cp.lastAnalysis)
   ok(msg:find("^%[Keystone Command%] Temple of Sethraliss") and msg:find("Missing: ", 1, true) and msg:find("Bloodlust", 1, true)
     and msg:find("Poison dispel (Cytotoxin)", 1, true) and not msg:find("|", 1, true) and #msg <= 255, "gap message: " .. msg)
-  local postBtn
-  for i = 1, plan.bused do if plan.bpool[i].tip and plan.bpool[i].tip:find("Keystone Command]", 1, true) then postBtn = plan.bpool[i] end end
-  ok(postBtn ~= nil, "post gaps row present")
+  -- Issue #9: the Post buttons are real buttons under the list; hover previews the text.
+  local postBtn = UIc.pl.postGapsBtn
+  ok(postBtn and postBtn:IsEnabled() and postBtn.tooltip:find("Not in a group", 1, true) and postBtn.tooltip:find(msg, 1, true),
+    "post gaps button present, its tooltip previews the post")
+  ok(UIc.pl.postPlanBtn:IsEnabled() and UIc.pl.postPlanBtn.tooltip:find(" assignments", 1, true),
+    "post assignments button previews the assignments post: " .. tostring(UIc.pl.postPlanBtn.tooltip))
+  ok(UIc.pl.chatStyleBtn.text:GetText() == "Chat style: full", "chat style link beside the buttons")
+  local planLines = dump(plan)
+  ok(not planLines:find("> Post gaps", 1, true) and not planLines:find("> Post assignments", 1, true), "the Post lines are gone from the list")
   SENT = {}; PRINTED = ""
   postBtn:Click()
   ok(#SENT == 0 and PRINTED:find("shown only to you", 1, true), "solo: printed locally, not sent")
@@ -1292,9 +1311,8 @@ do
     "abilities, cooldowns and the cooldown note are in the line's tooltip")
   ok(not tx:find("Base cooldowns", 1, true), "cooldown footnote moved into the tooltips")
   ok(not tx:find("Duty across all", 1, true) and tt:find("1st ", 1, true), "kick order shown as 1st/2nd, no duty totals")
-  local postBtn
-  for i = 1, side.bused do if side.bpool[i].tip and side.bpool[i].tip:find(" assignments", 1, true) then postBtn = side.bpool[i] end end
-  ok(postBtn ~= nil, "post plan row")
+  local postBtn = nsK.UI.pl.postPlanBtn
+  ok(postBtn and postBtn:IsEnabled() and postBtn.tooltip:find(" assignments", 1, true), "post assignments button")
   ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" }, party1 = { guid = "H", name = "Hal", class = "PRIEST", role = "HEALER" } }
   SENT = {}
   postBtn:Click(); RunTimers(); RunTimers(); RunTimers(); RunTimers(); RunTimers(); RunTimers()
@@ -1799,7 +1817,7 @@ do
   UIl:Show("plan"); RunTimers()
   local pt = dump(UIl.pl.mine)
   ok(pt:find("YOUR ASSIGNMENTS", 1, true) and pt:find("As Fury Warrior", 1, true) and pt:find("Kick:", 1, true), "your assignments from the plan")
-  ok(dump(UIl.pl.list):find("ASSIGNMENTS", 1, true), "full assignments beside them")
+  ok(UIl.pl.rightTitle:GetText():find("^ASSIGNMENTS: ") and dump(UIl.pl.list):find("KICK", 1, true), "full assignments beside them")
   nsL.db.currentComp = { 73, 257, 71, 63, 0 }; UIl:Refresh(); RunTimers()
   ok(dump(UIl.pl.mine):find("Put your own spec (Fury Warrior)", 1, true), "hint when your spec isn't in the comp")
   UIl:Show("composition"); RunTimers()
@@ -2035,6 +2053,48 @@ do
   nsF.db.settings.applyLine = true
   HOOKS.LFGListApplicationDialog_Show(dialog, 43)
   ok(not FSa.applyBox:IsShown(), "non-Season listing: no line")
+  -- Issue #4: another addon replaces LFGListApplicationDialog_Show after our hook, so the
+  -- function hook never fires. The dialog's OnShow hook still shows the line, from the
+  -- dialog's own resultID, else the search panel's selected result.
+  local realDialog = CreateFrame("Frame", "LFGListApplicationDialog"); realDialog:Hide()
+  FSa.dialogHooked = nil
+  FSa:Hook()
+  ok(FSa.dialogHooked, "sign up: the dialog's OnShow is hooked")
+  FSa.applyBox:Hide()
+  realDialog.resultID = 41
+  realDialog:Show()   -- the replacing addon's own show: only OnShow reaches us
+  ok(FSa.applyBox:IsShown() and FSa.applyBox.box:GetText() == line, "sign up: OnShow shows the line with the dialog's resultID")
+  realDialog:Hide(); FSa.applyBox:Hide()
+  realDialog.resultID = nil
+  LFGListFrame = { SearchPanel = { selectedResult = 41 } }
+  realDialog:Show()
+  ok(FSa.applyBox:IsShown() and FSa.applyBox.box:GetText() == line, "sign up: falls back to the search panel's selected result")
+  realDialog:Hide(); FSa.applyBox:Hide()
+  LFGListFrame = nil
+  realDialog:Show()
+  ok(not FSa.applyBox:IsShown(), "sign up: no listing known, no line (and no error)")
+  realDialog:Hide()
+  local hookAgain = realDialog._scripts.OnShow
+  FSa:Hook()
+  ok(realDialog._scripts.OnShow == hookAgain, "sign up: OnShow is hooked once")
+  -- /kc verify: issecurevariable on the three hooked globals names the addon that replaced one.
+  LFGListSearchEntry_Update = function() end
+  LFGListUtil_SetSearchEntryTooltip = function() end
+  issecurevariable = function(name)
+    if name == "LFGListApplicationDialog_Show" or name == "LFGListSearchEntry_Update" then return false, "EllesmereUIQoL" end
+    return true
+  end
+  local vt = nsF.Verify:Build()
+  ok(vt:find("[WARN] LFGListApplicationDialog_Show was replaced by EllesmereUIQoL (affects the Sign Up note line). The Sign Up line uses the dialog's OnShow instead, so it still works.", 1, true),
+    "verify: a replaced Sign Up function names the addon and says the line still works")
+  ok(vt:find("[WARN] LFGListSearchEntry_Update was replaced by EllesmereUIQoL (affects listing markers in search results). Listing markers in search results may not appear while it's loaded.", 1, true),
+    "verify: a replaced row function names the addon and the feature affected")
+  ok(vt:find("[OK] LFGListUtil_SetSearchEntryTooltip is Blizzard's own", 1, true), "verify: an untouched hooked function is OK")
+  issecurevariable = nil
+  vt = nsF.Verify:Build()
+  ok(vt:find("issecurevariable missing", 1, true), "verify: a missing issecurevariable is a WARN, not an error")
+  LFGListApplicationDialog = nil
+  LFGListSearchEntry_Update, LFGListUtil_SetSearchEntryTooltip = nil, nil
   C_MythicPlus.GetSeasonBestForMap, C_ChallengeMode.GetOverallDungeonScore, LFGListApplicationDialog_Show = nil, nil, nil
 
   -- Markers on Blizzard's rows (styles) and the tooltip
@@ -2289,6 +2349,12 @@ do
   handler = nil
   local nsQ = boot()
   ok(nsQ.Report.captureActive == false and nsQ.Report:Build():find("capture not active", 1, true), "refused handler: report still works")
+  -- Issue #8: with BugGrabber owning the handler, the empty error line says so.
+  BugGrabber = { GetDB = function() return { { message = "Interface/AddOns/Else/a.lua:1: other" } } end }
+  local bgText = nsQ.Report:Build()
+  BugGrabber = nil
+  ok(bgText:find("Lua errors from this addon: none recorded (BugGrabber is catching errors; none from this addon)", 1, true)
+    and not bgText:find("capture not active", 1, true), "BugGrabber present: the error line says it is catching errors")
   geterrorhandler, seterrorhandler, debugstack = nil, nil, nil
 end
 
@@ -3727,6 +3793,74 @@ do
   local toc = slurp(ADDON_DIR .. "/KeystoneCommand.toc") or ""
   ok(toc:find("\n## X%-Curse%-Project%-ID: 1745945") ~= nil, "TOC has the CurseForge project ID")
   ok(toc:find("\n## X%-Wago%-ID: b6XyAbKp") ~= nil, "TOC has the Wago project ID")
+end
+
+-- 60. Plan tab (1.3.0 issues #5, #6, #7, #9), the issue's own case: Den of Nalorakk +17 with
+-- Veng DH, Resto Shaman, Demo Warlock, Arcane Mage and Arms Warrior in the planner.
+do
+  KeystoneCommandDB = nil
+  ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 71, role = "DAMAGER" } }
+  CURRENT_AFFIXES = { 158, 10, 9, 147 }
+  local ns60 = boot()
+  local function d60(L) local t = {} for i = 1, L.used do t[#t + 1] = L.pool[i]:GetText() end return table.concat(t, "\n") end
+  ns60.Affixes:Refresh()
+  ns60.state.keyLevelOverride = 17
+  ns60.db.currentComp = { 581, 264, 266, 62, 71 }
+  ns60:SetManualDungeon("DenOfNalorakk")
+  ns60.UI:Show("plan"); RunTimers()
+  local pl = ns60.UI.pl
+  local t = d60(pl.list)
+  -- #6: medium casts (Earth Bolt, Scavenge; the Magic dispels) are on the sheet with their assignments.
+  local rows = ns60.UI:CheatSheetRows("DenOfNalorakk")
+  local where = {}
+  for _, row in ipairs(rows) do for i, req in ipairs(row.reqs) do where[req.id] = { cat = row.cat, i = i, n = #row.reqs } end end
+  ok(where.DN_EARTH_BOLT and where.DN_EARTH_BOLT.cat == "interrupts" and where.DN_SPARE and where.DN_SPARE.cat == "interrupts",
+    "#6: Earth Bolt and Scavenge are under KICK")
+  ok(where.DN_GLACIAL_TORMENT and where.DN_CRYO_SURGE and where.DN_GLACIAL_TORMENT.cat == "dispels",
+    "#6: Glacial Torment and Cryo Surge are under DISPEL")
+  ok(where.DN_BREEZE_PURGE == nil, "#6: low severity stays off the sheet")
+  ok(t:find("Glacial Torment", 1, true) and t:find("Cryo Surge", 1, true), "#6: the Magic dispel list is shown")
+  -- Past five in a category, the rest fold behind "+N more" (nothing dropped).
+  local kick = where.DN_EARTH_BOLT
+  if kick.n > 5 then
+    ok(t:find("more cast", 1, true), "#6: a long KICK list folds behind +N more")
+  else
+    ok(t:find("Earth Bolt", 1, true), "#6: Earth Bolt shown")
+  end
+  -- Every assignment the player has ("Your assignments") can be found on the sheet.
+  local jobsAll = ns60.Assignments:PlayerJobs(ns60.UI.cp.lastPlan, false)
+  local onSheet, counted = true, 0
+  for _, j in ipairs(jobsAll) do
+    for _, list in ipairs({ j.kicks, j.dispels, j.backups }) do
+      for _, e in ipairs(list) do
+        local id = e.row and e.row.req and e.row.req.id
+        if id and not id:find("^AFFIX") then counted = counted + 1; if not where[id] then onSheet = false; print("not on sheet: " .. id) end end
+      end
+    end
+  end
+  ok(onSheet and counted > 0, "#6: every assigned kick, dispel and backup has its cast on the sheet (" .. counted .. ")")
+  -- #7: Xal'atath's Guile's two lines name their need.
+  ok(t:find("Group defensives:|r Xal'atath's Guile", 1, true) and t:find("Externals:|r Xal'atath's Guile", 1, true),
+    "#7: each Guile line names its need")
+  -- #5: titles.
+  ok(pl.rightTitle:GetText() == "ASSIGNMENTS: DEN OF NALORAKK" and not t:find("ASSIGNMENTS: DEN OF NALORAKK", 1, true), "#5: one assignments heading")
+  ok(pl.leftTitle:GetText() == "YOUR PLAN" and d60(pl.mine):find("YOUR ASSIGNMENTS", 1, true), "#5: Your plan panel keeps its Your assignments section")
+  -- The Dungeon tab's sheet keeps its own header (it has no panel title naming the dungeon).
+  ns60.UI:Show("dungeons"); RunTimers()
+  ok(d60(ns60.UI.pp.value):find("KEY NEEDS: DEN OF NALORAKK", 1, true), "#5: Dungeon tab keeps its Key needs header")
+  -- #9: buttons enable with a group and disable (with the reason) without one.
+  ns60.UI:Show("plan"); RunTimers()
+  ok(pl.postPlanBtn:IsEnabled() and pl.postGapsBtn:IsEnabled(), "#9: both Post buttons on with a group")
+  ns60.db.currentComp = { 0, 0, 0, 0, 0 }; ns60.UI:Refresh(); RunTimers()
+  ok(not pl.postPlanBtn:IsEnabled() and pl.postPlanBtn.tooltip == "Add players first." and not pl.postGapsBtn:IsEnabled()
+    and pl.postGapsBtn:GetAlpha() < 1, "#9: off without players, tooltip says why")
+  ns60.db.settings.chatStyle = "short"; ns60.UI:Refresh(); RunTimers()
+  ok(pl.chatStyleBtn.text:GetText() == "Chat style: short", "#9: chat style link follows the setting")
+  pl.chatStyleBtn:Click(); RunTimers()
+  ok(ns60.UI.currentTab == "settings", "#9: the chat style link opens Settings")
+  ns60.state.keyLevelOverride = nil
+  CURRENT_AFFIXES = {}
+  ns60.UI:Hide()
 end
 
 print(string.format("%d passed, %d failed", passes, fails))
