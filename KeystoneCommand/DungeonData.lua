@@ -729,6 +729,57 @@ DD.LUST_SOURCE = {
 }
 DD.LUST_SOURCE_DEFAULT = "Suggested by one Season 2 guide (WoWCarry). Tanks and routes differ: set your own."
 
+-- Boss order the group can choose. Each entry is a list of groups of boss indexes (positions
+-- in `bosses` above) that can be done in any order among themselves, e.g. { { 1, 2 } } = the
+-- first two bosses in either order. A group's bosses must sit next to each other in the
+-- default order. Trash sections move with the boss they lead to (right for separate
+-- approaches, such as two wings off a hub). Mark a group `sharedTrash = true` only where a
+-- guide shows its bosses share one path: when the order changes, the group's trash is then
+-- shown as one section before the group. Add an entry only when a current guide states the
+-- choice, with the source in a comment. Dungeons without an entry have a fixed order.
+-- (Checked October 16, 2026: Method.gg's and Icy Veins' Season 2 guides state no choice for
+-- the other seven dungeons.)
+DD.BOSS_ORDER = {
+  -- Method.gg's Blinding Vale guide (updated October 14, 2026): from the start, head right
+  -- to Ikuzz the Light Hunter or left to the Lightblossom Trinity; Lightwarden Ruia opens
+  -- after both, then Ziekket. Separate paths, so the trash stays with each boss. (Icy Veins
+  -- lists Trinity first without mentioning the choice.)
+  TheBlindingVale = { { 1, 2 } },
+}
+
+-- Valid groups for a dungeon: indexes in range, at least two, next to each other in the
+-- default order, no boss in two groups. Invalid groups are dropped by Validate.
+function DD:BossOrderGroupOK(dk, g, used)
+  local d = self.list[dk]
+  local n = d and d.bosses and #d.bosses or 0
+  if type(g) ~= "table" or #g < 2 then return false end
+  local lo, hi, seen = math.huge, -math.huge, {}
+  for _, bi in ipairs(g) do
+    if type(bi) ~= "number" or bi < 1 or bi > n or bi % 1 ~= 0 or seen[bi] or (used and used[bi]) then return false end
+    seen[bi] = true
+    lo, hi = math.min(lo, bi), math.max(hi, bi)
+  end
+  return hi - lo + 1 == #g
+end
+
+-- Whether a saved order (a list of boss indexes, first to last) fits the data: every boss
+-- once, and only bosses in the same group swapped among that group's places.
+function DD:ValidBossOrder(dk, order)
+  local d = self.list[dk]
+  local n = d and d.bosses and #d.bosses or 0
+  if n == 0 or type(order) ~= "table" or #order ~= n then return false end
+  local groupOf = {}
+  for gi, g in ipairs(self.BOSS_ORDER[dk] or {}) do for _, bi in ipairs(g) do groupOf[bi] = gi end end
+  local seen = {}
+  for pos = 1, n do
+    local bi = order[pos]
+    if type(bi) ~= "number" or bi < 1 or bi > n or seen[bi] then return false end
+    seen[bi] = true
+    if bi ~= pos and (not groupOf[bi] or groupOf[bi] ~= groupOf[pos]) then return false end
+  end
+  return true
+end
+
 -- Validate every need/alt against the capability vocabulary. Run once at load; bad keys
 -- are reported and the requirement is marked invalid so it can never read as "covered".
 function DD:Validate()
@@ -746,12 +797,26 @@ function DD:Validate()
       end
     end
   end
+  -- Boss-order groups that don't fit the dungeon's bosses are dropped (that dungeon then has
+  -- a fixed order) and reported.
+  for dk, groups in pairs(self.BOSS_ORDER) do
+    local keep, used = {}, {}
+    for _, g in ipairs(type(groups) == "table" and groups or {}) do
+      if self.list[dk] and self:BossOrderGroupOK(dk, g, used) then
+        keep[#keep + 1] = g
+        for _, bi in ipairs(g) do used[bi] = true end
+      else
+        table.insert(problems, dk .. ":BOSS_ORDER")
+      end
+    end
+    self.BOSS_ORDER[dk] = #keep > 0 and keep or nil
+  end
   return problems
 end
 
 local problems = DD:Validate()
 if #problems > 0 then
   ns:On("LOGIN", function()
-    ns:Print("DungeonData has invalid capability keys: " .. table.concat(problems, ", "))
+    ns:Print("DungeonData has invalid entries (ignored): " .. table.concat(problems, ", "))
   end)
 end

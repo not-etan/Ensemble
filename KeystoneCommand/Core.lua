@@ -267,6 +267,9 @@ ns.DEFAULTS = {
   -- Bloodlust timing per dungeon key: { { at = "b1"|"t2", note }, ... } (boss N, or the trash
   -- before boss N). Missing = the default from DungeonData.LUST.
   lust = {},
+  -- Boss order per dungeon key, where the dungeon data allows a choice (DungeonData.BOSS_ORDER):
+  -- boss indexes first to last. Missing = the guides' order.
+  bossOrder = {},
   history = {},                 -- recorded runs, newest first (History.lua)
 }
 
@@ -311,6 +314,11 @@ local function SanitizeDB(db)
       if droppedPull and #uses == 0 then db.lust[dk] = nil end
     end
   end
+  -- Boss orders that no longer fit the data (a season change, a data fix) are dropped.
+  if type(db.bossOrder) ~= "table" then db.bossOrder = {} end
+  for dk, order in pairs(db.bossOrder) do
+    if not (ns.Dungeons and ns.Dungeons.ValidBossOrder and ns.Dungeons:ValidBossOrder(dk, order)) then db.bossOrder[dk] = nil end
+  end
   -- Settings that no longer exist (1.3.0: the Mythic Dungeon Tools route switch).
   if type(db.settings) == "table" then db.settings.routePlan = nil end
 end
@@ -338,7 +346,7 @@ function ns:InitDB()
 end
 
 -- What a full reset wipes, in plain words (the /kc reset prompt and Settings > Data say it).
-ns.RESET_WIPES = "saved comps, the planner comp, every setting, run history, boss-card edits, Bloodlust timing and the error log"
+ns.RESET_WIPES = "saved comps, the planner comp, every setting, run history, boss-card edits, Bloodlust timing, boss order and the error log"
 
 function ns:ResetDB()
   KeystoneCommandDB = Util.DeepCopy(ns.DEFAULTS)
@@ -349,7 +357,7 @@ function ns:ResetDB()
   local BC = ns.BossCards
   if BC and BC.state then
     BC.state.killed = {}
-    if BC.state.dk then BC:Show(1) end   -- back to the first boss (saved to the fresh data)
+    if BC.state.dk then BC:Show(BC:Order(BC.state.dk)[1] or 1) end   -- back to the first boss (saved to the fresh data)
   end
   self:Fire("SETTINGS_CHANGED")
   self:Fire("COMP_CHANGED", "reset")
@@ -624,7 +632,7 @@ local HELP = {
   "/kc boss [dungeon] - open or close the boss-card window",
   "/kc report - a copyable bug report (version, setup, recent errors) to paste with your issue",
   "/kc minimap - show/hide the minimap button",
-  "/kc reset confirm - wipe all Keystone Command data: saved comps, the planner comp, every setting, run history, boss-card edits, Bloodlust timing and the error log",
+  "/kc reset confirm - wipe all Keystone Command data: saved comps, the planner comp, every setting, run history, boss-card edits, Bloodlust timing, boss order and the error log",
 }
 
 SLASH_KEYSTONECOMMAND1 = "/kc"

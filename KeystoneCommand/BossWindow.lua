@@ -30,19 +30,21 @@ BW.view = {}
 function BW:Current()
   local BC = ns.BossCards
   if BC.state.dk then return BC.state.dk, BC.state.index or 1, true end
-  if self.view.dk then return self.view.dk, self.view.index or 1, false end
+  if self.view.dk then return self.view.dk, self.view.index or BC:Order(self.view.dk)[1] or 1, false end
   local ok, dk = pcall(ns.GetEffectiveDungeon, ns, false)
   dk = ok and dk or (ns.Dungeons and ns.Dungeons.order[1])
-  return dk, 1, false
+  return dk, BC:Order(dk)[1] or 1, false   -- the first boss in your order
 end
 
 function BW:Step(d)
   local BC = ns.BossCards
   local dk, i, inside = self:Current()
   if inside then BC:Step(d); return end
-  local n = #BC:Bosses(dk)
+  local order = BC:Order(dk)
+  local n = #order
   if n == 0 then return end
-  self.view = { dk = dk, index = ((i - 1 + d) % n) + 1 }
+  local pos = BC:Position(dk, i)
+  self.view = { dk = dk, index = order[((pos - 1 + d) % n) + 1] }
   self:Refresh()
 end
 
@@ -263,7 +265,7 @@ function BW:Refresh()
     return
   end
   local killed = inside and BC.state.killed and BC.state.killed[i]
-  self.title:SetText(boss.name .. HEX.muted .. "  " .. i .. "/" .. #bosses
+  self.title:SetText(boss.name .. HEX.muted .. "  " .. BC:Position(dk, i) .. "/" .. #bosses
     .. (killed and "  (defeated)" or "") .. (BC:IsEdited(dk, i) and "  (edited)" or "") .. "|r")
   local role = BC:MyRole()
   self.roleBtn.text:SetText(s.showAll and "All roles" or ("My role: " .. role))
@@ -322,7 +324,7 @@ function BW:IsShown() return self.frame and self.frame:IsShown() or false end
 
 -- /kc boss [dungeon name]
 function BW:Open(dk)
-  if dk then self.view = { dk = dk, index = 1 } end
+  if dk then self.view = { dk = dk } end   -- index unset: the first boss in your order
   self:Show()
 end
 
@@ -347,6 +349,7 @@ ns:On("LIVE_ROSTER_CHANGED", function() if BW:IsShown() then BW:Refresh() end en
 ns:On("SETTINGS_CHANGED", function() if BW:IsShown() then BW:Refresh() end end)
 ns:On("BOSS_COMBAT", function(on) BW.inCombat = on; BW:ApplyCombatFade() end)
 ns:On("LUST_CHANGED", function() if BW:IsShown() then BW:Refresh() end end)
+ns:On("BOSS_ORDER_CHANGED", function() if BW:IsShown() then BW:Refresh() end end)
 ns:On("ASSIGNMENTS_CHANGED", function() if BW:IsShown() then BW:Refresh() end end)
 
 ---------------------------------------------------------------------------

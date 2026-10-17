@@ -376,9 +376,91 @@ function BC:IndexForEncounter(dk, encounterID, name)
   return nil
 end
 
+---------------------------------------------------------------------------
+-- Boss order. Most dungeons have a fixed order; where the data says a group of bosses can go
+-- in either order (DungeonData.BOSS_ORDER), the player's choice is saved per dungeon in
+-- db.bossOrder. Boss indexes (cards, kills, Bloodlust "b<N>") never change: the order only
+-- says which comes first. It drives the walkthrough, the Bloodlust numbering and which boss
+-- the boss window turns to next.
+---------------------------------------------------------------------------
+local function DDk() return ns.Dungeons end
+
+-- Boss indexes, first to last, in the player's order (the guides' order when none is saved).
+function BC:Order(dk)
+  local n = #self:Bosses(dk)
+  local saved = ns.db and type(ns.db.bossOrder) == "table" and ns.db.bossOrder[dk]
+  local out = {}
+  if saved and DDk() and DDk():ValidBossOrder(dk, saved) and #saved == n then
+    for i = 1, n do out[i] = saved[i] end
+  else
+    for i = 1, n do out[i] = i end
+  end
+  return out
+end
+
+-- Where a boss comes in the player's order (1 = first).
+function BC:Position(dk, idx)
+  for pos, bi in ipairs(self:Order(dk)) do if bi == idx then return pos end end
+  return idx
+end
+
+-- The group of bosses idx can swap with, or nil when its place is fixed.
+function BC:OrderGroup(dk, idx)
+  local groups = DDk() and DDk().BOSS_ORDER and DDk().BOSS_ORDER[dk]
+  for _, g in ipairs(groups or {}) do
+    for _, bi in ipairs(g) do if bi == idx then return g end end
+  end
+  return nil
+end
+
+function BC:HasOrderChoice(dk) return DDk() and DDk().BOSS_ORDER and DDk().BOSS_ORDER[dk] ~= nil or false end
+function BC:IsCustomOrder(dk) return ns.db and type(ns.db.bossOrder) == "table" and ns.db.bossOrder[dk] ~= nil or false end
+
+-- The boss just before (d = -1) or after (d = 1) idx in the player's order, when the two can
+-- swap (same group); nil otherwise.
+function BC:Neighbor(dk, idx, d)
+  local order = self:Order(dk)
+  local pos = self:Position(dk, idx)
+  local other = order[pos + d]
+  local g = self:OrderGroup(dk, idx)
+  if not (other and g) then return nil end
+  for _, bi in ipairs(g) do if bi == other then return other end end
+  return nil
+end
+
+local function OrderChanged(dk)
+  if ns.Walkthrough and ns.Walkthrough.OnOrderChanged then ns.Walkthrough:OnOrderChanged(dk) end
+  ns:Fire("BOSS_ORDER_CHANGED", dk)
+end
+
+-- Move a boss one place earlier (d = -1) or later (d = 1), within its group. Saving the
+-- guides' order clears the entry. Returns true when it moved.
+function BC:MoveBoss(dk, idx, d)
+  local other = self:Neighbor(dk, idx, d)
+  if not (other and ns.db) then return false end
+  local order = self:Order(dk)
+  local a, b = self:Position(dk, idx), self:Position(dk, other)
+  order[a], order[b] = order[b], order[a]
+  local default = true
+  for i, bi in ipairs(order) do if bi ~= i then default = false end end
+  if type(ns.db.bossOrder) ~= "table" then ns.db.bossOrder = {} end
+  ns.db.bossOrder[dk] = (not default) and order or nil
+  OrderChanged(dk)
+  return true
+end
+
+function BC:ResetOrder(dk)
+  if ns.db and type(ns.db.bossOrder) == "table" and ns.db.bossOrder[dk] then
+    ns.db.bossOrder[dk] = nil
+    OrderChanged(dk)
+  end
+end
+
+-- The first boss not yet killed, in the player's order.
 function BC:FirstAlive(dk, killed)
-  for idx = 1, #self:Bosses(dk) do if not (killed or {})[idx] then return idx end end
-  return #self:Bosses(dk)
+  local order = self:Order(dk)
+  for _, idx in ipairs(order) do if not (killed or {})[idx] then return idx end end
+  return order[#order] or #self:Bosses(dk)
 end
 
 -- Entering (or re-entering) a dungeon. Restores saved progress for the same dungeon if it
@@ -403,7 +485,7 @@ function BC:Leave() self.state = { killed = {} } end
 function BC:NewRun()
   if self.state.dk then
     self.state.killed = {}
-    self.state.index = 1
+    self.state.index = self:Order(self.state.dk)[1] or 1
     Save()
   end
 end
@@ -418,7 +500,16 @@ function BC:Show(index)
   ns:Fire("BOSS_CARD_CHANGED")
 end
 
-function BC:Step(d) if self.state.dk then self:Show((self.state.index or 1) + d) end end
+-- Page to the boss before or after the current one, in the player's order.
+function BC:Step(d)
+  local dk = self.state.dk
+  if not dk then return end
+  local order = self:Order(dk)
+  local n = #order
+  if n == 0 then return end
+  local pos = self:Position(dk, self.state.index or order[1])
+  self:Show(order[((pos - 1 + d) % n) + 1])
+end
 
 function BC:OnEncounterStart(encounterID, name)
   local dk = self.state.dk

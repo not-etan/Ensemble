@@ -4007,6 +4007,23 @@ function UI:OpenLustMenu(anchor, dk, i)
   return items
 end
 
+-- Boss order: "Move earlier / later" under a boss whose place the data lets you change.
+UI.ORDER_TIP = "Groups can do these bosses in either order. Your order is saved for this dungeon; it also sets the Bloodlust order and which boss the boss window shows next."
+function UI:RenderOrderMoves(L, key, i)
+  local BC = ns.BossCards
+  if not BC:OrderGroup(key, i) then return end
+  local bosses = BC:Bosses(key)
+  local before, after = BC:Neighbor(key, i, -1), BC:Neighbor(key, i, 1)
+  if before then
+    L:Add(HEX.accent .. "> Move earlier|r" .. HEX.muted .. " (before " .. bosses[before].name .. ")|r", { indent = 10, size = 10, gap = 1,
+      onClick = function() BC:MoveBoss(key, i, -1) end, tooltip = self.ORDER_TIP })
+  end
+  if after then
+    L:Add(HEX.accent .. "> Move later|r" .. HEX.muted .. " (after " .. bosses[after].name .. ")|r", { indent = 10, size = 10, gap = 1,
+      onClick = function() BC:MoveBoss(key, i, 1) end, tooltip = self.ORDER_TIP })
+  end
+end
+
 function UI:RenderWalkthrough(L, key, explainOn)
   local WT, BC = ns.Walkthrough, ns.BossCards
   local role = ns.db.settings.walkRole or "ALL"
@@ -4015,6 +4032,12 @@ function UI:RenderWalkthrough(L, key, explainOn)
   local tags = ns.BossWindow and ns.BossWindow.ROLE_TAG or {}
   local bosses = BC:Bosses(key)
   self:RenderLust(L, key, true)
+  if BC:IsCustomOrder(key) then
+    local first = bosses[BC:Order(key)[1]]
+    L:Add(HEX.muted .. "Boss order: yours" .. (first and (", " .. first.name .. " first") or "") .. ".|r", { size = 10, gap = 1 })
+    L:Add(HEX.accent .. "> Reset to the guides' order|r", { indent = 6, size = 10, gap = 4,
+      onClick = function() BC:ResetOrder(key) end, tooltip = "Back to the order the dungeon guides list" })
+  end
   for _, st in ipairs(w.steps) do
     local reqs = {}
     for _, q in ipairs(st.reqs) do if self:WalkRoleWants(role, q) then reqs[#reqs + 1] = q end end
@@ -4027,6 +4050,12 @@ function UI:RenderWalkthrough(L, key, explainOn)
       local lust = WT:LustAt(key, st)
       if #reqs > 0 or #lust > 0 then
         local head = st.boss and bosses[st.boss] and ("Trash before " .. bosses[st.boss].name) or "Trash after the last boss"
+        if st.merged then
+          -- A shared path done in another order: one section for the whole group.
+          local names = {}
+          for _, b in ipairs(st.bosses) do names[#names + 1] = bosses[b].name end
+          head = "Trash before " .. table.concat(names, " and ")
+        end
         L:Header(head)
         self:WalkLust(L, key, st)
         for _, q in ipairs(reqs) do self:WalkReq(L, q, explainOn) end
@@ -4037,10 +4066,11 @@ function UI:RenderWalkthrough(L, key, explainOn)
       local open = self:IsOpen(k, true)
       local lines, edited, changed = BC:Lines(key, i)
       L:Space(2)
-      L:Add((open and "- " or "+ ") .. HEX.accent .. i .. ". " .. boss.name:upper() .. "|r"
+      L:Add((open and "- " or "+ ") .. HEX.accent .. (st.pos or i) .. ". " .. boss.name:upper() .. "|r"
         .. (edited and (HEX.muted .. "  (edited)|r") or "") .. (changed and (HEX.warn .. "  default updated|r") or ""), {
         size = 12, gap = 2, onClick = function() UI:SetOpen(k, not open) end,
         tooltip = open and "Click to fold" or "Click to show this boss" })
+      self:RenderOrderMoves(L, key, i)
       if open then
         self:WalkLust(L, key, st)
         for _, l in ipairs(lines) do
@@ -4894,6 +4924,7 @@ modeWatcher:SetScript("OnEvent", function()
   if (tab == "composition" or tab == "plan") and UI:CompMode() ~= ns.state.mode then UI:SetTab(tab) end
 end)
 ns:On("LUST_CHANGED", function() UI:QueueRefresh() end)
+ns:On("BOSS_ORDER_CHANGED", function() UI:QueueRefresh() end)
 ns:On("ASSIGNMENTS_CHANGED", function() UI:QueueRefresh() end)
 ns:On("HISTORY_CHANGED", function() UI:QueueRefresh() end)
 ns:On("DUNGEON_CHANGED", function() UI:QueueRefresh() end)

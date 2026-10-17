@@ -3805,5 +3805,157 @@ do
   ns60.UI:Hide()
 end
 
+-- 61. Boss order where the data allows a choice (1.3.0): The Blinding Vale's first two bosses.
+do
+  KeystoneCommandDB = { bossOrder = { TheBlindingVale = { 2, 1, 3, 4 }, KingsRest = { 2, 1, 3, 4 },
+    MurderRow = "bad", AltarOfFangs = { 1, 2 } } }
+  local ns61 = boot()
+  local DD61, BC, WT = ns61.Dungeons, ns61.BossCards, ns61.Walkthrough
+  local function d61(L) local t = {} for i = 1, L.used do t[#t + 1] = L.pool[i]:GetText() end return table.concat(t, "\n") end
+  -- Data: only The Blinding Vale has a choice (Method.gg); the rest are fixed.
+  local withChoice = {}
+  for dk in pairs(DD61.BOSS_ORDER) do withChoice[#withChoice + 1] = dk end
+  ok(#withChoice == 1 and DD61.BOSS_ORDER.TheBlindingVale[1][1] == 1 and DD61.BOSS_ORDER.TheBlindingVale[1][2] == 2
+    and not DD61.BOSS_ORDER.TheBlindingVale[1].sharedTrash, "data: Blinding Vale's first two bosses, separate paths; no other dungeon")
+  -- Validation of the data and of saved orders.
+  ok(DD61:BossOrderGroupOK("TheBlindingVale", { 2, 3 }) and not DD61:BossOrderGroupOK("TheBlindingVale", { 1, 3 })
+    and not DD61:BossOrderGroupOK("TheBlindingVale", { 4, 5 }) and not DD61:BossOrderGroupOK("TheBlindingVale", { 2 }),
+    "group check: next to each other, in range, at least two")
+  DD61.BOSS_ORDER.KingsRest = { { 1, 3 }, { 2, 3 } }
+  local probs = table.concat(DD61:Validate(), " ")
+  ok(probs:find("KingsRest:BOSS_ORDER", 1, true) and #DD61.BOSS_ORDER.KingsRest == 1 and DD61.BOSS_ORDER.KingsRest[1][1] == 2,
+    "invalid groups dropped and reported, valid ones kept")
+  DD61.BOSS_ORDER.KingsRest = nil
+  ok(DD61:ValidBossOrder("TheBlindingVale", { 2, 1, 3, 4 }) and not DD61:ValidBossOrder("TheBlindingVale", { 1, 3, 2, 4 })
+    and not DD61:ValidBossOrder("TheBlindingVale", { 1, 2, 3 }) and not DD61:ValidBossOrder("TheBlindingVale", { 1, 1, 3, 4 })
+    and not DD61:ValidBossOrder("KingsRest", { 2, 1, 3, 4 }), "saved orders checked against the data")
+  ok(ns61.db.bossOrder.TheBlindingVale and ns61.db.bossOrder.KingsRest == nil and ns61.db.bossOrder.MurderRow == nil
+    and ns61.db.bossOrder.AltarOfFangs == nil, "on load: a fitting order kept, the rest dropped")
+  -- Moving bosses.
+  ns61.db.bossOrder = {}
+  ok(BC:Neighbor("TheBlindingVale", 2, -1) == 1 and BC:Neighbor("TheBlindingVale", 3, -1) == nil and BC:Neighbor("TheBlindingVale", 1, -1) == nil,
+    "only bosses in the same group can swap")
+  ok(not BC:MoveBoss("KingsRest", 2, -1) and ns61.db.bossOrder.KingsRest == nil, "a fixed dungeon can't be reordered")
+  local fired = 0
+  ns61:On("BOSS_ORDER_CHANGED", function() fired = fired + 1 end)
+  ok(BC:MoveBoss("TheBlindingVale", 2, -1) and fired == 1, "Ikuzz moved first")
+  local o = BC:Order("TheBlindingVale")
+  ok(o[1] == 2 and o[2] == 1 and o[3] == 3 and o[4] == 4 and BC:Position("TheBlindingVale", 2) == 1 and BC:IsCustomOrder("TheBlindingVale"),
+    "order saved: Ikuzz, Trinity, Ruia, Ziekket")
+  -- Walkthrough: each trash section moves with its boss; nothing is lost.
+  local w = WT:Build("TheBlindingVale")
+  local seq = {}
+  for _, st in ipairs(w.steps) do if st.kind ~= "anywhere" then seq[#seq + 1] = st.kind:sub(1, 1) .. st.boss end end
+  ok(table.concat(seq, ",") == "t2,b2,t1,b1,t3,b3,t4,b4", "walkthrough in your order: " .. table.concat(seq, ","))
+  local t1
+  for _, st in ipairs(w.steps) do if st.kind == "trash" and st.boss == 1 then t1 = st end end
+  local ids = {} for _, q in ipairs(t1.reqs) do ids[q.id] = true end
+  ok(ids.BV_SPORE_SPINES and t1.pos == 2, "the Trinity's trash stays with the Trinity, now second")
+  local seen = {}
+  for _, st in ipairs(w.steps) do for _, q in ipairs(st.reqs) do seen[q.id] = true end end
+  local lost = {}
+  for _, q in ipairs(DD61.list.TheBlindingVale.requirements) do if not q.invalid and not seen[q.id] then lost[#lost + 1] = q.id end end
+  ok(#lost == 0, "every requirement still shows: " .. table.concat(lost, ","))
+  -- Bloodlust: spots and numbering follow the order.
+  local spots = WT:Spots("TheBlindingVale")
+  ok(spots[1].label == "Trash before Ikuzz the Light Hunter" and spots[2].at == "b2" and spots[3].at == "t1", "Bloodlust spots in your order")
+  WT:SetLustAt("TheBlindingVale", 1, "b1"); WT:SetLustAt("TheBlindingVale", 2, "b2")
+  local uses = WT:Lust("TheBlindingVale")
+  ok(uses[1].at == "b2", "lust numbering: Ikuzz's lust is #1 when Ikuzz is first")
+  BC:MoveBoss("TheBlindingVale", 1, -1)   -- back to the guides' order
+  uses = WT:Lust("TheBlindingVale")
+  ok(ns61.db.bossOrder.TheBlindingVale == nil and uses[1].at == "b1" and fired == 2, "the guides' order again: entry cleared, lusts re-sorted")
+  WT:ResetLust("TheBlindingVale")
+  BC:MoveBoss("TheBlindingVale", 2, -1)
+  local def = WT:Lust("TheBlindingVale")
+  local ranks = {}
+  for i, u in ipairs(def) do ranks[i] = BC:Position("TheBlindingVale", tonumber(u.at:sub(2))) end
+  local sorted = true
+  for i = 2, #ranks do if ranks[i] < ranks[i - 1] then sorted = false end end
+  ok(sorted and #def == #ns61.Dungeons.LUST.TheBlindingVale and ns61.db.lust.TheBlindingVale == nil, "the default plan is shown in your order, unsaved")
+  WT:SetLustAt("TheBlindingVale", 1, "t2")
+  ok(ns61.db.lust.TheBlindingVale and ns61.db.lust.TheBlindingVale[1].at == "t2", "editing copies the plan in the order shown")
+  WT:ResetLust("TheBlindingVale")
+  -- Boss window: first boss and next boss follow the order.
+  ns61.BossWindow.view = { dk = "TheBlindingVale" }   -- /kc boss The Blinding Vale
+  ok(select(2, ns61.BossWindow:Current()) == 2, "boss window outside the dungeon starts on your first boss")
+  ns61.BossWindow:Open("TheBlindingVale")
+  ok(select(2, ns61.BossWindow:Current()) == 2, "/kc boss <dungeon> opens on your first boss")
+  ns61.BossWindow:Hide()
+  ns61.BossWindow.view = {}
+  BC.state = { dk = "TheBlindingVale", killed = {} }
+  BC:NewRun()
+  ok(BC.state.index == 2, "a new key starts on your first boss")
+  BC:OnEncounterEnd(nil, "Ikuzz the Light Hunter", 8, 5, 1)
+  ok(BC.state.index == 1, "after Ikuzz dies, the window turns to the Trinity")
+  BC:OnEncounterEnd(nil, "Lightblossom Trinity", 8, 5, 1)
+  ok(BC.state.index == 3, "then Ruia")
+  BC.state.index = 2; BC:Step(1)
+  ok(BC.state.index == 1, "paging follows your order")
+  ns61.BossWindow:Show()
+  ok(ns61.BossWindow.title:GetText():find("Lightblossom Trinity", 1, true) and ns61.BossWindow.title:GetText():find("2/4", 1, true),
+    "boss window title numbers the boss by your order")
+  ns61.BossWindow:Hide()
+  BC.state = { killed = {} }
+  -- Dungeon tab: move and reset controls, only where the data allows.
+  ns61.UI:Show("dungeons"); ns61.UI.primerKey = "TheBlindingVale"; ns61.UI:Refresh(); RunTimers()
+  local L = ns61.UI.pp.walk
+  local tx = d61(L)
+  ok(tx:find("1. IKUZZ THE LIGHT HUNTER", 1, true) and tx:find("Boss order: yours, Ikuzz the Light Hunter first.", 1, true),
+    "walkthrough numbers bosses by your order and says the order is yours")
+  local function btn(pattern)
+    for i = 1, L.used do
+      if L.pool[i]:GetText():find(pattern, 1, true) then
+        for j = 1, L.bused do
+          local b = L.bpool[j]
+          if b:IsShown() and rawget(b, "_point") and L.pool[i]._point and b._point[5] == L.pool[i]._point[5] + 2 then return b end
+        end
+      end
+    end
+  end
+  local later = btn("> Move later|r")
+  ok(tx:find("Move later|r|cff", 1, true) and tx:find("(after Lightblossom Trinity)", 1, true) and tx:find("(before Ikuzz the Light Hunter)", 1, true),
+    "move lines name the boss they swap with")
+  ok(later ~= nil, "move line is clickable")
+  if later then later:Click(); RunTimers() end
+  ok(ns61.db.bossOrder.TheBlindingVale == nil, "Move later puts Ikuzz back second")
+  BC:MoveBoss("TheBlindingVale", 2, -1); ns61.UI:Refresh(); RunTimers()
+  local reset = btn("> Reset to the guides' order")
+  ok(reset ~= nil, "reset line shown with your own order")
+  if reset then reset:Click(); RunTimers() end
+  ok(ns61.db.bossOrder.TheBlindingVale == nil and not d61(L):find("Boss order: yours", 1, true), "reset to the guides' order")
+  ns61.UI.primerKey = "KingsRest"; ns61.UI:Refresh(); RunTimers()
+  ok(not d61(L):find("> Move ", 1, true), "fixed-order dungeon: no move lines")
+  -- sharedTrash (no current dungeon has it): the group's trash becomes one section before it.
+  DD61.BOSS_ORDER.KingsRest = { { 2, 3, sharedTrash = true } }
+  w = WT:Build("KingsRest")
+  local plain = {}
+  for _, st in ipairs(w.steps) do if st.kind ~= "anywhere" then plain[#plain + 1] = st.kind:sub(1, 1) .. st.boss end end
+  ok(table.concat(plain, ",") == "t1,b1,t2,b2,t3,b3,t4,b4", "shared path in the guides' order: sections as usual")
+  BC:MoveBoss("KingsRest", 3, -1)
+  w = WT:Build("KingsRest")
+  local seq2, mergedSt = {}, nil
+  for _, st in ipairs(w.steps) do
+    if st.kind ~= "anywhere" then seq2[#seq2 + 1] = st.kind:sub(1, 1) .. st.boss .. (st.merged and "m" or "") end
+    if st.merged then mergedSt = st end
+  end
+  ok(table.concat(seq2, ",") == "t1,b1,t3m,b3,b2,t4,b4", "shared path reordered: one trash section before the group: " .. table.concat(seq2, ","))
+  local mids = {} for _, q in ipairs(mergedSt.reqs) do mids[q.id] = true end
+  ok(mids.KR_UNHOLY_MENDING and mids.KR_HEX, "the merged section holds both bosses' trash")
+  WT:SetLustAt("KingsRest", 1, "t2")
+  ok(#WT:LustAt("KingsRest", mergedSt) == 1, "a lust before either boss shows in the merged section")
+  WT:ResetLust("KingsRest")
+  ns61.UI:Refresh(); RunTimers()
+  ok(d61(L):find("TRASH BEFORE THE COUNCIL OF TRIBES AND MCHIMBA THE EMBALMER", 1, true), "merged header names the group")
+  DD61.BOSS_ORDER.KingsRest = nil
+  ns61.db.bossOrder.KingsRest = nil
+  -- Reset wipes the order with everything else.
+  BC:MoveBoss("TheBlindingVale", 2, -1)
+  ok(ns61.RESET_WIPES:find("boss order", 1, true), "reset names the boss order")
+  ns61:ResetDB()
+  ok(next(ns61.db.bossOrder) == nil and not BC:IsCustomOrder("TheBlindingVale"), "reset clears the boss order")
+  ns61.UI:Hide()
+end
+
 print(string.format("%d passed, %d failed", passes, fails))
 return fails

@@ -3,8 +3,11 @@
 -- each with the requirements that happen there, plus the Bloodlust plan (defaults from
 -- DungeonData, the player's own timing saved per dungeon).
 --
--- Order: the guides' order (DungeonData.AREAS for trash, BossData `reqs` for bosses).
--- (Up to 1.2.1 it could follow a Mythic Dungeon Tools route; that was removed in 1.3.0.)
+-- Order: the guides' order (DungeonData.AREAS for trash, BossData `reqs` for bosses), or
+-- the player's boss order where the data allows a choice (BossCards:Order). Each trash
+-- section moves with the boss it leads to; a group marked `sharedTrash` shows its trash as
+-- one section before the group once its order changes. (Up to 1.2.1 the walkthrough could
+-- follow a Mythic Dungeon Tools route; that was removed in 1.3.0.)
 local _, ns = ...
 
 local WT = {}
@@ -42,21 +45,43 @@ end
 
 local function has(list, v) for _, x in ipairs(list or {}) do if x == v then return true end end return false end
 
--- Guide order: Throughout (no area, no boss), then trash 1, boss 1, trash 2, boss 2...
+-- Throughout (no area, no boss), then for each boss in order: the trash that leads to it,
+-- then the boss. Steps keep the boss's own index (`boss`); `pos` is its place in the order.
 local function GuideSteps(dk, reqs, onBoss)
+  local BC = ns.BossCards
   local areas = DD().AREAS[dk] or {}
-  local bosses = ns.BossCards:Bosses(dk)
+  local order = BC:Order(dk)
+  local custom = BC:IsCustomOrder(dk)
   local steps = {}
   local anywhere = { kind = "anywhere", reqs = {} }
   for _, q in ipairs(reqs) do
     if not areas[q.id] and not onBoss[q.id] then anywhere.reqs[#anywhere.reqs + 1] = q end
   end
   if #anywhere.reqs > 0 then steps[#steps + 1] = anywhere end
-  for bi = 1, #bosses do
-    local t = { kind = "trash", boss = bi, reqs = {} }
-    for _, q in ipairs(reqs) do if has(areas[q.id], bi) then t.reqs[#t.reqs + 1] = q end end
-    steps[#steps + 1] = t
-    local b = { kind = "boss", boss = bi, reqs = {} }
+  local merged = {}
+  for pos, bi in ipairs(order) do
+    local g = BC:OrderGroup(dk, bi)
+    if g and g.sharedTrash and custom then
+      -- Bosses on one shared path, done in another order: their trash is one section before
+      -- the group (where it starts), not split by the old order.
+      if not merged[g] then
+        merged[g] = true
+        local members = {}
+        for _, b in ipairs(order) do if has(g, b) then members[#members + 1] = b end end
+        local t = { kind = "trash", boss = bi, bosses = members, merged = true, pos = pos, reqs = {} }
+        for _, q in ipairs(reqs) do
+          for _, b in ipairs(members) do
+            if has(areas[q.id], b) then t.reqs[#t.reqs + 1] = q; break end
+          end
+        end
+        steps[#steps + 1] = t
+      end
+    else
+      local t = { kind = "trash", boss = bi, pos = pos, reqs = {} }
+      for _, q in ipairs(reqs) do if has(areas[q.id], bi) then t.reqs[#t.reqs + 1] = q end end
+      steps[#steps + 1] = t
+    end
+    local b = { kind = "boss", boss = bi, pos = pos, reqs = {} }
     for _, q in ipairs(reqs) do if has(onBoss[q.id], bi) then b.reqs[#b.reqs + 1] = q end end
     steps[#steps + 1] = b
   end
@@ -76,19 +101,39 @@ end
 ---------------------------------------------------------------------------
 WT.LUST_MAX = 4
 
--- The plan for a dungeon: the player's own (db.lust[dk]) or the default. Returns uses, custom.
+-- Where a spot sits in the player's boss order: the trash before a boss, then the boss.
+local function Rank(dk, at)
+  local kind, n = tostring(at):match("^(%a)(%d+)$")
+  n = tonumber(n) or 0
+  local pos = ns.BossCards and ns.BossCards:Position(dk, n) or n
+  return pos * 2 - (kind == "t" and 1 or 0)
+end
+
+local function SortUses(dk, list)
+  local rank = {}
+  for i, u in ipairs(list) do rank[u] = Rank(dk, u.at) * 100 + i end   -- ties keep their order
+  table.sort(list, function(a, b) return rank[a] < rank[b] end)
+  return list
+end
+
+-- The plan for a dungeon: the player's own (db.lust[dk]) or the default, in the player's
+-- boss order (so "Lust 1" is the first one you meet). Returns uses, custom.
 function WT:Lust(dk)
   local own = ns.db and ns.db.lust and ns.db.lust[dk]
   if type(own) == "table" then return own, true end
-  return DD().LUST[dk] or {}, false
+  local def = DD().LUST[dk] or {}
+  if not (ns.BossCards and ns.BossCards:IsCustomOrder(dk)) then return def, false end
+  local copy = {}
+  for i, u in ipairs(def) do copy[i] = u end
+  return SortUses(dk, copy), false
 end
 
--- A copy the player can change (made on first edit).
+-- A copy the player can change (made on first edit), in the order shown.
 local function Own(dk)
   ns.db.lust = ns.db.lust or {}
   if type(ns.db.lust[dk]) ~= "table" then
     local copy = {}
-    for _, u in ipairs(DD().LUST[dk] or {}) do copy[#copy + 1] = { at = u.at, note = u.note } end
+    for _, u in ipairs((WT:Lust(dk))) do copy[#copy + 1] = { at = u.at, note = u.note } end
     ns.db.lust[dk] = copy
   end
   return ns.db.lust[dk]
@@ -127,16 +172,14 @@ function WT:ResetLust(dk)
   Changed()
 end
 
--- Keep uses in dungeon order: trash before boss N, then boss N.
-local function Rank(dk, at)
-  local kind, n = tostring(at):match("^(%a)(%d+)$")
-  n = tonumber(n) or 0
-  return n * 2 - (kind == "t" and 1 or 0)
+-- Keep uses in dungeon order (the player's boss order).
+function WT:SortLust(dk)
+  SortUses(dk, Own(dk))
 end
 
-function WT:SortLust(dk)
-  local uses = Own(dk)
-  table.sort(uses, function(a, b) return Rank(dk, a.at) < Rank(dk, b.at) end)
+-- The boss order changed: a saved plan is re-sorted so its numbering follows it.
+function WT:OnOrderChanged(dk)
+  if ns.db and ns.db.lust and type(ns.db.lust[dk]) == "table" then self:SortLust(dk) end
 end
 
 -- Readable spot: "Trash before Rav'i", "Rav'i".
@@ -152,7 +195,9 @@ end
 -- Every spot a lust can go, in order: the trash before each boss, then the boss.
 function WT:Spots(dk)
   local out = {}
-  for bi, b in ipairs(ns.BossCards:Bosses(dk)) do
+  local bosses = ns.BossCards:Bosses(dk)
+  for _, bi in ipairs(ns.BossCards:Order(dk)) do
+    local b = bosses[bi]
     out[#out + 1] = { at = "t" .. bi, label = "Trash before " .. b.name }
     out[#out + 1] = { at = "b" .. bi, label = b.name }
   end
@@ -167,7 +212,7 @@ function WT:LustAt(dk, st)
     local kind, n = tostring(u.at):match("^(%a)(%d+)$")
     n = tonumber(n)
     local hit = (st.kind == "boss" and kind == "b" and n == st.boss)
-      or (st.kind == "trash" and kind == "t" and n == st.boss)
+      or (st.kind == "trash" and kind == "t" and (n == st.boss or has(st.bosses, n)))
     if hit then out[#out + 1] = { i = i, use = u } end
   end
   return out
