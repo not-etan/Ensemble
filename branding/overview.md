@@ -9,7 +9,7 @@ Ensemble is a Mythic+ companion that helps players of every skill level learn du
 ## ✨ Who it's for
 
 - 🌱 **Newer players** learn how each dungeon works: every trash pack and boss, what each mechanic does and how to answer it, with short explanations of why they matter.
-- 🪜 **Players pushing higher** learn the details that time keys: the must-kick casts, must-dispel debuffs and must-stop channels, the utility each dungeon asks for, and which classes bring it.
+- 🪜 **Players pushing higher** learn the details that time keys: the must-stop casts and must-dispel debuffs, the utility each dungeon asks for, and which classes bring it.
 - 🏆 **Experienced players** decide faster, with instant applicant ratings, a clear view of every gap and who covers what, and a written plan to share with the group, all without tabbing out to check a single external guide.
 
 🎮 **Game version:** World of Warcraft Retail, *Midnight* Season 2 (patch 12.1.5).
