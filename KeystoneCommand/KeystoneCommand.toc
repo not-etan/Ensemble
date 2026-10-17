@@ -2,7 +2,7 @@
 ## Title: Keystone Command
 ## Notes: Learn the dungeon. Build the group. Make the plan. Command the key. Type /kc to open.
 ## Author: Keystone Command
-## Version: 1.2.1
+## Version: 1.3.0
 ## SavedVariables: KeystoneCommandDB
 ## IconTexture: Interface\AddOns\KeystoneCommand\Media\Logo
 ## AddonCompartmentFunc: KeystoneCommand_OnAddonCompartmentClick

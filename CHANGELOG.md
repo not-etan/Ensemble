@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.1
+## 1.3.0
 **First public release.** A Mythic+ companion for *Midnight* Season 2 (patch 12.1.5) that helps you understand each dungeon, build stronger groups and walk into every key with a plan.
 
 - **Composition:** check any group against the dungeon and this week's affixes, see every gap and who could cover it, and get class suggestions for open slots.
@@ -9,6 +9,31 @@
 - **Plan:** kick rotations, dispels and Bloodlust timing shared out by cooldown, posted to party chat in one click.
 
 Type `/kc` to start. Found a problem? `/kc report` builds a bug report to paste in a comment or GitHub issue.
+
+**Changes since the 1.2.1 beta:**
+- **Sign Up note line:** it now appears even when another addon changes Blizzard's Sign Up dialog code (some interface addons do). `/kc verify` names any addon that replaced the Group Finder code Keystone Command relies on, and the feature it affects.
+- **Plan tab:** the full kick and dispel sheet now includes medium-danger casts after the critical and high ones (they were left out, which also hid some assignments), with "+N more" past five per category. "Post assignments" and "Post gaps" are real buttons under the sheet, with the same hover preview. The panels are titled "Your plan" and "Assignments: (dungeon)" instead of repeating their headings, and each affix line names its need, so Xal'atath's Guile no longer looks listed twice.
+- **Boss order:** where groups can choose which boss comes first (this season, The Blinding Vale's first two bosses), the Dungeon tab has "Move earlier / later" buttons. Your order is saved per dungeon and also sets the Bloodlust order and the boss window's next boss.
+- **Sources:** a new window lists the guides the data comes from, with links to copy (Settings > Data, the Dungeon tab, or `/kc sources`). Each dungeon's default Bloodlust timing now simply says it's a suggested default.
+- **Ability links from the dungeon journal** now work: the addon was asking the journal the wrong way, so boss abilities had no links and boss kills relied on names alone (which matters on non-English clients).
+- **Mythic Dungeon Tools route features removed:** the latest Mythic Dungeon Tools no longer lets other addons read routes, so the pull-by-pull plan, route order and the boss window's pull rows had stopped working. Bloodlust spots saved at a route pull go back to that dungeon's default.
+- **Bug reports** say when BugGrabber is catching errors instead of "error capture not active".
+
+## 1.2.1
+- **Critical gaps, full or partial:** an applicant who fully closes a critical gap (with a dependable ability of their own) still never rates below anyone who doesn't. One who only covers it with a weaker source (a talent, a pet, a long cooldown, a conditional or unconfirmed ability, or a spec the game hasn't shared) now gets less credit: at least halfway from the weakest pick to the best pick that closes nothing, and never raised further. Before, either kind was raised to the top non-closer. Example: Temple of Sethraliss, Protection and Fury Warrior, +12: a Shadow Priest covering Imbued Conduction with Mass Dispel alone rated 100 (Great), tied with an Elemental Shaman who closes far more; now 50 (Good). The same rule applies to the listing stripe for groups you could join.
+- **"Why 78?" adds up:** the steps now show in the order they apply, each ending on the number the next starts from: the pick position ("this one closes 74.0, so 32/100 as a pick"), the experience blend ("70% of utility 32 + 30% of experience 65 = 42"), then the critical-gap rule with the ability that triggered it. Before, the position line showed the already-raised number and the experience line showed the final score instead of the blend.
+- **Preview on the Composition tab:** only Needs rows whose status changes are marked "was MISSING" (or "new"); every row used to say "new".
+- **Invite buttons** switch to "Invited" when you invite someone with the Group Finder's own button, on the Applicants tab and under the Composition slots.
+- **Best value here** (Dungeon tab) leaves out needs you've unticked and, with "Hide low-severity requirements" on, low entries, like the walkthrough beside it.
+- **Groups you could join** are rated on equal terms: every spec you're compared with gets Bloodlust assumed like you do, and the rating treats talents as uncertain for everyone (as a host sees you), so you never rate above the best spec of your role. "What you'd add" still counts the talents you have.
+- **Chat posts are never cut:** a line too long for one chat message carries on to the next ("Ryvax (cont.): ..."), in the assignments post, the Bloodlust line, boss cards and the gaps post. Nothing is dropped any more (the assignments post used to drop backups and mob names first, then cut with "..."). The gaps post now uses the copy window when the game is blocking addon chat, like the other posts.
+- **Faster with many applicants:** a new or departing application re-rates only that application instead of everyone (about 4 ms instead of about 75 ms with 12 applicants and 4 open slots, plain Lua 5.1 in the test harness).
+- **Inside a key:** enemy forces and the roster scan treat values the game hides from addons as unknown instead of risking an error, and a roster scan that errors no longer escapes its timer. `/kc verify` reports both, and now also lists the functions the addon can do without and what each one missing costs.
+- **Reset** (`/kc reset`, Settings > Data) says everything it wipes: saved comps, the planner comp, every setting, run history, boss-card edits, Bloodlust timing and the error log. It also clears this session's hand-picked assignments and boss progress.
+- **Inside a key:** party inspects (how the addon learns other players' specs) now treat IDs the game hides from addons as unknown, like the roster scan already did, and an error inside the inspect timer is contained and reported by `/kc verify` instead of escaping.
+- **Docs:** the overview is shorter, with a new opening, and the README and overview no longer suggest support for other addons: Mythic Dungeon Tools route features carry a note that Keystone Command isn't affiliated with MDT, and the Raider.IO panel mention is gone.
+- **Releases** are now packaged and uploaded to CurseForge, Wago and GitHub automatically. The zip holds just the `KeystoneCommand` folder (with `LICENSE.txt` inside); the full guide is on the wiki instead of a readme beside the folder.
+- The listing-marker frames are kept in the addon's own table instead of a field on the Group Finder's result buttons, and the listing fit cache is cleared with each new search.
 
 ## 1.2.0
 - **Fit ratings mean "how good a pick is this person for this slot?"** An applicant's rating now compares them with every other spec of their role for that slot: 100 is as good as the best pick, 0 no better than the weakest. Ratings used to bunch up at Good and Great because the look-ahead (how well the rest of the group could still be filled) made up most of the score, and with slots open it was nearly the same for everyone. The look-ahead still shows in the headline ("OK if the last slot brings Poison dispel") and the notes, but no longer changes the rating.
