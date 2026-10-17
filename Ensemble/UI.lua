@@ -633,7 +633,8 @@ function UI:Build()
     f:StopMovingOrSizing()
     UI:SaveGeometry()
   end)
-  -- Brand: logo, name (white) and subtitle (fixed size, like the tab row, so the header always fits).
+  -- Brand: logo, name (white) and subtitle in the accent color (follows the theme: default blue,
+  -- a preset, a hex or the class color). Fixed size, like the tab row, so the header always fits.
   local logo = header:CreateTexture(nil, "ARTWORK")
   logo:SetTexture(UI.LOGO)
   logo:SetSize(UI.LOGO_SIZE, UI.LOGO_SIZE)
@@ -645,7 +646,8 @@ function UI:Build()
   self.titleText = title
   fontRegistry[title] = nil
   title:SetText(UI.NAME)
-  local subtitle = Text(header, 10, C.muted)
+  local subtitle = Text(header, 10)
+  Accent(subtitle, "text")
   subtitle:SetWordWrap(false)
   subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -2)
   fontRegistry[subtitle] = nil

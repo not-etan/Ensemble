@@ -603,10 +603,14 @@ do
   ok(nsA.db.settings.theme.hex == "A78BFA", "hex saved normalized")
   ok(UIA.titleText:GetText() == "Ensemble", "title stays the plain white name when the accent changes")
   ok(UIA.tabButtons.settings.line._color[1] > 0.6 and UIA.tabButtons.settings.line._color[3] > 0.95, "registered accent recolored")
+  local sc = UIA.subtitleText._color
+  ok(sc and math.abs(sc[1] - 0xA7 / 255) < 0.01 and math.abs(sc[2] - 0x8B / 255) < 0.01 and math.abs(sc[3] - 0xFA / 255) < 0.01,
+    "window subtitle follows the chosen accent color")
   ok(not UIA.SetThemeHex("12345"), "invalid hex rejected")
   RAID_CLASS_COLORS = setmetatable({ WARRIOR = { r = 0.78, g = 0.61, b = 0.43 } }, { __index = function() return { r = 1, g = 1, b = 1 } end })
   nsA.db.settings.theme.classColor = true; UIA:ApplyTheme(); RunTimers()
   ok(UIA.tabButtons.settings.line._color[1] > 0.7 and UIA.tabButtons.settings.line._color[3] < 0.5, "class color applied")
+  ok(UIA.subtitleText._color[1] > 0.7 and UIA.subtitleText._color[3] < 0.5, "window subtitle follows the class color")
   UIA.SetThemeHex(UIA.PRESETS[3].hex)
   ok(nsA.db.settings.theme.classColor == false and nsA.db.settings.theme.hex == "7CE36A", "preset clears class color")
   -- Resizing adds room; text size is separate
@@ -4072,7 +4076,9 @@ do
   ns63.UI:Show("composition"); RunTimers()
   ok(ns63.UI.titleText:GetText() == "Ensemble" and ns63.UI.titleText._color and ns63.UI.titleText._color[1] > 0.9
     and ns63.UI.titleText._color[3] > 0.9, "window title: Ensemble in white")
-  ok(ns63.UI.subtitleText:GetText() == "A Mythic+ Companion", "window subtitle: A Mythic+ Companion")
+  local sacc, scol = ns63.UI.Kit.C.accent, ns63.UI.subtitleText._color
+  ok(ns63.UI.subtitleText:GetText() == "A Mythic+ Companion" and scol and scol[1] == sacc[1] and scol[2] == sacc[2] and scol[3] == sacc[3],
+    "window subtitle: A Mythic+ Companion in the accent color")
   -- Minimap tooltip: name in white, subtitle in the accent, then the actions unchanged.
   local lines = {}
   local oldAdd, oldOwner, oldShow = GameTooltip.AddLine, GameTooltip.SetOwner, GameTooltip.Show
