@@ -1,13 +1,13 @@
--- Keystone Command / Report.lua
--- /kc report: one copyable block for bug reports. It holds everything a fix needs that a
+-- Ensemble / Report.lua
+-- /ens report: one copyable block for bug reports. It holds everything a fix needs that a
 -- player wouldn't think to mention: addon version, client build and language, where they
 -- were (tab, dungeon, key level, affixes, listing), the group's specs (never player
 -- names), settings changed from the defaults, addons that share the same screens, the
--- addon's own recent Lua errors, and the /kc verify summary with every WARN and FAIL line.
+-- addon's own recent Lua errors, and the /ens verify summary with every WARN and FAIL line.
 -- Read-only: building a report changes nothing.
 --
 -- Error log: the addon keeps the last few Lua errors that came from its own files (found by
--- "AddOns/KeystoneCommand" in the message or stack), with the time and version, in
+-- "AddOns/Ensemble" in the message or stack), with the time and version, in
 -- SavedVariables (db.errors). It chains Blizzard's error handler (geterrorhandler /
 -- seterrorhandler): every error still goes to the previous handler unchanged, and if
 -- another addon owns the handler, or the client refuses the change, nothing breaks; the
@@ -41,9 +41,16 @@ local function Store(entry)
   while #list > MAX_ERRORS do table.remove(list) end
 end
 
+-- "Ensemble/" only as a whole folder name: another addon's folder can end in "Ensemble"
+-- (a transmog tracker, say), so a plain substring match would claim its errors.
+local function OurPath(s)
+  s = tostring(s or "")
+  return s:find("^Ensemble[/\\]") ~= nil or s:find("[^%w_]Ensemble[/\\]") ~= nil
+end
+Report.OurPath = OurPath
+
 local function Ours(msg, stack)
-  local s = tostring(msg or "") .. "\n" .. tostring(stack or "")
-  return s:find("AddOns[/\\]KeystoneCommand[/\\]") ~= nil or s:find("KeystoneCommand/", 1, true) ~= nil
+  return OurPath(tostring(msg or "") .. "\n" .. tostring(stack or ""))
 end
 
 function Report:Record(msg, stack)
@@ -184,7 +191,7 @@ function Report:Build()
   local version, build, _, toc = "?", "?", "?", "?"
   if GetBuildInfo then version, build, _, toc = GetBuildInfo() end
 
-  add("=== Keystone Command bug report ===")
+  add("=== Ensemble bug report ===")
   add("What happened:  ")
   add("What you expected:  ")
   add("Steps to see it again (if you know them):  ")
@@ -279,7 +286,7 @@ function Report:Build()
       if e.stack then
         local first = 0
         for line in tostring(e.stack):gmatch("[^\n]+") do
-          if line:find("KeystoneCommand", 1, true) then
+          if OurPath(line) then
             add("      " .. line:gsub("^%s+", ""):sub(1, 160)); first = first + 1
             if first >= 3 then break end
           end
@@ -304,7 +311,7 @@ function Report:Build()
           end
         end
       end
-      if extra > 0 then add(string.format("  ... and %d more (run /kc verify for the full report)", extra)) end
+      if extra > 0 then add(string.format("  ... and %d more (run /ens verify for the full report)", extra)) end
     else
       add("Verify: could not run")
     end
@@ -321,7 +328,7 @@ function Report:Run()
   if shown then
     ns:Print("Bug report ready: fill in the first three lines, then copy it (Ctrl+A, Ctrl+C) into your report.")
   else
-    ns:Print("Could not open the report window; the report is in KeystoneCommandDB.lastReport after /reload.")
+    ns:Print("Could not open the report window; the report is in EnsembleDB.lastReport after /reload.")
   end
   return text
 end

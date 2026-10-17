@@ -1,7 +1,7 @@
 -- Headless scenario tests. Run with LuaJIT via lupa. ADDON_DIR is set by the runner.
 -- Load order comes straight from the TOC, so a file added there is always tested.
 local FILES = {}
-for line in io.lines(ADDON_DIR .. "/KeystoneCommand.toc") do
+for line in io.lines(ADDON_DIR .. "/Ensemble.toc") do
   local f = line:match("^%s*([%w_]+%.lua)%s*$")
   if f then FILES[#FILES + 1] = f end
 end
@@ -17,13 +17,13 @@ local function boot(skipMeta)
   for _, f in ipairs(FILES) do
     if not (skipMeta and f == "MetaData.lua") then
       local chunk = assert(loadfile(ADDON_DIR .. "/" .. f))
-      chunk("KeystoneCommand", ns)
+      chunk("Ensemble", ns)
     end
   end
   -- fire ADDON_LOADED / PLAYER_LOGIN on the boot frame
   for _, fr in ipairs(ALLFRAMES) do
     if fr._events.ADDON_LOADED then
-      fr._scripts.OnEvent(fr, "ADDON_LOADED", "KeystoneCommand")
+      fr._scripts.OnEvent(fr, "ADDON_LOADED", "Ensemble")
       fr._scripts.OnEvent(fr, "PLAYER_LOGIN")
     end
   end
@@ -40,7 +40,7 @@ local function item(r, id)
   for _, it in ipairs(r.dungeon.items) do if it.req.id == id then return it end end
 end
 
-KeystoneCommandDB = nil
+EnsembleDB = nil
 local ns = boot()
 local A, UD, DD = ns.Analysis, ns.UD, ns.Dungeons
 
@@ -330,7 +330,7 @@ ok(#ns2.db.savedComps == before, "saved comps persist")
 ns2.UI:Show("builder"); RunTimers(); ns2.UI:Hide()
 
 -- 15. Damaged saved data is cleaned up on load
-KeystoneCommandDB = { savedComps = { { name = "Alpha", slots = { 73 } }, "junk" }, currentComp = "x" }
+EnsembleDB = { savedComps = { { name = "Alpha", slots = { 73 } }, "junk" }, currentComp = "x" }
 local ns3 = boot()
 ok(ns3.db.schema == 4, "schema set")
 ok(#ns3.db.savedComps == 1 and ns3.db.savedComps[1].name == "Alpha", "junk comp dropped")
@@ -338,17 +338,17 @@ ok(ns3.db.savedComps[1].slots[5] == 0, "short slots padded")
 ok(type(ns3.db.currentComp) == "table" and ns3.db.currentComp[1] == 0, "bad currentComp reset")
 
 -- 16. Slash commands
-SlashCmdList.KEYSTONECOMMAND("dungeon temple of sethraliss")
+SlashCmdList.ENSEMBLE("dungeon temple of sethraliss")
 ok(ns3.db.selectedDungeon == "TempleOfSethraliss", "slash dungeon")
-SlashCmdList.KEYSTONECOMMAND("reset")
+SlashCmdList.ENSEMBLE("reset")
 ok(ns3.db.selectedDungeon == "TempleOfSethraliss", "reset needs confirm")
-SlashCmdList.KEYSTONECOMMAND("reset confirm")
+SlashCmdList.ENSEMBLE("reset confirm")
 ok(ns3.db.selectedDungeon == "AUTO", "reset confirm works")
 
 
 -- 17. Applicant fit (new feature)
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   local nsF = boot()
   local Fit, TT, UIF = nsF.ApplicantFit, nsF.Tracker, nsF.UI
   ROSTER = {
@@ -463,8 +463,8 @@ do
   ok(UIF.fp.side:IsShown() and UIF.fp.side.text:GetText() == "Dock right", "switch-side button shown while docked")
   UIF.fp.side:Click(); RunTimers(); UIF:RefreshFinderPanel()
   ok(nsF.db.settings.finderPanel.side == "right" and UIF.fp._point[3] == "TOPRIGHT" and UIF.fp:GetWidth() == 280, "right side: single column")
-  SlashCmdList.KEYSTONECOMMAND("panel below"); UIF:RefreshFinderPanel()
-  ok(nsF.db.settings.finderPanel.side == "below" and UIF.fp._point[3] == "BOTTOMLEFT", "/kc panel below")
+  SlashCmdList.ENSEMBLE("panel below"); UIF:RefreshFinderPanel()
+  ok(nsF.db.settings.finderPanel.side == "below" and UIF.fp._point[3] == "BOTTOMLEFT", "/ens panel below")
   UIF.fp._left, UIF.fp._top = 300, 500
   UIF.fp._scripts.OnDragStart(UIF.fp); UIF.fp._scripts.OnDragStop(UIF.fp); RunTimers()
   local fpPos = nsF.db.settings.finderPanel
@@ -475,8 +475,8 @@ do
   UIF.fp.dock:Click(); RunTimers()
   ok(fpPos.docked and UIF.fp._point[2] == PVEFrame and not UIF.fp.dock:IsShown(), "Dock button re-attaches")
   fpPos.docked = false; UIF:PositionFinderPanel()
-  SlashCmdList.KEYSTONECOMMAND("panel dock")
-  ok(fpPos.docked and UIF.fp._point[2] == PVEFrame, "/kc panel dock re-attaches")
+  SlashCmdList.ENSEMBLE("panel dock")
+  ok(fpPos.docked and UIF.fp._point[2] == PVEFrame, "/ens panel dock re-attaches")
   PVEFrame:Hide(); RunTimers()
   ok(not UIF.fp:IsShown() and not TT.enabled, "closing Group Finder hides panel and releases tracker")
   -- Not hosting
@@ -492,7 +492,7 @@ do
   local nsL = boot()
   local Links, UD2, UIL = nsL.Links, nsL.UD, nsL.UI
   local mf = Links:Ability("Mind Freeze", "interrupt")
-  ok(mf:find("|Haddon:KeystoneCommand:a:47528:interrupt:Mind Freeze|h", 1, true) and mf:find("|T" .. (1000000 + 47528), 1, true),
+  ok(mf:find("|Haddon:Ensemble:a:47528:interrupt:Mind Freeze|h", 1, true) and mf:find("|T" .. (1000000 + 47528), 1, true),
     "class ability link with icon + type")
   ok(mf:find(Links.TYPES.interrupt.hex, 1, true), "colored by type")
   local sl = Links:Ability("Spell Lock (Felhunter)", "interrupt")
@@ -514,10 +514,10 @@ do
   local r = nsL.Analysis:Analyze({ { specID = 73 }, { specID = 256 }, { specID = 63 } }, "AltarOfFangs", nsL.db.settings)
   ok(r.summary:find(":1307571:poison:Envenom|h", 1, true), "summary links the ability with the requirement's type")
   local lbl = nsL.Analysis.Labels(r.caps.interrupt, "interrupt")
-  ok(lbl[1]:find("|Haddon:KeystoneCommand:a:", 1, true), "provider labels are links")
+  ok(lbl[1]:find("|Haddon:Ensemble:a:", 1, true), "provider labels are links")
   local found = false
   for _, it in ipairs(r.dungeon.items) do
-    for _, l in ipairs(nsL.Analysis.Labels(it.providers, it.req.need)) do if l:find("|Haddon:KeystoneCommand:a:", 1, true) then found = true end end
+    for _, l in ipairs(nsL.Analysis.Labels(it.providers, it.req.need)) do if l:find("|Haddon:Ensemble:a:", 1, true) then found = true end end
   end
   ok(found, "dungeon providers name their ability as a link")
   -- Tooltip handler
@@ -527,11 +527,11 @@ do
   local lines, spellShown = {}, nil
   GameTooltip.SetSpellByID = function(_, id) spellShown = id end
   GameTooltip.AddLine = function(_, t) lines[#lines + 1] = t end
-  f._scripts.OnHyperlinkEnter(f, "addon:KeystoneCommand:e:270492:curse:Hex")
+  f._scripts.OnHyperlinkEnter(f, "addon:Ensemble:e:270492:curse:Hex")
   ok(spellShown == 270492 and lines[1]:find("Curse debuff"), "tooltip shows the spell and its type")
   spellShown, lines = nil, {}
   GameTooltip.SetText = function(_, t) lines[#lines + 1] = "T:" .. t end
-  f._scripts.OnHyperlinkEnter(f, "addon:KeystoneCommand:e:0:poison:Envenom")
+  f._scripts.OnHyperlinkEnter(f, "addon:Ensemble:e:0:poison:Envenom")
   ok(spellShown == nil and lines[1] == "T:Envenom" and lines[2]:find("Poison"), "name-only tooltip when ID unknown")
   -- Dungeon icons
   ok(UIL:DungeonIcon("AltarOfFangs") == 7001 and UIL:DungeonIcon("KingsRest") == 7002, "in-game dungeon icons by map ID")
@@ -601,12 +601,12 @@ do
   UIA:Show("settings"); RunTimers()
   ok(UIA.SetThemeHex("a78bfa"), "set theme hex")
   ok(nsA.db.settings.theme.hex == "A78BFA", "hex saved normalized")
-  ok(UIA.titleText:GetText():find("|cffa78bfa", 1, true), "title recolored live")
+  ok(UIA.titleText:GetText() == "Ensemble", "title stays the plain white name when the accent changes")
   ok(UIA.tabButtons.settings.line._color[1] > 0.6 and UIA.tabButtons.settings.line._color[3] > 0.95, "registered accent recolored")
   ok(not UIA.SetThemeHex("12345"), "invalid hex rejected")
   RAID_CLASS_COLORS = setmetatable({ WARRIOR = { r = 0.78, g = 0.61, b = 0.43 } }, { __index = function() return { r = 1, g = 1, b = 1 } end })
   nsA.db.settings.theme.classColor = true; UIA:ApplyTheme(); RunTimers()
-  ok(UIA.titleText:GetText():find("|cffc79c6e", 1, true), "class color applied")
+  ok(UIA.tabButtons.settings.line._color[1] > 0.7 and UIA.tabButtons.settings.line._color[3] < 0.5, "class color applied")
   UIA.SetThemeHex(UIA.PRESETS[3].hex)
   ok(nsA.db.settings.theme.classColor == false and nsA.db.settings.theme.hex == "7CE36A", "preset clears class color")
   -- Resizing adds room; text size is separate
@@ -620,19 +620,19 @@ do
   ok(UIA.pl.leftPanel._w > 400, "extra width widens the Plan tab's columns: " .. tostring(UIA.pl.leftPanel._w))
   local before = UIA.cp.sumTitle._fontSize
   UIA:SetTextSize(120); RunTimers()
-  ok(UIA.logo and UIA.LOGO == "Interface\\AddOns\\KeystoneCommand\\Media\\LogoMark", "window header shows the addon logo")
-  ok(UIA.sloganText and UIA.sloganText:GetText() == "Command the key." and UIA.sloganText._fontSize == 10, "slogan under the name at a fixed size")
-  ok(UIA.headerFit and UIA.headerFit.sloganShown and UIA.sloganText:IsShown(), "slogan fits beside the tabs at the narrowest window")
+  ok(UIA.logo and UIA.LOGO == "Interface\\AddOns\\Ensemble\\Media\\LogoMark", "window header shows the addon logo")
+  ok(UIA.subtitleText and UIA.subtitleText:GetText() == "A Mythic+ Companion" and UIA.subtitleText._fontSize == 10, "subtitle under the name at a fixed size")
+  ok(UIA.headerFit and UIA.headerFit.subtitleShown and UIA.subtitleText:IsShown(), "subtitle fits beside the tabs at the narrowest window")
   ok(nsA.db.settings.textSize == 120 and UIA.cp.sumTitle._fontSize == 16 and before == 13 and UIA.titleText._fontSize == 15, "text size applies to existing text (tab row stays fixed)")
   ok(UIA.frame._w == 1400, "text size leaves the window size alone")
   UIA:SetTextSize(200); ok(nsA.db.settings.textSize == 125, "text size clamped high")
   UIA:SetTextSize(10); ok(nsA.db.settings.textSize == 80, "text size clamped low")
-  SlashCmdList.KEYSTONECOMMAND("text 110"); ok(nsA.db.settings.textSize == 110, "/kc text")
+  SlashCmdList.ENSEMBLE("text 110"); ok(nsA.db.settings.textSize == 110, "/ens text")
   UIA.grip._scripts.OnMouseDown(UIA.grip); ok(UIA.frame._sizing, "grip resizes")
   UIA.grip._scripts.OnMouseUp(UIA.grip)
-  SlashCmdList.KEYSTONECOMMAND("lock"); RunTimers()
+  SlashCmdList.ENSEMBLE("lock"); RunTimers()
   ok(nsA.db.settings.window.locked and UIA.lockBtn.text:GetText() == "Locked" and not UIA.grip:IsShown(), "locked: grip hidden")
-  SlashCmdList.KEYSTONECOMMAND("unlock"); RunTimers()
+  SlashCmdList.ENSEMBLE("unlock"); RunTimers()
   ok(not nsA.db.settings.window.locked and UIA.grip:IsShown(), "unlocked: grip shown")
   UIA:ResetGeometry(); ok(nsA.db.settings.window.width == 952 and nsA.db.settings.window.point == "CENTER", "reset geometry")
   UIA:SetTextSize(100)
@@ -651,7 +651,7 @@ do
   UIx:Hide()
 end
 
--- 23. /kc verify
+-- 23. /ens verify
 do
   MythicCompDB = nil
   ROSTER = {
@@ -685,7 +685,7 @@ do
     ok(not section:find("Scatter Shot", 1, true) and not section:find("Psychic Horror", 1, true) and true, "confirmed or removed abilities no longer listed")
   end
   ok(nsV.db.lastVerify == report, "report saved for fallback")
-  SlashCmdList.KEYSTONECOMMAND("verify")
+  SlashCmdList.ENSEMBLE("verify")
   ok(nsV.Verify.lastReport ~= nil, "slash command runs verify")
   print(report:sub(1, 1500))
 end
@@ -925,7 +925,7 @@ end
 
 -- 26. Default dungeon: keystone (Builder), listing or zone (Live/Applicants)
 do
-  KeystoneCommandDB = {}
+  EnsembleDB = {}
   OWNED_KEY, OWNED_LEVEL, LISTING, INSTANCE, ACTIVE_CHALLENGE = 249, 14, nil, nil, nil
   ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" } }
   local nsD = boot()
@@ -951,8 +951,8 @@ do
   nsD:CheckKeystoneChange()
   ok(nsD.db.selectedDungeon == "NONE", "same key does not override a pick")
   nsD:SetManualDungeon("AUTO")
-  SlashCmdList.KEYSTONECOMMAND("dungeon none"); ok(nsD.db.selectedDungeon == "NONE", "/kc dungeon none")
-  SlashCmdList.KEYSTONECOMMAND("dungeon auto"); ok(nsD.db.selectedDungeon == "AUTO", "/kc dungeon auto")
+  SlashCmdList.ENSEMBLE("dungeon none"); ok(nsD.db.selectedDungeon == "NONE", "/ens dungeon none")
+  SlashCmdList.ENSEMBLE("dungeon auto"); ok(nsD.db.selectedDungeon == "AUTO", "/ens dungeon auto")
   -- No keystone: nothing
   OWNED_KEY = nil
   ok(nsD:GetEffectiveDungeon(false) == nil, "no key, no default")
@@ -1013,7 +1013,7 @@ end
 
 -- 27. Left column: cheat sheet, quick saved comps, post gaps
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   OWNED_KEY, LISTING, INSTANCE = nil, nil, nil
   ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" } }
   local nsC = boot()
@@ -1035,7 +1035,7 @@ do
   ok(t:find("KICK", 1, true) and t:find("Lightning Bolt", 1, true) and t:find("Flame Shock", 1, true), "must-kicks listed")
   ok(t:find("DISPEL", 1, true) and t:find("Imbued Conduction", 1, true) and t:find("Magic:", 1, true), "must-dispels listed with type")
   ok(t:find("STOP", 1, true) and t:find("Arrow Barrage", 1, true), "must-stops listed")
-  ok(t:find("Hhaddon:KeystoneCommand", 1, true) == nil and t:find("|Haddon:KeystoneCommand", 1, true), "abilities are links with tooltips")
+  ok(t:find("Hhaddon:Ensemble", 1, true) == nil and t:find("|Haddon:Ensemble", 1, true), "abilities are links with tooltips")
   -- Issue #6: critical, high and medium casts are all on the sheet, most severe first; low stays off.
   local rows = UIc:CheatSheetRows("TempleOfSethraliss")
   local SEVN = { critical = 1, high = 2, medium = 3, low = 4 }
@@ -1081,7 +1081,7 @@ do
   nsC.db.currentComp = { 73, 257, 72, 71, 0 }
   nsC:SetManualDungeon("TempleOfSethraliss"); UIc:Show("plan"); RunTimers()
   local msg = UIc:GapsMessage(UIc.cp.lastAnalysis)
-  ok(msg:find("^%[Keystone Command%] Temple of Sethraliss") and msg:find("Missing: ", 1, true) and msg:find("Bloodlust", 1, true)
+  ok(msg:find("^%[Ensemble%] Temple of Sethraliss") and msg:find("Missing: ", 1, true) and msg:find("Bloodlust", 1, true)
     and msg:find("Poison dispel (Cytotoxin)", 1, true) and not msg:find("|", 1, true) and #msg <= 255, "gap message: " .. msg)
   -- Issue #9: the Post buttons are real buttons under the list; hover previews the text.
   local postBtn = UIc.pl.postGapsBtn
@@ -1119,7 +1119,7 @@ end
 
 -- 28. Dungeons matched by ID, not name
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   local nsI = boot()
   local DDi = nsI.Dungeons
   ok(DDi:KeyForChallengeMap(584) == "TheBlindingVale" and DDi:KeyForChallengeMap(250) == "TempleOfSethraliss", "challenge map IDs")
@@ -1143,7 +1143,7 @@ end
 
 -- 29. Season-change warning
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   local nsS = boot()
   PRINTED = ""
   nsS:CheckSeason()
@@ -1173,7 +1173,7 @@ end
 
 -- 30. Weekly affixes
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   CURRENT_AFFIXES = { 158, 10, 9, 147 }   -- Voidbound, Fortified, Tyrannical, Guile
   local nsA2 = boot()
   local AF = nsA2.Affixes
@@ -1228,7 +1228,7 @@ end
 
 -- 31. Kick and dispel assignments
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   CURRENT_AFFIXES = {}
   local nsK = boot()
   local AS, A3 = nsK.Assignments, nsK.Analysis
@@ -1323,7 +1323,7 @@ end
 
 -- 32. Applicant comparison, sort and filter
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   ROSTER = {
     player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" },
     party1 = { guid = "H", name = "Hal", class = "PRIEST", role = "HEALER" },
@@ -1417,7 +1417,7 @@ end
 
 -- 33. Run history
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   CURRENT_AFFIXES = {}
   ROSTER = {
     player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" },
@@ -1495,14 +1495,14 @@ do
   ok(dump(nsH.UI.hp.runs):find("No keys recorded yet", 1, true), "dungeon filter")
   nsH.UI.hp.clear:Click(); nsH.UI.hp.clear:Click(); RunTimers()
   ok(#nsH.db.history == 0, "clear history (two clicks)")
-  SlashCmdList.KEYSTONECOMMAND("history"); RunTimers()
-  ok(nsH.UI.currentTab == "history", "/kc history opens the tab")
+  SlashCmdList.ENSEMBLE("history"); RunTimers()
+  ok(nsH.UI.currentTab == "history", "/ens history opens the tab")
   nsH.UI:Hide()
 end
 
 -- 34. Review fixes
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   CURRENT_AFFIXES = { 160, 162 }
   local nsR = boot()
   local AF = nsR.Affixes
@@ -1571,7 +1571,7 @@ end
 
 -- 35. In-client report: Lindormi ID and confirmed instance IDs
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   local nsZ = boot()
   ok(nsZ.Affixes.Match(165, "Lindormis Fuehrung").key == "LINDORMI", "Lindormi matched by ID 165")
   ok(nsZ.Dungeons:KeyForInstanceMap(2813) == "MurderRow" and nsZ.Dungeons:KeyForInstanceMap(2993) == "AltarOfFangs",
@@ -1580,7 +1580,7 @@ end
 
 -- 36. Class suggestions for empty slots only
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   CURRENT_AFFIXES = {}
   local nsG = boot()
   local A4 = nsG.Analysis
@@ -1631,7 +1631,7 @@ end
 
 -- 37. No duplicate classes in suggestions (except across roles)
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   CURRENT_AFFIXES = {}
   local nsD2 = boot()
   local A5 = nsD2.Analysis
@@ -1665,7 +1665,7 @@ end
 
 -- 38. Expanders everywhere, coverers on every THIN/MISSING, summary strip links
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   CURRENT_AFFIXES = {}
   ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" } }
   local nsE = boot()
@@ -1726,7 +1726,7 @@ end
 
 -- 39. Review fixes (presentation)
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   CURRENT_AFFIXES = {}
   local nsF2 = boot()
   local U2 = nsF2.UI
@@ -1780,7 +1780,7 @@ end
 
 -- 40. Learning features
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   CURRENT_AFFIXES = {}
   ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 72, role = "DAMAGER" } }
   local nsL = boot()
@@ -1805,7 +1805,7 @@ do
   UIl:Show("composition"); RunTimers()
   nsL.db.settings.explain = true
   -- glossary
-  SlashCmdList.KEYSTONECOMMAND("glossary"); RunTimers()
+  SlashCmdList.ENSEMBLE("glossary"); RunTimers()
   local g = dump(UIl.glossary.list)
   ok(UIl.glossary:IsShown() and g:find("THIN", 1, true) and g:find("Rotational kick", 1, true) and g:find("Curse dispel", 1, true), "glossary")
   UIl.glossary:Hide()
@@ -1848,13 +1848,13 @@ do
     for i = 2, #l do ok(l[i - 1].score >= l[i].score, "primer ranking " .. role) end
   end
   ok(UIl.cp.lastPlan ~= false, "primer leaves the Builder's plan alone")
-  SlashCmdList.KEYSTONECOMMAND("dungeons"); ok(UIl.currentTab == "dungeons", "/kc dungeons")
+  SlashCmdList.ENSEMBLE("dungeons"); ok(UIl.currentTab == "dungeons", "/ens dungeons")
   UIl:Hide()
 end
 
 -- 41. Score breakdown, wait times, Group Finder tooltips
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   CURRENT_AFFIXES = {}
   ROSTER = {
     player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" },
@@ -1902,7 +1902,7 @@ do
   local member = CreateFrame("Button"); member.GetParent = function() return parent end
   HOOKS.LFGListApplicantMember_OnEnter(member)
   local tl = table.concat(lines, "\n")
-  ok(tl:find("Keystone Command: ", 1, true) and tl:find("/100", 1, true) and not tl:find("|H", 1, true), "fit added to the Blizzard tooltip")
+  ok(tl:find("Ensemble: ", 1, true) and tl:find("/100", 1, true) and not tl:find("|H", 1, true), "fit added to the Blizzard tooltip")
   nsS2.db.settings.finderTooltip = false; lines = {}
   HOOKS.LFGListApplicantMember_OnEnter(member)
   ok(#lines == 0, "tooltip lines can be switched off")
@@ -1915,7 +1915,7 @@ end
 
 -- 42. Lessons after each key
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   local nsH2 = boot()
   local Hs = nsH2.History
   local function run(result, gaps, key) return { key = key or "TempleOfSethraliss", result = result, gaps = gaps, deaths = 3 } end
@@ -1942,7 +1942,7 @@ end
 
 -- 43. Learning review fixes
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   CURRENT_AFFIXES = {}
   local nsQ = boot()
   nsQ.db.currentComp = { 0, 0, 0, 0, 0 }
@@ -1970,7 +1970,7 @@ end
 
 -- 44. Your fit in Group Finder search results, best key, need filters, chat style, minimap logo
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   CURRENT_AFFIXES = {}
   local savedPlayer = ROSTER.player
   ROSTER.player = { guid = "P", name = "Me", class = "ROGUE", spec = 259, role = "DAMAGER" }
@@ -2077,7 +2077,7 @@ do
   local hookAgain = realDialog._scripts.OnShow
   FSa:Hook()
   ok(realDialog._scripts.OnShow == hookAgain, "sign up: OnShow is hooked once")
-  -- /kc verify: issecurevariable on the three hooked globals names the addon that replaced one.
+  -- /ens verify: issecurevariable on the three hooked globals names the addon that replaced one.
   LFGListSearchEntry_Update = function() end
   LFGListUtil_SetSearchEntryTooltip = function() end
   issecurevariable = function(name)
@@ -2145,8 +2145,8 @@ do
   nsF.UI:Show("builder"); RunTimers()
   nsF.UI:ShowBestKey()
   ok(nsF.UI.bestKey and nsF.UI.bestKey:IsShown() and nsF.UI.bestKey.list.used > 8, "best key popup lists the dungeons")
-  SlashCmdList.KEYSTONECOMMAND("bestkey")
-  ok(nsF.UI.bestKey:IsShown(), "/kc bestkey opens it")
+  SlashCmdList.ENSEMBLE("bestkey")
+  ok(nsF.UI.bestKey:IsShown(), "/ens bestkey opens it")
 
   -- Needs that matter: ignoring a need removes it everywhere
   local base = Af:Analyze({ { specID = 250 } }, "TempleOfSethraliss", nsF.db.settings)
@@ -2175,7 +2175,7 @@ do
   local full = nsF.UI:GapsMessage(rr)
   nsF.db.settings.chatStyle = "short"
   local short = nsF.UI:GapsMessage(rr)
-  ok(full:find("Cytotoxin", 1, true) and short:find("^%[KC%]") and not short:find("Cytotoxin", 1, true), "short gaps post drops the casts")
+  ok(full:find("Cytotoxin", 1, true) and short:find("^%[Ensemble%]") and not short:find("Cytotoxin", 1, true), "short gaps post drops the casts")
   local plan = nsF.Assignments:Build(Af:Analyze({ { specID = 250 }, { specID = 65 }, { specID = 259 }, { specID = 62 } }, "TempleOfSethraliss", nsF.db.settings))
   local sl = nsF.Assignments:ChatLines(plan, "Temple", "short")
   local fl = nsF.Assignments:ChatLines(plan, "Temple", "full")
@@ -2290,18 +2290,18 @@ end
 
 -- 45. The Blizzard Options entry
 do
-  KeystoneCommandDB = {}
+  EnsembleDB = {}
   local registered = {}
   Settings = {
     RegisterCanvasLayoutCategory = function(panel, name) registered.name = name; return { name = name } end,
     RegisterAddOnCategory = function(cat) registered.cat = cat end,
   }
   local nsM = boot()
-  ok(registered.name == "Keystone Command" and registered.cat ~= nil and nsM.UI.blizzCategory ~= nil, "entry in Blizzard's Options > AddOns")
+  ok(registered.name == "Ensemble" and registered.cat ~= nil and nsM.UI.blizzCategory ~= nil, "entry in Blizzard's Options > AddOns")
   Settings = nil
 end
 
--- 46. /kc report and the error log
+-- 46. /ens report and the error log
 do
   local prevCalls, handler = 0, nil
   local prev = function() prevCalls = prevCalls + 1 end
@@ -2313,12 +2313,12 @@ do
   local nsP = boot()
   local R = nsP.Report
   ok(R and R.captureActive and handler ~= nil, "error capture chained onto the game's handler")
-  nextStack = "Interface/AddOns/KeystoneCommand/UI.lua:120: in function 'Refresh'\n[C]: ?"
-  handler("Interface/AddOns/KeystoneCommand/UI.lua:120: attempt to index nil")
+  nextStack = "Interface/AddOns/Ensemble/UI.lua:120: in function 'Refresh'\n[C]: ?"
+  handler("Interface/AddOns/Ensemble/UI.lua:120: attempt to index nil")
   nextStack = "Interface/AddOns/OtherAddon/x.lua:5: in function 'Foo'"
   handler("Interface/AddOns/OtherAddon/x.lua:5: not ours")
-  nextStack = "Interface/AddOns/KeystoneCommand/UI.lua:120: in function 'Refresh'\n[C]: ?"
-  handler("Interface/AddOns/KeystoneCommand/UI.lua:120: attempt to index nil")
+  nextStack = "Interface/AddOns/Ensemble/UI.lua:120: in function 'Refresh'\n[C]: ?"
+  handler("Interface/AddOns/Ensemble/UI.lua:120: attempt to index nil")
   ok(prevCalls == 3, "every error still reaches the previous handler")
   local errs = nsP.db.errors
   ok(#errs == 1 and errs[1].count == 2 and errs[1].version, "only this addon's errors are logged, repeats counted")
@@ -2328,19 +2328,19 @@ do
   local changed = table.concat(R:ChangedSettings(), " ")
   ok(changed:find("chatStyle=short", 1, true) and changed:find("ignoredNeeds={soothe}", 1, true) and not changed:find("window.x", 1, true),
     "changed settings listed, window position left out: " .. changed)
-  BugGrabber = { GetDB = function() return { { message = "Interface/AddOns/KeystoneCommand/Report.lua:9: from bug grabber", counter = 3 },
+  BugGrabber = { GetDB = function() return { { message = "Interface/AddOns/Ensemble/Report.lua:9: from bug grabber", counter = 3 },
     { message = "Interface/AddOns/Else/a.lua:1: other" } } end }
   local text = R:Build()
   BugGrabber = nil
-  ok(text:find("=== Keystone Command bug report ===", 1, true) and text:find("What happened:", 1, true), "report starts with the questions")
+  ok(text:find("=== Ensemble bug report ===", 1, true) and text:find("What happened:", 1, true), "report starts with the questions")
   ok(text:find("Addon ", 1, true) and text:find("Planner slots: Protection Warrior, Holy Priest, empty", 1, true), "version line and Planner slots")
   ok(text:find("attempt to index nil", 1, true) and text:find("[x2", 1, true) and text:find("UI.lua:120", 1, true), "logged error with count and stack line")
   ok(text:find("from bug grabber", 1, true) ~= nil and not text:find("Else/a.lua", 1, true), "only this addon's BugGrabber errors")
   ok(text:find("Verify: ", 1, true) and text:find("=== end of report ===", 1, true), "verify summary included")
   ok(not text:find("Secretname", 1, true), "no player names in the report")
   ok(text:find("Settings changed from defaults: ", 1, true) and text:find("chatStyle=short", 1, true), "settings in the report")
-  SlashCmdList.KEYSTONECOMMAND("report")
-  ok(nsP.Verify.frame and nsP.Verify.frame:IsShown() and nsP.Verify.frame.report:find("bug report", 1, true), "/kc report opens the copy window")
+  SlashCmdList.ENSEMBLE("report")
+  ok(nsP.Verify.frame and nsP.Verify.frame:IsShown() and nsP.Verify.frame.report:find("bug report", 1, true), "/ens report opens the copy window")
   ok(nsP.db.lastReport ~= nil, "last report kept in SavedVariables")
   R:ClearErrors()
   ok(R:Build():find("none recorded", 1, true), "empty log reads 'none recorded'")
@@ -2414,7 +2414,7 @@ do
   ok(#BC:Jobs("AltarOfFangs", 3, plan, r) == 0, "no job lines where the boss has no linked casts")
   -- Chat
   local cl = BC:ChatLines("AltarOfFangs", 1)
-  ok(cl[1]:find("^%[KC%] Rav'i %- ALL: ") and cl[2]:find("^TANK: ") and cl[3]:find("^HEAL: ") and cl[4]:find("^DPS: "), "one chat line per role, ALL first")
+  ok(cl[1]:find("^%[Ensemble%] Rav'i %- ALL: ") and cl[2]:find("^TANK: ") and cl[3]:find("^HEAL: ") and cl[4]:find("^DPS: "), "one chat line per role, ALL first")
   for _, l in ipairs(cl) do ok(#l <= 250 and not l:find("|", 1, true), "boss chat line plain and short (" .. #l .. ")") end
   -- Tracking
   ok(BC:Enter("AltarOfFangs") and BC.state.index == 1, "entering starts at the first boss")
@@ -2452,7 +2452,7 @@ do
   BW:Step(1); ok(BC.state.index == 3, "arrows turn the page")
   ROSTER.party1 = { guid = "H", name = "Hal", class = "PRIEST", role = "HEALER" }
   SENT = {}; BW:Post(); RunTimers(); RunTimers(); RunTimers(); RunTimers(); RunTimers()
-  ok(#SENT >= 3 and SENT[1].msg:find("^%[KC%] Zul'jan %- ALL:") and SENT[1].channel == "PARTY", "post sends the card to party chat")
+  ok(#SENT >= 3 and SENT[1].msg:find("^%[Ensemble%] Zul'jan %- ALL:") and SENT[1].channel == "PARTY", "post sends the card to party chat")
   C_ChatInfo = { InChatMessagingLockdown = function() return true end }
   SENT = {}; BW:Post(); RunTimers()
   ok(#SENT == 0 and nsB.Verify.frame and nsB.Verify.frame:IsShown() and nsB.Verify.frame.report:find("Zul'jan", 1, true), "chat blocked: opens the copy window instead")
@@ -2465,8 +2465,8 @@ do
   nsB.CurrentInstanceDungeon = realCur
   BC:CheckZone()
   -- Slash and editor
-  SlashCmdList.KEYSTONECOMMAND("boss ruby life pools")
-  ok(BW:IsShown() and BW.title:GetText():find("Melidrussa", 1, true), "/kc boss <dungeon> opens that dungeon's cards")
+  SlashCmdList.ENSEMBLE("boss ruby life pools")
+  ok(BW:IsShown() and BW.title:GetText():find("Melidrussa", 1, true), "/ens boss <dungeon> opens that dungeon's cards")
   nsB.UI:OpenBossEditor("RubyLifePools", 1)
   local ed = nsB.UI.bossEditor
   ok(ed and ed:IsShown() and ed.edit:GetText():find("^ALL: "), "editor opens with the card's text")
@@ -2490,10 +2490,10 @@ end
 
 -- 48. Slash command and share-string prefix
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   local nsR = boot()
-  ok(SLASH_KEYSTONECOMMAND1 == "/kc" and SLASH_KEYSTONECOMMAND2 == "/keystonecommand" and SLASH_KEYSTONECOMMAND3 == nil, "/kc and /keystonecommand only")
-  ok(nsR.Share.Encode("New", { 73, 257, 0, 0, 0 }, "KingsRest"):find("^KC1:"), "share strings are KC1")
+  ok(SLASH_ENSEMBLE1 == "/ens" and SLASH_ENSEMBLE2 == nil, "/ens only")
+  ok(nsR.Share.Encode("New", { 73, 257, 0, 0, 0 }, "KingsRest"):find("^ENS1:"), "share strings are ENS1")
   ok(nsR.Share.Decode("XX1:a:NONE:0,0,0,0,0:1") == nil, "other prefixes rejected")
 end
 
@@ -2517,13 +2517,13 @@ do
   }
   C_EncounterJournal = { GetSectionInfo = function(id) return SECTIONS[id] end,
     GetInstanceForGameMap = function(map) return map == 2993 and 1322 or 0 end }
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   local nsL2 = boot()
   local BC2 = nsL2.BossCards
   local js = BC2:JournalSpells("AltarOfFangs")
   ok(js.Hydrastrike and js.Hydrastrike.id == 1111 and js["Death Rattle"] and not js.Overview, "boss abilities read from the journal (sections without a spell skipped)")
   local line = BC2:Decorate("AltarOfFangs", "Defensive for Hydrastrike.")
-  ok(line:find("|Haddon:KeystoneCommand:e:1111:boss:Hydrastrike|h", 1, true), "journal abilities become links: " .. line)
+  ok(line:find("|Haddon:Ensemble:e:1111:boss:Hydrastrike|h", 1, true), "journal abilities become links: " .. line)
   local both = BC2:Decorate("AltarOfFangs", "Kick all three Toxic Atrophy casts in a row.")
   ok(both:find(":interrupt:Toxic Atrophy|h", 1, true), "dungeon-data abilities keep their own type")
   ok(not BC2:Decorate("AltarOfFangs", "Dispel it (Hydrastrike)."):find("|H", 1, true), "text in brackets is never linked")
@@ -2531,10 +2531,10 @@ do
   nsL2.db.settings.bossWindow.showAll = true
   bw.view = { dk = "AltarOfFangs", index = 1 }; bw:Show()
   local any = false
-  for _, it in ipairs(bw.items) do if it.text:find("|Haddon:KeystoneCommand:e:1111:boss:", 1, true) then any = true end end
+  for _, it in ipairs(bw.items) do if it.text:find("|Haddon:Ensemble:e:1111:boss:", 1, true) then any = true end end
   ok(any and bw.content.cmLinks, "boss window shows ability links and handles their tooltips")
   ok(table.concat(nsL2.BossCards:ChatLines("AltarOfFangs", 1), "\n"):find("|H", 1, true) == nil, "chat posts stay plain text")
-  -- /kc verify season: dungeon pool, journal bosses with ability IDs, affixes
+  -- /ens verify season: dungeon pool, journal bosses with ability IDs, affixes
   local stubInstance = DUNGEON_MAPS[588][3]
   DUNGEON_MAPS[588][3] = 2993            -- the live client's instance map for Altar of Fangs
   local season = nsL2.Verify:BuildSeason()
@@ -2542,8 +2542,8 @@ do
   ok(season:find("588 | Altar of Fangs | instance 2993", 1, true) and season:find("addon: AltarOfFangs", 1, true), "season dump lists dungeons with IDs")
   ok(season:find("boss 1: Rav'i", 1, true) and season:find("Hydrastrike=1111", 1, true), "season dump lists journal bosses and ability IDs")
   ok(season:find("== This week's affixes ==", 1, true), "season dump has the affix section")
-  SlashCmdList.KEYSTONECOMMAND("verify season")
-  ok(nsL2.db.lastSeason and nsL2.db.lastSeason:find("season data", 1, true), "/kc verify season opens the copy window")
+  SlashCmdList.ENSEMBLE("verify season")
+  ok(nsL2.db.lastSeason and nsL2.db.lastSeason:find("season data", 1, true), "/ens verify season opens the copy window")
   -- Issue #10: which call finds the journal, and the in-dungeon fallback.
   local jid, how = BC2:JournalInstance("AltarOfFangs")
   ok(jid == 1322 and how == "C_EncounterJournal.GetInstanceForGameMap", "journal found from the instance map, anywhere")
@@ -2560,7 +2560,7 @@ do
   C_Map.GetBestMapForUnit = function() error("client error") end
   ok(BC2:JournalInstance("MurderRow") == nil, "a failing map call is contained")
   nsL2.CurrentInstanceDungeon = realCur
-  -- /kc verify lists each dungeon's journal ID and the call that found it.
+  -- /ens verify lists each dungeon's journal ID and the call that found it.
   C_EncounterJournal.GetInstanceForGameMap = function(map)
     local J = { [2993] = 1322, [2521] = 1302, [1877] = 1300, [1762] = 1301, [2859] = 1309, [2923] = 1313, [2825] = 1311, [2813] = 1304 }
     return J[map] or 0
@@ -2576,7 +2576,7 @@ end
 
 -- 50. Full review (October 2026): resource and data fixes
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   local nsF = boot()
   -- Journal not ready: not cached as empty, so links appear once it loads.
   local BCF = nsF.BossCards
@@ -2626,7 +2626,7 @@ end
 
 -- 51. Experience weighting, "what we need", host coaching, data date, tour
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   C_LFGList.GetApplicantDungeonScoreForListing = function(id, m, activityID)
     local x = APPLICANTS[id] and APPLICANTS[id][m]
     if not (x and x.best) then return nil end
@@ -2709,8 +2709,8 @@ do
   ok(not Tour:IsActive() and not Tour.frame:IsShown(), "Done ends the tour")
   UIE:Hide(); UIE:Show(); RunTimers()
   ok(not Tour:IsActive(), "tour shows only once")
-  SlashCmdList.KEYSTONECOMMAND("tour")
-  ok(Tour:IsActive() and Tour.step == 1, "/kc tour replays it")
+  SlashCmdList.ENSEMBLE("tour")
+  ok(Tour:IsActive() and Tour.step == 1, "/ens tour replays it")
   Tour.frame.skip._scripts.OnClick(Tour.frame.skip)
   ok(not Tour:IsActive(), "Skip ends it")
   C_LFGList.GetApplicantDungeonScoreForListing = nil
@@ -2721,7 +2721,7 @@ end
 -- when it's loaded; saved route-pull Bloodlust entries are dropped on load.
 do
   local function slurp(path) local f = io.open(path, "rb"); if not f then return nil end local t = f:read("*a"); f:close(); return t end
-  local toc = slurp(ADDON_DIR .. "/KeystoneCommand.toc") or ""
+  local toc = slurp(ADDON_DIR .. "/Ensemble.toc") or ""
   ok(not toc:find("Route.lua", 1, true) and not toc:find("MythicDungeonTools", 1, true), "TOC: no Route.lua, no MDT dependency")
   ok(slurp(ADDON_DIR .. "/Route.lua") == nil, "Route.lua is gone")
   for _, f in ipairs(FILES) do
@@ -2730,7 +2730,7 @@ do
       "no code reads Mythic Dungeon Tools: " .. f)
   end
   -- Saved data from 1.2.1: route-pull Bloodlust entries and the old setting.
-  KeystoneCommandDB = { settings = { routePlan = false }, lust = {
+  EnsembleDB = { settings = { routePlan = false }, lust = {
     KingsRest = { { at = "p3", note = "big pack" }, { at = "b4", note = "on pull" } },   -- mixed: keep the boss one
     AltarOfFangs = { { at = "p7" }, { at = "p12" } },                                   -- only pulls: back to the default
     MurderRow = {},                                                                      -- emptied on purpose: stays empty
@@ -2784,7 +2784,7 @@ end
 
 -- 53. Dungeon walkthrough, role filter and the Bloodlust plan
 do
-  KeystoneCommandDB = { lust = { KingsRest = { { at = "zz" }, "bad", { at = "b1", note = 5 } }, Junk = 7 } }
+  EnsembleDB = { lust = { KingsRest = { { at = "zz" }, "bad", { at = "b1", note = 5 } }, Junk = 7 } }
   local nsW = boot()
   ok(#nsW.db.lust.KingsRest == 1 and nsW.db.lust.KingsRest[1].note == nil and nsW.db.lust.Junk == nil, "damaged lust data cleaned on load")
   nsW.db.lust = {}
@@ -2861,7 +2861,7 @@ end
 
 -- 54. Assignments chosen by hand
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" } }
   local nsO = boot()
   local AS = nsO.Assignments
@@ -2919,7 +2919,7 @@ end
 
 -- 55. Applicants on the Composition tab while hosting
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   ROSTER = {
     player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" },
     party1 = { guid = "H", name = "Hal", class = "PRIEST", role = "HEALER" },
@@ -3028,7 +3028,7 @@ do
   UIp:AddApplicantTooltip(fakeMember)
   GameTooltip.AddLine = oldAdd
   local tipAll = table.concat(tipLines, "\n")
-  ok(tipAll:find("Keystone Command: ", 1, true) and tipAll:find("Group after: ", 1, true), "Blizzard tooltip: Group after line")
+  ok(tipAll:find("Ensemble: ", 1, true) and tipAll:find("Group after: ", 1, true), "Blizzard tooltip: Group after line")
   -- Compare: a Group after line under each applicant
   UIp:Show("applicants"); RunTimers()
   UIp.ap.compare = { evG[1].applicantID, evG[2].applicantID }; UIp:Refresh(); RunTimers()
@@ -3043,7 +3043,7 @@ end
 
 -- 56. Patch 12.1.5 data: Living Bomb dispel, data date
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   local nsP = boot()
   local DDp = nsP.Dungeons
   ok(DDp.DATA_PATCH == "12.1.5" and DDp.DATA_CHECKED == "October 13, 2026"
@@ -3081,7 +3081,7 @@ end
 -- 57. Fit rating rework (1.2.0): pick rating, critical-gap rule, no-real-difference guard,
 -- "Group after:" status, listing fit
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   local nsR = boot()
   local Fit, LF, UDr, Ar, DDr = nsR.ApplicantFit, nsR.ListingFit, nsR.UD, nsR.Analysis, nsR.Dungeons
   local H = DDr.HEURISTICS
@@ -3258,7 +3258,7 @@ end
 -- 58. Code review fixes (1.2.1): Invite after an outside invite, "Why N?" arithmetic, best-value
 -- filters, the per-applicant rating cache, listing fit on equal terms
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   ROSTER = {
     player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" },
     party1 = { guid = "H", name = "Hal", class = "PRIEST", role = "HEALER" },
@@ -3483,9 +3483,9 @@ do
 end
 
 -- 58b. Code review fixes (1.2.1): chat posts never cut, secret-value guards in run-time paths,
--- /kc verify coverage, reset wording and session state
+-- /ens verify coverage, reset wording and session state
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   local nsV = boot()
   local Util, AS, BC, Av, UDv = nsV.Util, nsV.Assignments, nsV.BossCards, nsV.Analysis, nsV.UD
   local set = nsV.db.settings
@@ -3575,7 +3575,7 @@ do
       for _, role in ipairs(nsV.BossData.ROLES) do
         for _, l in ipairs(BC:Lines(dk, i)) do if l.role == role then want = want .. l.text end end
       end
-      local head = "[KC] " .. BC:Boss(dk, i).name .. " - "
+      local head = "[Ensemble] " .. BC:Boss(dk, i).name .. " - "
       local got = ""
       for _, l in ipairs(lines) do
         if #l > 255 or l:find("%.%.%.$") then bcCut = bcCut + 1 end
@@ -3674,7 +3674,7 @@ do
   ok(okInsp and T.rescanErrors >= 1 and T.lastRescanError:find("inspect client error", 1, true),
     "inspect: an error inside the inspect timer is contained and counted")
   T.rescanErrors = 1
-  -- /kc verify reports both, and the guarded functions it didn't list before (item 10).
+  -- /ens verify reports both, and the guarded functions it didn't list before (item 10).
   T.secretReads = 3
   ACTIVE_CHALLENGE = 249
   local realLead, realSB = UnitIsGroupLeader, C_SpellBook
@@ -3698,11 +3698,11 @@ do
 
   -- Reset: the prompt and Settings > Data name everything that's wiped; session state clears.
   PRINTED = ""
-  SlashCmdList.KEYSTONECOMMAND("reset")
+  SlashCmdList.ENSEMBLE("reset")
   local wipes = { "saved comps", "every setting", "run history", "boss-card edits", "Bloodlust timing" }
   local allNamed = true
   for _, wd in ipairs(wipes) do if not PRINTED:find(wd, 1, true) then allNamed = false end end
-  ok(allNamed and PRINTED:find("can't be undone", 1, true), "/kc reset names everything it wipes")
+  ok(allNamed and PRINTED:find("can't be undone", 1, true), "/ens reset names everything it wipes")
   nsV.UI:Show("settings"); RunTimers()
   local note
   for _, fr in ipairs(ALLFRAMES) do
@@ -3714,12 +3714,12 @@ do
   ok(noteOK, "Settings > Data names everything a reset wipes: " .. tostring(note))
   local helpOK = true
   PRINTED = ""
-  SlashCmdList.KEYSTONECOMMAND("help")
+  SlashCmdList.ENSEMBLE("help")
   for _, wd in ipairs(wipes) do if not PRINTED:find(wd, 1, true) then helpOK = false end end
-  ok(helpOK, "/kc help's reset line names everything it wipes")
+  ok(helpOK, "/ens help's reset line names everything it wipes")
   AS.overrides = { X = { kind = "kick", who = {} } }
   BC.state = { dk = "KingsRest", index = 3, killed = { [1] = true, [2] = true } }
-  SlashCmdList.KEYSTONECOMMAND("reset confirm")
+  SlashCmdList.ENSEMBLE("reset confirm")
   ok(next(AS.overrides) == nil and next(BC.state.killed) == nil and BC.state.index == 1 and nsV.db.bossProgress and next(nsV.db.bossProgress.killed) == nil,
     "reset clears assignments chosen by hand and boss progress")
   BC.state = { killed = {} }
@@ -3731,8 +3731,8 @@ end
 do
   local function slurp(path) local f = io.open(path, "rb"); if not f then return nil end local t = f:read("*a"); f:close(); return t end
   local inFolder, root = slurp(ADDON_DIR .. "/LICENSE.txt"), slurp(ADDON_DIR .. "/../LICENSE")
-  ok(inFolder and root and inFolder == root, "KeystoneCommand/LICENSE.txt is an exact copy of LICENSE")
-  local toc = slurp(ADDON_DIR .. "/KeystoneCommand.toc") or ""
+  ok(inFolder and root and inFolder == root, "Ensemble/LICENSE.txt is an exact copy of LICENSE")
+  local toc = slurp(ADDON_DIR .. "/Ensemble.toc") or ""
   ok(toc:find("\n## X%-Curse%-Project%-ID: 1745945") ~= nil, "TOC has the CurseForge project ID")
   ok(toc:find("\n## X%-Wago%-ID: b6XyAbKp") ~= nil, "TOC has the Wago project ID")
 end
@@ -3740,7 +3740,7 @@ end
 -- 60. Plan tab (1.3.0 issues #5, #6, #7, #9), the issue's own case: Den of Nalorakk +17 with
 -- Veng DH, Resto Shaman, Demo Warlock, Arcane Mage and Arms Warrior in the planner.
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 71, role = "DAMAGER" } }
   CURRENT_AFFIXES = { 158, 10, 9, 147 }
   local ns60 = boot()
@@ -3807,7 +3807,7 @@ end
 
 -- 61. Boss order where the data allows a choice (1.3.0): The Blinding Vale's first two bosses.
 do
-  KeystoneCommandDB = { bossOrder = { TheBlindingVale = { 2, 1, 3, 4 }, KingsRest = { 2, 1, 3, 4 },
+  EnsembleDB = { bossOrder = { TheBlindingVale = { 2, 1, 3, 4 }, KingsRest = { 2, 1, 3, 4 },
     MurderRow = "bad", AltarOfFangs = { 1, 2 } } }
   local ns61 = boot()
   local DD61, BC, WT = ns61.Dungeons, ns61.BossCards, ns61.Walkthrough
@@ -3877,10 +3877,10 @@ do
   ok(ns61.db.lust.TheBlindingVale and ns61.db.lust.TheBlindingVale[1].at == "t2", "editing copies the plan in the order shown")
   WT:ResetLust("TheBlindingVale")
   -- Boss window: first boss and next boss follow the order.
-  ns61.BossWindow.view = { dk = "TheBlindingVale" }   -- /kc boss The Blinding Vale
+  ns61.BossWindow.view = { dk = "TheBlindingVale" }   -- /ens boss The Blinding Vale
   ok(select(2, ns61.BossWindow:Current()) == 2, "boss window outside the dungeon starts on your first boss")
   ns61.BossWindow:Open("TheBlindingVale")
-  ok(select(2, ns61.BossWindow:Current()) == 2, "/kc boss <dungeon> opens on your first boss")
+  ok(select(2, ns61.BossWindow:Current()) == 2, "/ens boss <dungeon> opens on your first boss")
   ns61.BossWindow:Hide()
   ns61.BossWindow.view = {}
   BC.state = { dk = "TheBlindingVale", killed = {} }
@@ -3959,7 +3959,7 @@ end
 
 -- 62. Sources window and the Bloodlust default line (1.3.0)
 do
-  KeystoneCommandDB = nil
+  EnsembleDB = nil
   local ns62 = boot()
   local DD62, UI62 = ns62.Dungeons, ns62.UI
   -- The list: grouped by use, one link per site's guide index, https only.
@@ -3978,17 +3978,17 @@ do
     and all:find("raider.io", 1, true) and all:find("wowhead.com/guides/classes", 1, true) and all:find("blizzard.com", 1, true),
     "Method.gg, Icy Veins, Wowhead (dungeons and classes), Raider.IO, Blizzard")
   ok(not all:lower():find("wowcarry", 1, true), "the Bloodlust timing source is not listed")
-  -- /kc sources opens the window; each link in a read-only box; the footer.
+  -- /ens sources opens the window; each link in a read-only box; the footer.
   PRINTED = ""
-  SlashCmdList.KEYSTONECOMMAND("help")
-  ok(PRINTED:find("/kc sources", 1, true), "/kc help lists /kc sources")
-  SlashCmdList.KEYSTONECOMMAND("sources")
+  SlashCmdList.ENSEMBLE("help")
+  ok(PRINTED:find("/ens sources", 1, true), "/ens help lists /ens sources")
+  SlashCmdList.ENSEMBLE("sources")
   local p = UI62.sources
-  ok(p and p:IsShown() and #p.boxes == 6 and p.boxes[1]:GetText() == DD62.SOURCES[1].items[1].url, "/kc sources opens the window with every link")
+  ok(p and p:IsShown() and #p.boxes == 6 and p.boxes[1]:GetText() == DD62.SOURCES[1].items[1].url, "/ens sources opens the window with every link")
   local b = p.boxes[3]
   b:SetText("typed"); b._scripts.OnTextChanged(b, true)
   ok(b:GetText() == DD62.SOURCES[1].items[3].url, "link boxes are read-only (typing restores the link)")
-  ok(p.footer:GetText() == "Keystone Command isn't affiliated with these sites. Thanks to their authors.", "footer: not affiliated, thanks")
+  ok(p.footer:GetText() == "Ensemble isn't affiliated with these sites. Thanks to their authors.", "footer: not affiliated, thanks")
   p:Hide()
   -- Settings > Data button and the Dungeon tab's link.
   UI62:Show("settings"); UI62:ShowSettingsSection("data"); RunTimers()
@@ -4011,6 +4011,83 @@ do
   end
   ok(same, "every dungeon's default Bloodlust says it's a suggestion")
   UI62:Hide()
+end
+
+-- 63. The Ensemble name (1.3.0): TOC, /ens only, fresh saved data, chat prefix, window
+-- subtitle, minimap tooltip, plain party posts, and no old name anywhere in the addon.
+do
+  local function slurp(path) local f = io.open(path, "rb"); if not f then return nil end local t = f:read("*a"); f:close(); return t end
+  local toc = slurp(ADDON_DIR .. "/Ensemble.toc") or ""
+  ok(toc:find("\n## Title: Ensemble\r?\n") ~= nil, "TOC title is Ensemble")
+  ok(toc:find("\n## SavedVariables: EnsembleDB\r?\n") ~= nil, "TOC saves EnsembleDB only")
+  ok(toc:find("A Mythic+ Companion", 1, true) and toc:find("Learn the dungeon. Build the group. Time the key.", 1, true)
+    and toc:find("/ens", 1, true), "TOC notes: subtitle, summary and /ens")
+  ok(toc:find("Interface\\AddOns\\Ensemble\\Media\\Logo", 1, true) ~= nil, "TOC icon in the Ensemble folder")
+  ok(toc:find("AddonCompartmentFunc: Ensemble_OnAddonCompartmentClick", 1, true) ~= nil, "compartment function named in the TOC")
+  -- Saved data from the beta under the old name is never read: Ensemble starts fresh.
+  KeystoneCommandDB = { settings = { textSize = 110, minimap = { hide = true } } }
+  EnsembleDB = nil
+  SLASH_KEYSTONECOMMAND1, SlashCmdList.KEYSTONECOMMAND = nil, nil
+  local ns63 = boot()
+  ok(EnsembleDB == ns63.db and ns63.db.settings.textSize == 100 and not ns63.db.settings.minimap.hide,
+    "fresh EnsembleDB; the beta's saved data isn't migrated")
+  ok(KeystoneCommandDB.settings.textSize == 110, "the old saved data is left untouched")
+  KeystoneCommandDB = nil
+  -- /ens is the only command.
+  ok(SLASH_ENSEMBLE1 == "/ens" and SLASH_ENSEMBLE2 == nil and type(SlashCmdList.ENSEMBLE) == "function", "/ens registered")
+  ok(SLASH_KEYSTONECOMMAND1 == nil and SlashCmdList.KEYSTONECOMMAND == nil, "no /kc")
+  ok(type(Ensemble_OnAddonCompartmentClick) == "function" and type(Ensemble_OnAddonCompartmentEnter) == "function"
+    and type(Ensemble_OnAddonCompartmentLeave) == "function", "compartment globals exist")
+  -- Chat prefix (D): the emblem as a text-height icon, then "Ensemble:" in white.
+  PRINTED = ""
+  ns63:Print("hello")
+  ok(PRINTED == "|TInterface\\AddOns\\Ensemble\\Media\\LogoMark:0|t |cffffffffEnsemble:|r hello\n", "chat prefix: logo icon, white Ensemble:")
+  ok(slurp(ADDON_DIR .. "/Media/LogoMark.tga") ~= nil, "the chat icon's texture ships in the folder")
+  -- Window header: white name, subtitle underneath (where the slogan was).
+  ns63.UI:Show("composition"); RunTimers()
+  ok(ns63.UI.titleText:GetText() == "Ensemble" and ns63.UI.titleText._color and ns63.UI.titleText._color[1] > 0.9
+    and ns63.UI.titleText._color[3] > 0.9, "window title: Ensemble in white")
+  ok(ns63.UI.subtitleText:GetText() == "A Mythic+ Companion", "window subtitle: A Mythic+ Companion")
+  -- Minimap tooltip: name in white, subtitle in the accent, then the actions unchanged.
+  local lines = {}
+  local oldAdd, oldOwner, oldShow = GameTooltip.AddLine, GameTooltip.SetOwner, GameTooltip.Show
+  GameTooltip.AddLine = function(_, t, r, g, b) lines[#lines + 1] = { t = t, r = r, g = g, b = b } end
+  GameTooltip.SetOwner = function() end
+  GameTooltip.Show = function() end
+  ns63.UI.minimapButton._scripts.OnEnter(ns63.UI.minimapButton)
+  ok(lines[1] and lines[1].t == "Ensemble" and lines[1].r == 1 and lines[1].g == 1 and lines[1].b == 1, "minimap tooltip: Ensemble in white")
+  local acc = ns63.UI.Kit.C.accent
+  ok(lines[2] and lines[2].t == "A Mythic+ Companion" and lines[2].r == acc[1] and lines[2].b == acc[3], "minimap tooltip: subtitle in the accent blue")
+  ok(lines[3] and lines[3].t == "Left-click: toggle   Right-click: settings   Drag: move" and #lines == 3, "minimap tooltip: actions unchanged")
+  GameTooltip.AddLine, GameTooltip.SetOwner, GameTooltip.Show = oldAdd, oldOwner, oldShow
+  ns63.UI:Hide()
+  -- Party posts: the [Ensemble] tag in both chat styles, plain text (no icons or colors).
+  ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" } }
+  local r = ns63.Analysis:Analyze({ { specID = 250 } }, "TempleOfSethraliss", ns63.db.settings)
+  for _, style in ipairs({ "full", "short" }) do
+    ns63.db.settings.chatStyle = style
+    local gl = ns63.UI:GapsLines(r)
+    local plain = true
+    for _, l in ipairs(gl) do if l:find("|T", 1, true) or l:find("|c", 1, true) then plain = false end end
+    ok(gl[1] and gl[1]:find("^%[Ensemble%] ") and plain, "gaps post (" .. style .. "): [Ensemble], plain text")
+  end
+  ns63.db.settings.chatStyle = "full"
+  -- Bug reports claim only errors from the Ensemble folder itself.
+  local OP = ns63.Report.OurPath
+  ok(OP("Interface/AddOns/Ensemble/UI.lua:120: attempt to index nil") and OP("Interface\\AddOns\\Ensemble\\Core.lua:5")
+    and OP("[string \"@Interface/AddOns/Ensemble/UI.lua\"]:9") and OP("Ensemble/UI.lua:3"), "our error paths recognized")
+  ok(not OP("Interface/AddOns/RemixEnsemble/Core.lua:4") and not OP("Interface/AddOns/EnsembleTracker/x.lua:1")
+    and not OP("Interface/AddOns/Ensembles/x.lua:1"), "another addon's folder with Ensemble in its name isn't ours")
+  -- No old name anywhere in the shipped addon.
+  local shipped = { "Ensemble.toc", "LICENSE.txt" }
+  for _, f in ipairs(FILES) do shipped[#shipped + 1] = f end
+  for _, f in ipairs(shipped) do
+    local src = slurp(ADDON_DIR .. "/" .. f) or ""
+    local low = src:lower()
+    ok(not low:find("keystone command", 1, true) and not low:find("keystonecommand", 1, true)
+      and not src:find("/kc[^%w]") and not src:find("[KC]", 1, true) and not src:find("KC1", 1, true)
+      and not src:find("Command the key", 1, true), "no old name in " .. f)
+  end
 end
 
 print(string.format("%d passed, %d failed", passes, fails))

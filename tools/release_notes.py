@@ -26,7 +26,7 @@ def section(version):
 
 
 def toc_version():
-    toc = open(os.path.join(ROOT, "KeystoneCommand", "KeystoneCommand.toc"), encoding="utf-8").read()
+    toc = open(os.path.join(ROOT, "Ensemble", "Ensemble.toc"), encoding="utf-8").read()
     m = re.search(r"^## Version:\s*(\S+)", toc, re.M)
     return m.group(1) if m else None
 
@@ -50,7 +50,7 @@ def main(argv):
         return
     if not body:
         sys.exit("CHANGELOG.md has no '## %s' section" % ver)
-    print("## Keystone Command %s\n\n%s" % (ver, body))
+    print("## Ensemble %s\n\n%s" % (ver, body))
 
 
 if __name__ == "__main__":

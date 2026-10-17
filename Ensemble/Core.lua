@@ -1,17 +1,17 @@
--- Keystone Command / Core.lua
+-- Ensemble / Core.lua
 -- Init, private namespace, SavedVariables defaults + schema migration, callbacks,
 -- slash commands and Addon Compartment hooks.
 --
 -- Everything lives on the private addon table `ns` (passed by the client as the
 -- second vararg of every file). The only intentional globals are the ones the client
 -- itself requires by name:
---   KeystoneCommandDB                          (SavedVariables, declared in the .toc)
---   SLASH_KEYSTONECOMMAND1 / SLASH_KEYSTONECOMMAND2 (slash command registration)
---   KeystoneCommand_OnAddonCompartmentClick/Enter/Leave (referenced from the .toc)
+--   EnsembleDB                          (SavedVariables, declared in the .toc)
+--   SLASH_ENSEMBLE1 / SLASH_ENSEMBLE2 (slash command registration)
+--   Ensemble_OnAddonCompartmentClick/Enter/Leave (referenced from the .toc)
 
 local ADDON_NAME, ns = ...
 
-ns.ADDON_NAME = "KeystoneCommand"
+ns.ADDON_NAME = "Ensemble"
 ns.SCHEMA_VERSION = 4
 
 -- GetAddOnMetadata moved to C_AddOns in 10.1; the global was removed in 11.x.
@@ -134,7 +134,7 @@ local API = {}
 ns.API = API
 
 -- GetSpecializationInfoByID(specID) -> id, name, description, icon, role, classFile, className
--- Long-standing global; confirmed present in 12.1.0 (build 69933) by /kc verify (all 40 spec IDs match).
+-- Long-standing global; confirmed present in 12.1.0 (build 69933) by /ens verify (all 40 spec IDs match).
 function API.GetSpecInfoByID(specID)
   if not specID or specID == 0 then return nil end
   if GetSpecializationInfoByID then
@@ -146,7 +146,7 @@ end
 
 -- The player's own current spec ID.
 -- 11.x added C_SpecializationInfo.GetSpecialization / GetSpecializationInfo and
--- deprecated the globals; the C_SpecializationInfo path is confirmed present in 12.1.0 (build 69933) by /kc verify.
+-- deprecated the globals; the C_SpecializationInfo path is confirmed present in 12.1.0 (build 69933) by /ens verify.
 function API.GetPlayerSpecID()
   local index
   if C_SpecializationInfo and C_SpecializationInfo.GetSpecialization then
@@ -186,8 +186,14 @@ function ns:Fire(event, ...)
   end
 end
 
+-- The addon's emblem (Media/LogoMark), also used inline in chat as a text-height icon.
+ns.LOGO_MARK = "Interface\\AddOns\\Ensemble\\Media\\LogoMark"
+-- Prefix on lines printed to your own chat: the emblem, then "Ensemble:" in white. Party-chat
+-- posts never use it (they're plain text; the game strips colors and icons from player chat).
+ns.CHAT_PREFIX = "|T" .. ns.LOGO_MARK .. ":0|t |cffffffffEnsemble:|r "
+
 function ns:Print(msg)
-  local out = "|cff7fb7ffKeystone Command|r: " .. tostring(msg)
+  local out = ns.CHAT_PREFIX .. tostring(msg)
   if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage(out) else print(out) end
 end
 
@@ -324,13 +330,13 @@ local function SanitizeDB(db)
 end
 
 function ns:InitDB()
-  if type(KeystoneCommandDB) ~= "table" then KeystoneCommandDB = {} end
-  local db = KeystoneCommandDB
+  if type(EnsembleDB) ~= "table" then EnsembleDB = {} end
+  local db = EnsembleDB
   local from = tonumber(db.schema) or 0
   if from > ns.SCHEMA_VERSION then
     -- Saved data from a NEWER addon version (user downgraded). Don't migrate backwards;
     -- just fill defaults so this version can run.
-    self:Print("Saved data is from a newer Keystone Command version; some settings may be ignored.")
+    self:Print("Saved data is from a newer Ensemble version; some settings may be ignored.")
   else
     for v = from + 1, ns.SCHEMA_VERSION do
       if MIGRATIONS[v] then
@@ -345,12 +351,12 @@ function ns:InitDB()
   self.db = db
 end
 
--- What a full reset wipes, in plain words (the /kc reset prompt and Settings > Data say it).
+-- What a full reset wipes, in plain words (the /ens reset prompt and Settings > Data say it).
 ns.RESET_WIPES = "saved comps, the planner comp, every setting, run history, boss-card edits, Bloodlust timing, boss order and the error log"
 
 function ns:ResetDB()
-  KeystoneCommandDB = Util.DeepCopy(ns.DEFAULTS)
-  self.db = KeystoneCommandDB
+  EnsembleDB = Util.DeepCopy(ns.DEFAULTS)
+  self.db = EnsembleDB
   -- Session state that would otherwise outlive the reset: assignments chosen by hand and the
   -- boss window's progress through the current key.
   if ns.Assignments and ns.Assignments.ClearOverrides then ns.Assignments:ClearOverrides() end
@@ -378,7 +384,7 @@ ns.state = {
 ---------------------------------------------------------------------------
 -- Dungeon detection
 -- C_MythicPlus.GetOwnedKeystoneChallengeMapID / C_ChallengeMode.GetMapUIInfo confirmed in
--- 12.1.0 (build 69933) by /kc verify. C_ChallengeMode.GetActiveChallengeMapID and
+-- 12.1.0 (build 69933) by /ens verify. C_ChallengeMode.GetActiveChallengeMapID and
 -- GetInstanceInfo are long-standing retail APIs; all calls are pcall-guarded.
 ---------------------------------------------------------------------------
 local mapKeyCache = {}
@@ -433,7 +439,7 @@ local function IsLive(self, live)
 end
 
 -- The dungeon the analysis should use right now, and why:
---   "manual"   - picked in the dropdown (or /kc dungeon, or a loaded saved comp)
+--   "manual"   - picked in the dropdown (or /ens dungeon, or a loaded saved comp)
 --   "auto"     - Live/Applicants: your Group Finder listing, else the dungeon you're in
 --                (ns.state.autoSource says which)
 --   "keystone" - Builder: the keystone in your bags
@@ -558,7 +564,7 @@ end
 
 ---------------------------------------------------------------------------
 -- Share strings (export/import a comp). Plain-text and versioned, in the spirit of a
--- WeakAuras import string but human-readable:  KC1:<name>:<dungeonKey>:<5 specIDs>:<checksum>
+-- WeakAuras import string but human-readable:  ENS1:<name>:<dungeonKey>:<5 specIDs>:<checksum>
 ---------------------------------------------------------------------------
 local Share = {}
 ns.Share = Share
@@ -573,17 +579,17 @@ function Share.Encode(name, slots, dungeonKey)
   name = Util.Trim(tostring(name or "Comp")):gsub("[:|\n\r]", " ")
   local ids = {}
   for i = 1, ns.NUM_SLOTS do ids[i] = tostring(tonumber(slots and slots[i]) or 0) end
-  local body = string.format("KC1:%s:%s:%s", name, dungeonKey or "NONE", table.concat(ids, ","))
+  local body = string.format("ENS1:%s:%s:%s", name, dungeonKey or "NONE", table.concat(ids, ","))
   return body .. ":" .. Checksum(body)
 end
 
 -- Returns { name, slots, dungeon } or nil, errorMessage
 function Share.Decode(str)
   str = Util.Trim(str or "")
-  local body, sum = str:match("^(KC1:.*):(%d+)$")
-  if not body then return nil, "Not a Keystone Command string." end
+  local body, sum = str:match("^(ENS1:.*):(%d+)$")
+  if not body then return nil, "Not an Ensemble share string." end
   if Checksum(body) ~= tonumber(sum) then return nil, "String is damaged (checksum mismatch)." end
-  local name, dungeon, idList = body:match("^KC1:(.-):([%w_]+):([%d,]+)$")
+  local name, dungeon, idList = body:match("^ENS1:(.-):([%w_]+):([%d,]+)$")
   if not name then return nil, "Malformed string." end
   local slots, i = {}, 0
   for id in idList:gmatch("%d+") do
@@ -617,28 +623,27 @@ end)
 -- Slash commands
 ---------------------------------------------------------------------------
 local HELP = {
-  "/kc - toggle the window",
-  "/kc composition, applicants, dungeons, plan, history or settings - open a tab",
-  "/kc planner or party - Composition for the planner or for your party (Auto is in the tab's mode menu)",
-  "/kc dungeon <name, auto or none> - set the dungeon to check against (auto = your key, listing or zone)",
-  "/kc lock or unlock - lock or unlock moving and resizing the window",
-  "/kc text <80-125> - set the text size in percent (drag the window's corner to resize it)",
-  "/kc panel below, right or dock - attach the applicant panel below or beside the Group Finder",
-  "/kc glossary - what the addon's terms mean",
-  "/kc sources - the guides the addon's data comes from",
-  "/kc tour - a short tour of the window",
-  "/kc bestkey - rank every Season dungeon for your current group",
-  "/kc verify - check this client and print a report to paste back",
-  "/kc verify season - the game's dungeon pool, bosses, ability IDs and affixes (for updates)",
-  "/kc boss [dungeon] - open or close the boss-card window",
-  "/kc report - a copyable bug report (version, setup, recent errors) to paste with your issue",
-  "/kc minimap - show/hide the minimap button",
-  "/kc reset confirm - wipe all Keystone Command data: saved comps, the planner comp, every setting, run history, boss-card edits, Bloodlust timing, boss order and the error log",
+  "/ens - toggle the window",
+  "/ens composition, applicants, dungeons, plan, history or settings - open a tab",
+  "/ens planner or party - Composition for the planner or for your party (Auto is in the tab's mode menu)",
+  "/ens dungeon <name, auto or none> - set the dungeon to check against (auto = your key, listing or zone)",
+  "/ens lock or unlock - lock or unlock moving and resizing the window",
+  "/ens text <80-125> - set the text size in percent (drag the window's corner to resize it)",
+  "/ens panel below, right or dock - attach the applicant panel below or beside the Group Finder",
+  "/ens glossary - what the addon's terms mean",
+  "/ens sources - the guides the addon's data comes from",
+  "/ens tour - a short tour of the window",
+  "/ens bestkey - rank every Season dungeon for your current group",
+  "/ens verify - check this client and print a report to paste back",
+  "/ens verify season - the game's dungeon pool, bosses, ability IDs and affixes (for updates)",
+  "/ens boss [dungeon] - open or close the boss-card window",
+  "/ens report - a copyable bug report (version, setup, recent errors) to paste with your issue",
+  "/ens minimap - show/hide the minimap button",
+  "/ens reset confirm - wipe all Ensemble data: saved comps, the planner comp, every setting, run history, boss-card edits, Bloodlust timing, boss order and the error log",
 }
 
-SLASH_KEYSTONECOMMAND1 = "/kc"
-SLASH_KEYSTONECOMMAND2 = "/keystonecommand"
-SlashCmdList["KEYSTONECOMMAND"] = function(msg)
+SLASH_ENSEMBLE1 = "/ens"
+SlashCmdList["ENSEMBLE"] = function(msg)
   if not ns.db then return end
   local cmd, rest = Util.Trim(msg or ""):match("^(%S*)%s*(.-)$")
   cmd = (cmd or ""):lower()
@@ -680,11 +685,11 @@ SlashCmdList["KEYSTONECOMMAND"] = function(msg)
       UI:DockFinderPanel(arg ~= "dock" and arg or nil)
       ns:Print("Applicant panel docked " .. (ns.db.settings.finderPanel.side == "right" and "to the right of" or "below")
         .. " the Group Finder.")
-    else ns:Print("Usage: /kc panel below, /kc panel right or /kc panel dock. Drag the panel to move it anywhere.") end
+    else ns:Print("Usage: /ens panel below, /ens panel right or /ens panel dock. Drag the panel to move it anywhere.") end
   elseif cmd == "text" or cmd == "font" then
     local v = tonumber((rest:gsub("%%", "")))
     if v and ns.UI then ns.UI:SetTextSize(v); ns:Print(string.format("Text size %d%%", ns.db.settings.textSize))
-    else ns:Print("Usage: /kc text 80-125 (percent)") end
+    else ns:Print("Usage: /ens text 80-125 (percent)") end
   elseif cmd == "tour" or cmd == "tutorial" then
     if ns.Tour then ns.Tour:Start() end
   elseif cmd == "glossary" or cmd == "terms" then
@@ -709,9 +714,9 @@ SlashCmdList["KEYSTONECOMMAND"] = function(msg)
     ns:Fire("SETTINGS_CHANGED")
   elseif cmd == "reset" then
     if rest:lower() == "confirm" then
-      ns:ResetDB(); ns:Print("All Keystone Command data reset.")
+      ns:ResetDB(); ns:Print("All Ensemble data reset.")
     else
-      ns:Print("This wipes " .. ns.RESET_WIPES .. ". It can't be undone. Type |cffffff00/kc reset confirm|r to proceed.")
+      ns:Print("This wipes " .. ns.RESET_WIPES .. ". It can't be undone. Type |cffffff00/ens reset confirm|r to proceed.")
     end
   else
     for i = 1, #HELP do ns:Print(HELP[i]) end
@@ -722,20 +727,20 @@ end
 -- Addon Compartment (the addon drop-down on the minimap cluster, 10.1+).
 -- These names are referenced from the .toc, so they must be globals.
 ---------------------------------------------------------------------------
-function KeystoneCommand_OnAddonCompartmentClick(_, button)
+function Ensemble_OnAddonCompartmentClick(_, button)
   if not ns.UI then return end
   if button == "RightButton" then ns.UI:Show("settings") else ns.UI:Toggle() end
 end
 
-function KeystoneCommand_OnAddonCompartmentEnter(_, menuButtonFrame)
+function Ensemble_OnAddonCompartmentEnter(_, menuButtonFrame)
   if not GameTooltip then return end
   GameTooltip:SetOwner(menuButtonFrame or UIParent, "ANCHOR_LEFT")
-  GameTooltip:AddLine("Keystone Command")
+  GameTooltip:AddLine("Ensemble")
   GameTooltip:AddLine("Left-click: toggle window", 1, 1, 1)
   GameTooltip:AddLine("Right-click: settings", 1, 1, 1)
   GameTooltip:Show()
 end
 
-function KeystoneCommand_OnAddonCompartmentLeave()
+function Ensemble_OnAddonCompartmentLeave()
   if GameTooltip then GameTooltip:Hide() end
 end

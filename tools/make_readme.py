@@ -14,7 +14,7 @@ if src and src[0].startswith("# "):
     src = src[1:]
 out = [
     "<!-- Generated from branding/overview.md by tools/make_readme.py. Edit that file instead. -->",
-    '<p align="center"><img src="branding/banner-1200x300.png" alt="Keystone Command" width="100%"></p>',
+    '<p align="center"><img src="branding/banner-1200x300.png" alt="Ensemble" width="100%"></p>',
     "",
     "📖 **[Full guide](docs/Guide.md)** · 📝 **[Changelog](CHANGELOG.md)** · ⚖️ **[License](LICENSE)**",
 ]
@@ -25,7 +25,7 @@ out += [
     "",
     "## ⚖️ License",
     "",
-    "All rights reserved. You may use Keystone Command in game, but its code, data, artwork, name and logo may not be copied, modified or redistributed without permission. See [`LICENSE`](LICENSE).",
+    "All rights reserved. You may use Ensemble in game, but its code, data, artwork, name and logo may not be copied, modified or redistributed without permission. See [`LICENSE`](LICENSE).",
     "",
 ]
 sys.stdout.write("\n".join(out))

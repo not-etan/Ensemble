@@ -3,13 +3,13 @@
 -- notes in an update session: every dungeon requirement, every boss card line (long lines
 -- and unknown requirement IDs flagged), the affix list, and the spell-ID gaps.
 local FILES = {}
-for line in io.lines(ADDON_DIR .. "/KeystoneCommand.toc") do
+for line in io.lines(ADDON_DIR .. "/Ensemble.toc") do
   local f = line:match("^%s*([%w_]+%.lua)%s*$")
   if f then FILES[#FILES + 1] = f end
 end
 ALLFRAMES = {}
 local ns = {}
-for _, f in ipairs(FILES) do assert(loadfile(ADDON_DIR .. "/" .. f))("KeystoneCommand", ns) end
+for _, f in ipairs(FILES) do assert(loadfile(ADDON_DIR .. "/" .. f))("Ensemble", ns) end
 
 local DD, BD, AF = ns.Dungeons, ns.BossData, ns.Affixes
 local LONG = 60

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Headless tests for Keystone Command (no game needed).
+"""Headless tests for Ensemble (no game needed).
 
   pip install lupa            (once)
   python3 tests/run_tests.py            # LuaJIT and plain Lua 5.1 (WoW's dialect)
@@ -8,12 +8,12 @@
   python3 tests/run_tests.py --fit      # fit rating measurement report (spread and band counts)
 
 Exit code is non-zero when any test fails. The stub (wowstub.lua) fakes just enough of the
-WoW API; lines like "[FAIL] spec 102 ... unknown to the client" are /kc verify output run
+WoW API; lines like "[FAIL] spec 102 ... unknown to the client" are /ens verify output run
 against that stub and are expected - only lines starting "FAIL:" are test failures.
 """
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
-ADDON = os.path.normpath(os.path.join(HERE, "..", "KeystoneCommand"))
+ADDON = os.path.normpath(os.path.join(HERE, "..", "Ensemble"))
 
 def runtime(mod):
     L = mod.LuaRuntime(unpack_returned_tuples=True)

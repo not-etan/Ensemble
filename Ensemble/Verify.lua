@@ -1,5 +1,5 @@
--- Keystone Command / Verify.lua
--- /kc verify: checks, in the live client, everything the addon could not confirm at build
+-- Ensemble / Verify.lua
+-- /ens verify: checks, in the live client, everything the addon could not confirm at build
 -- time (12.1 API availability, spec IDs, spell IDs, dungeon list, Group Finder data) and
 -- shows a plain-text report in a copyable box. Read-only: it changes nothing.
 
@@ -169,11 +169,11 @@ local function CheckAPIs()
   if R then
     local BG = rawget(_G, "BugGrabber")
     if R.captureActive then
-      Add("OK", "error capture for /kc report active")
+      Add("OK", "error capture for /ens report active")
     elseif type(BG) == "table" and type(BG.GetDB) == "function" then
-      Add("OK", "BugGrabber handles Lua errors: /kc report includes its errors from this addon")
+      Add("OK", "BugGrabber handles Lua errors: /ens report includes its errors from this addon")
     else
-      Add("INFO", "error capture for /kc report not active (another addon owns the error handler, or the client refused): /kc report still works, without the error list")
+      Add("INFO", "error capture for /ens report not active (another addon owns the error handler, or the client refused): /ens report still works, without the error list")
     end
   end
 end
@@ -303,7 +303,7 @@ local function CheckDungeons()
     Add(zk and "OK" or "WARN", string.format("current dungeon: %s (%s) -> %s", tostring(iname), tostring(itype),
       zk and DD.list[zk].name or "not matched"))
   else
-    Add("INFO", "not inside a dungeon (zone detection not tested; run /kc verify inside one)")
+    Add("INFO", "not inside a dungeon (zone detection not tested; run /ens verify inside one)")
   end
   local eff, src = ns:GetEffectiveDungeon(false)
   Add("INFO", "Planner default dungeon: " .. (eff and DD.list[eff].name or "none") .. " (" .. tostring(src or "nothing detected") .. ")")
@@ -674,7 +674,7 @@ local function CheckBosses()
     Add("INFO", string.format("inside %s: showing boss %d, killed %d", ns.Dungeons.list[dk].name, BC.state.index or 0,
       Util_Count(BC.state.killed or {})))
   else
-    Add("INFO", "not inside a Season dungeon (run /kc verify inside one to check boss matching)")
+    Add("INFO", "not inside a Season dungeon (run /ens verify inside one to check boss matching)")
   end
 end
 
@@ -710,14 +710,14 @@ local function ShowReport(text, title)
     sel:SetScript("OnClick", function() eb:SetFocus(); eb:HighlightText() end)
     Verify.frame = f
   end
-  f.title:SetText("Keystone Command - " .. (title or "verify report") .. "   (click in the box, Ctrl+A then Ctrl+C to copy)")
+  f.title:SetText("Ensemble - " .. (title or "verify report") .. "   (click in the box, Ctrl+A then Ctrl+C to copy)")
   f.report = text
   f.edit:SetText(text)
   f:Show()
   f.edit:SetFocus(); f.edit:HighlightText()
 end
 
--- Shared copy window (also used by /kc report). Editable only for selecting and copying.
+-- Shared copy window (also used by /ens report). Editable only for selecting and copying.
 function Verify:ShowText(text, title)
   return pcall(ShowReport, text, title)
 end
@@ -728,7 +728,7 @@ function Verify:Build()
   lines, counts = {}, {}
   local version, build, date, toc = "?", "?", "?", "?"
   if GetBuildInfo then version, build, date, toc = GetBuildInfo() end
-  lines[#lines + 1] = string.format("Keystone Command %s - client %s (%s, toc %s) - locale %s",
+  lines[#lines + 1] = string.format("Ensemble %s - client %s (%s, toc %s) - locale %s",
     tostring(ns.VERSION), tostring(version), tostring(build), tostring(toc), tostring(GetLocale and GetLocale() or "?"))
   lines[#lines + 1] = ns.Dungeons:FreshnessText()
   Try("client functions", CheckAPIs)
@@ -749,7 +749,7 @@ function Verify:Build()
 end
 
 ---------------------------------------------------------------------------
--- /kc verify season: the raw facts a season (or patch) update starts from, in one block to
+-- /ens verify season: the raw facts a season (or patch) update starts from, in one block to
 -- paste into an update session: the game's Mythic+ dungeon pool with challenge and
 -- instance map IDs and timers, each dungeon's bosses and their journal abilities with
 -- spell IDs, and this week's affixes; each marked as known to the addon or NEW.
@@ -793,7 +793,7 @@ function Verify:BuildSeason()
   local function add(t) out[#out + 1] = t end
   local version, build, _, toc = "?", "?", "?", "?"
   if GetBuildInfo then version, build, _, toc = GetBuildInfo() end
-  add(string.format("Keystone Command %s - season data - client %s (%s, toc %s) - locale %s", tostring(ns.VERSION),
+  add(string.format("Ensemble %s - season data - client %s (%s, toc %s) - locale %s", tostring(ns.VERSION),
     tostring(version), tostring(build), tostring(toc), tostring(GetLocale and GetLocale() or "?")))
   local DD, BD = ns.Dungeons, ns.BossData
   add("")
@@ -802,7 +802,7 @@ function Verify:BuildSeason()
   if C_ChallengeMode and C_ChallengeMode.GetMapTable then okM, maps = pcall(C_ChallengeMode.GetMapTable) end
   local inGame = {}
   if not okM or type(maps) ~= "table" or #maps == 0 then
-    add("(not loaded yet - open the Group Finder's Mythic+ tab and run /kc verify season again)")
+    add("(not loaded yet - open the Group Finder's Mythic+ tab and run /ens verify season again)")
   else
     table.sort(maps)
     for _, mapID in ipairs(maps) do
@@ -847,7 +847,7 @@ function Verify:RunSeason()
   local text = self:BuildSeason()
   if ns.db then ns.db.lastSeason = text end
   if not pcall(ShowReport, text, "season data") then
-    ns:Print("Could not open the report window; the data is in KeystoneCommandDB.lastSeason after /reload.")
+    ns:Print("Could not open the report window; the data is in EnsembleDB.lastSeason after /reload.")
   end
   return text
 end
@@ -858,7 +858,7 @@ function Verify:Run()
   ns:Print(string.format("Verify: %d OK, %d WARN, %d FAIL. Copy the report from the window and paste it back.",
     counts.OK or 0, counts.WARN or 0, counts.FAIL or 0))
   local ok = pcall(ShowReport, text)
-  if not ok then ns:Print("Could not open the report window; the report is in KeystoneCommandDB.lastVerify after /reload.") end
+  if not ok then ns:Print("Could not open the report window; the report is in EnsembleDB.lastVerify after /reload.") end
   if ns.db then ns.db.lastVerify = text end
   return text
 end

@@ -1,4 +1,4 @@
--- Keystone Command / BossData.lua
+-- Ensemble / BossData.lua
 -- HAND-MAINTAINED. Short boss cards: what each role does on each boss, in our own words.
 --
 -- Sources (third pass, October 2026, Patch 12.1): Method.gg's Season 2 dungeon guides,

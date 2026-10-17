@@ -1,13 +1,13 @@
 <!-- Generated from branding/overview.md by tools/make_readme.py. Edit that file instead. -->
-<p align="center"><img src="branding/banner-1200x300.png" alt="Keystone Command" width="100%"></p>
+<p align="center"><img src="branding/banner-1200x300.png" alt="Ensemble" width="100%"></p>
 
 📖 **[Full guide](docs/Guide.md)** · 📝 **[Changelog](CHANGELOG.md)** · ⚖️ **[License](LICENSE)**
 
-### ⚔️ Command the key. ⚔️
+### ⚔️ A Mythic+ Companion ⚔️
 
-**Learn the dungeon. Build the group. Make the plan. Command the key.**
+**Learn the dungeon. Build the group. Time the key.**
 
-Keystone Command is a Mythic+ companion addon that helps players of every skill level understand each dungeon, build stronger groups and walk into every key with a plan everyone can follow. It brings group building, dungeon knowledge and planning together in one place, so you spend less time checking guides and more time playing the game.
+Ensemble is a Mythic+ companion addon that helps players of every skill level understand each dungeon, build stronger groups and walk into every key with a plan everyone can follow. It brings group building, dungeon knowledge and planning together in one place, so you spend less time checking guides and more time playing the game.
 
 ## ✨ Who it's for
 
@@ -68,7 +68,7 @@ Keystone Command is a Mythic+ companion addon that helps players of every skill 
 
 ## 🚀 Getting started
 
-1. 📦 **Install it,** then type **`/kc`** or click the minimap button.
+1. 📦 **Install it,** then type **`/ens`** or click the minimap button.
 2. 🏰 **New to a dungeon?** Open the **Dungeon** tab for a walkthrough.
 3. 🧩 **Planning a group?** Open **Composition** and fill the slots.
 4. 📥 **Hosting a key?** List it as usual. The **Applicants** tab opens with every applicant rated.
@@ -79,33 +79,33 @@ Keystone Command is a Mythic+ companion addon that helps players of every skill 
 
 | Command | What it does |
 |---|---|
-| `/kc` | Open or close the window |
-| `/kc composition` · `applicants` · `dungeons` · `plan` · `history` · `settings` | Open a tab |
-| `/kc planner` · `/kc party` | Show the planner or your party |
-| `/kc glossary` · `/kc tour` | Open the glossary or the tour |
-| `/kc bestkey` | Rank every dungeon for your group |
-| `/kc boss [dungeon]` | Open or close the boss window |
-| `/kc dungeon <name \| auto \| none>` | Choose the dungeon to check against |
-| `/kc text <80-125>` | Set the text size |
-| `/kc panel below \| right \| dock` | Move the applicant panel |
-| `/kc lock` · `/kc unlock` | Lock or unlock the window |
-| `/kc minimap` | Show or hide the minimap button |
-| `/kc verify` · `/kc report` | Check the addon against your client, or build a bug report |
-| `/kc reset confirm` | Reset all saved data and settings |
+| `/ens` | Open or close the window |
+| `/ens composition` · `applicants` · `dungeons` · `plan` · `history` · `settings` | Open a tab |
+| `/ens planner` · `/ens party` | Show the planner or your party |
+| `/ens glossary` · `/ens tour` | Open the glossary or the tour |
+| `/ens bestkey` | Rank every dungeon for your group |
+| `/ens boss [dungeon]` | Open or close the boss window |
+| `/ens dungeon <name \| auto \| none>` | Choose the dungeon to check against |
+| `/ens text <80-125>` | Set the text size |
+| `/ens panel below \| right \| dock` | Move the applicant panel |
+| `/ens lock` · `/ens unlock` | Lock or unlock the window |
+| `/ens minimap` | Show or hide the minimap button |
+| `/ens verify` · `/ens report` | Check the addon against your client, or build a bug report |
+| `/ens reset confirm` | Reset all saved data and settings |
 
 ---
 
 ## 📦 Installation
 
-🔌 **With an addon manager:** search for *Keystone Command* and install it.
+🔌 **With an addon manager:** search for *Ensemble: A Mythic+ Companion* and install it.
 
-🛠️ **Manually:** extract the archive and copy the `KeystoneCommand` folder into `World of Warcraft/_retail_/Interface/AddOns/`, then restart the game.
+🛠️ **Manually:** extract the archive and copy the `Ensemble` folder into `World of Warcraft/_retail_/Interface/AddOns/`, then restart the game.
 
 ---
 
 ## 🔒 Privacy
 
-Everything runs inside the game. There's no companion app, no web service and no external data. Your comps, settings and run history stay in your own SavedVariables file, and `/kc report` only builds text for you to copy.
+Everything runs inside the game. There's no companion app, no web service and no external data. Your comps, settings and run history stay in your own SavedVariables file, and `/ens report` only builds text for you to copy.
 
 ---
 
@@ -130,20 +130,20 @@ The addon notices the dungeon pool changed and warns you until it's updated. Bet
 
 ## 🐞 Found a problem?
 
-Type **`/kc report`** in game (or use Settings › Data). Fill in the first few lines, copy the window with Ctrl+A and Ctrl+C, and paste it in a comment on the addon's page or in a GitHub issue, with a 📸 screenshot if it's visual. For wrong ability or dungeon info, mention where you saw the correct version and I'll check it against the current patch.
+Type **`/ens report`** in game (or use Settings › Data). Fill in the first few lines, copy the window with Ctrl+A and Ctrl+C, and paste it in a comment on the addon's page or in a GitHub issue, with a 📸 screenshot if it's visual. For wrong ability or dungeon info, mention where you saw the correct version and I'll check it against the current patch.
 
 ---
 
 ## 🤖 AI disclaimer
 
-Keystone Command was built with help from Claude, which wrote much of the code and data. Everything is checked against current guides and tested in game, but if something looks off, let me know. The addon itself doesn't use AI.
+Ensemble was built with help from Claude, which wrote much of the code and data. Everything is checked against current guides and tested in game, but if something looks off, let me know. The addon itself doesn't use AI.
 
 ---
 
-*💙 Keystone Command is a fan-made addon and isn't affiliated with or endorsed by Blizzard Entertainment.*
+*💙 Ensemble is a fan-made addon and isn't affiliated with or endorsed by Blizzard Entertainment.*
 
 ---
 
 ## ⚖️ License
 
-All rights reserved. You may use Keystone Command in game, but its code, data, artwork, name and logo may not be copied, modified or redistributed without permission. See [`LICENSE`](LICENSE).
+All rights reserved. You may use Ensemble in game, but its code, data, artwork, name and logo may not be copied, modified or redistributed without permission. See [`LICENSE`](LICENSE).

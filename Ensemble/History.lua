@@ -1,9 +1,9 @@
--- Keystone Command / History.lua
+-- Ensemble / History.lua
 -- Run history: every Mythic+ key you start is recorded locally (dungeon, level, affixes,
 -- the group's specs and the gaps it had) and finished as timed, over time or abandoned.
 -- Insights compare how often you time keys with and without each gap.
 --
--- In-client APIs (all pcall-guarded; long-standing retail, confirmed by /kc verify):
+-- In-client APIs (all pcall-guarded; long-standing retail, confirmed by /ens verify):
 --   C_ChallengeMode.GetActiveChallengeMapID(), C_ChallengeMode.GetActiveKeystoneInfo()
 --     -> level, affixIDs, wasCharged
 --   C_ChallengeMode.GetChallengeCompletionInfo() -> { mapChallengeModeID, level, time (ms),

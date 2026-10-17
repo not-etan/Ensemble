@@ -1,4 +1,4 @@
--- Keystone Command / ApplicantFit.lua
+-- Ensemble / ApplicantFit.lua
 -- Applicant fit analysis: for each Group Finder applicant (or premade applying together),
 -- what utility they bring, how it complements the classes already in the group, how it
 -- answers the selected dungeon's demands, and a color-coded rating.
@@ -274,7 +274,7 @@ end
 ---------------------------------------------------------------------------
 -- Keystone level for the key being run.
 -- Only knowable in-client for the player's OWN keystone; used when it matches the dungeon.
--- confirmed present in 12.1.0 (build 69933) by /kc verify (keystone matched): C_MythicPlus.GetOwnedKeystoneChallengeMapID,
+-- confirmed present in 12.1.0 (build 69933) by /ens verify (keystone matched): C_MythicPlus.GetOwnedKeystoneChallengeMapID,
 -- C_MythicPlus.GetOwnedKeystoneLevel, C_ChallengeMode.GetMapUIInfo(mapID) -> name.
 ---------------------------------------------------------------------------
 function Fit:GetKeyLevel(dungeonKey)

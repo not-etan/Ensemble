@@ -1,4 +1,4 @@
--- Keystone Command / Walkthrough.lua
+-- Ensemble / Walkthrough.lua
 -- The dungeon in the order you meet it, for the Dungeon tab: trash sections and bosses,
 -- each with the requirements that happen there, plus the Bloodlust plan (defaults from
 -- DungeonData, the player's own timing saved per dungeon).

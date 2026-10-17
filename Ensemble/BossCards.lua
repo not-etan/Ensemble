@@ -1,4 +1,4 @@
--- Keystone Command / BossCards.lua
+-- Ensemble / BossCards.lua
 -- Boss cards: the role-split boss notes from BossData.lua, your own edits to them, the
 -- kick / dispel jobs the plan gives YOU on each boss, the chat text, and which boss you're
 -- on inside a dungeon (first boss not yet killed; follows ENCOUNTER_START / ENCOUNTER_END).
@@ -220,14 +220,14 @@ end
 ---------------------------------------------------------------------------
 local LINE_MAX = 250
 
--- One chat line per role (ALL first), "[KC] Boss -" on the first. Your personal jobs are
+-- One chat line per role (ALL first), "[Ensemble] Boss -" on the first. Your personal jobs are
 -- not included: "Post kick & dispel plan" covers everyone's jobs.
 function BC:ChatLines(dk, i)
   local b = self:Boss(dk, i)
   if not b then return {} end
   local lines = self:Lines(dk, i)
   local out = {}
-  local head = "[KC] " .. b.name .. " - "
+  local head = "[Ensemble] " .. b.name .. " - "
   for _, role in ipairs(ns.BossData.ROLES) do
     local parts = {}
     for _, l in ipairs(lines) do if l.role == role then parts[#parts + 1] = l.text end end

@@ -1,4 +1,4 @@
--- Keystone Command / Analysis.lua  (Features 4 + 5, and the Feature 2 "suggest replacement")
+-- Ensemble / Analysis.lua  (Features 4 + 5, and the Feature 2 "suggest replacement")
 -- Pure functions over data: no frames, no events. Input is a list of members:
 --   { specID = n|nil, classFile = "MAGE"|nil, pending = bool|nil, label = "name"|nil }
 -- Empty slots are simply absent from the list, so partial comps need no special casing.

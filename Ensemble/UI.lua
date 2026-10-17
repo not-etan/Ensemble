@@ -1,4 +1,4 @@
--- Keystone Command / UI.lua
+-- Ensemble / UI.lua
 -- All frames: main window (Builder / Live / Applicants / Saved / Settings), Group Finder
 -- applicant panel, menus, minimap button.
 -- Everything is a plain, non-secure frame; no secure templates, no protected calls, so the
@@ -99,7 +99,6 @@ function UI:ApplyTheme(noRefresh)
   if self.tabButtons then
     for k, tb in pairs(self.tabButtons) do tb:SetActive(k == self.currentTab) end
   end
-  if self.titleText then self.titleText:SetText("Keystone " .. HEX.accent .. "Command|r") end
   if not noRefresh then self:QueueRefresh(); self:QueueFinderRefresh() end
 end
 
@@ -583,9 +582,10 @@ end
 ---------------------------------------------------------------------------
 -- Main window
 ---------------------------------------------------------------------------
-UI.LOGO = "Interface\\AddOns\\KeystoneCommand\\Media\\LogoMark"   -- emblem only (no tile), so it reads larger
+UI.LOGO = "Interface\\AddOns\\Ensemble\\Media\\LogoMark"   -- emblem only (no tile), so it reads larger
 UI.LOGO_SIZE = 38
-UI.SLOGAN = "Command the key."
+UI.NAME = "Ensemble"
+UI.SUBTITLE = "A Mythic+ Companion"
 
 -- Tabs follow the three questions: who to bring (Composition, Applicants), what to know
 -- (Dungeon) and who handles what (Plan).
@@ -605,7 +605,7 @@ function UI:Build()
   if self.frame then return end
   UD, DD, Analysis = ns.UD, ns.Dungeons, ns.Analysis
 
-  local f = CreateFrame("Frame", "KeystoneCommandFrame", UIParent, "BackdropTemplate")
+  local f = CreateFrame("Frame", "EnsembleFrame", UIParent, "BackdropTemplate")
   self.frame = f
   f:SetSize(W, H)
   f:SetFrameStrata("HIGH")
@@ -617,7 +617,7 @@ function UI:Build()
   self:ApplyGeometry()
   f:Hide()
   -- Close on Escape. UISpecialFrames is Blizzard's list of frame NAMES closed by Escape.
-  if UISpecialFrames then table.insert(UISpecialFrames, "KeystoneCommandFrame") end
+  if UISpecialFrames then table.insert(UISpecialFrames, "EnsembleFrame") end
 
   -- Header bar: slightly lifted background, accent hairline underneath.
   local header = CreateFrame("Frame", nil, f)
@@ -633,7 +633,7 @@ function UI:Build()
     f:StopMovingOrSizing()
     UI:SaveGeometry()
   end)
-  -- Brand: logo, name and slogan (fixed size, like the tab row, so the header always fits).
+  -- Brand: logo, name (white) and subtitle (fixed size, like the tab row, so the header always fits).
   local logo = header:CreateTexture(nil, "ARTWORK")
   logo:SetTexture(UI.LOGO)
   logo:SetSize(UI.LOGO_SIZE, UI.LOGO_SIZE)
@@ -644,14 +644,14 @@ function UI:Build()
   title:SetPoint("TOPLEFT", logo, "TOPRIGHT", 6, -4)
   self.titleText = title
   fontRegistry[title] = nil
-  title:SetText("Keystone " .. HEX.accent .. "Command|r")
-  local slogan = Text(header, 10, C.muted)
-  slogan:SetWordWrap(false)
-  slogan:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -2)
-  fontRegistry[slogan] = nil
-  slogan:SetText(UI.SLOGAN)
-  self.sloganText = slogan
-  local brandW = math.max(title:GetStringWidth() or 0, slogan:GetStringWidth() or 0)
+  title:SetText(UI.NAME)
+  local subtitle = Text(header, 10, C.muted)
+  subtitle:SetWordWrap(false)
+  subtitle:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -2)
+  fontRegistry[subtitle] = nil
+  subtitle:SetText(UI.SUBTITLE)
+  self.subtitleText = subtitle
+  local brandW = math.max(title:GetStringWidth() or 0, subtitle:GetStringWidth() or 0)
   if brandW < 1 then brandW = 190 end
   local tabsX = 8 + UI.LOGO_SIZE + 6 + math.ceil(brandW) + 16
 
@@ -668,7 +668,7 @@ function UI:Build()
   end
   -- Fit the brand and the tab row beside the title-bar buttons (~140px on the right) at
   -- the narrowest window: first tighten the tabs' padding, and only if a client font is
-  -- still too wide, drop the slogan (the tabs always stay).
+  -- still too wide, drop the subtitle (the tabs always stay).
   local room = UI.MIN_W - 140
   local function RowWidth(pad, minW)
     local w = 0
@@ -687,9 +687,9 @@ function UI:Build()
       end
     end
   end
-  self.headerFit = { tabsX = tabsX, tabsW = tabsW, room = room, sloganShown = tabsX + tabsW <= room }
+  self.headerFit = { tabsX = tabsX, tabsW = tabsW, room = room, subtitleShown = tabsX + tabsW <= room }
   if tabsX + tabsW > room then
-    slogan:Hide()
+    subtitle:Hide()
     title:ClearAllPoints(); title:SetPoint("LEFT", logo, "RIGHT", 6, 0)
     first:ClearAllPoints()
     first:SetPoint("LEFT", header, "LEFT", 8 + UI.LOGO_SIZE + 6 + math.ceil(title:GetStringWidth() or 150) + 20, 0)
@@ -1137,7 +1137,7 @@ function UI:LayoutComp()
 end
 
 -- In-game dungeon icons, looked up from the current season's Mythic+ map list and
--- matched to DungeonData by name. confirmed present in 12.1.0 (build 69933) by /kc verify (all 8 dungeons matched with icons):
+-- matched to DungeonData by name. confirmed present in 12.1.0 (build 69933) by /ens verify (all 8 dungeons matched with icons):
 -- C_ChallengeMode.GetMapTable() -> mapIDs, C_ChallengeMode.GetMapUIInfo(mapID) ->
 -- name, id, timeLimit, texture. Falls back to the keystone icon until the data loads.
 local KEYSTONE_ICON = "Interface\\Icons\\INV_Relics_Hourglass"
@@ -1956,7 +1956,7 @@ function UI:GapsLines(r)
     if e.status == "missing" then missing[#missing + 1] = label else thin[#thin + 1] = label end
   end
   local dk = r.dungeon and not r.dungeon.unknown and r.dungeon.key
-  local tag = ns.db.settings.chatStyle == "short" and "[KC]" or "[Keystone Command]"
+  local tag = "[Ensemble]"
   local prefix = tag .. (dk and DD.list[dk] and (" " .. DD.list[dk].name) or "") .. " - "
   if #missing == 0 and #thin == 0 then return { prefix .. "nothing missing." } end
   local parts = {}
@@ -3279,7 +3279,7 @@ end
 -- Our own plain frame anchored to PVEFrame; Blizzard's frames are only hooked
 -- (HookScript OnShow/OnHide), never modified, so no taint reaches the protected
 -- Invite/Decline buttons.
--- PVEFrame (the Group Finder window global) confirmed present in 12.1.0 (build 69933) by /kc verify.
+-- PVEFrame (the Group Finder window global) confirmed present in 12.1.0 (build 69933) by /ens verify.
 ---------------------------------------------------------------------------
 local FP_ROWS = 16        -- rows built; 8 shown until "+N more" is clicked
 local FP_SHOW = 8
@@ -3349,7 +3349,7 @@ function UI:BuildFinderPanel()
   fp:EnableMouse(true)
   fp:RegisterForDrag("LeftButton")
   -- Drag anywhere outside the applicant rows to move it; it then stays where you put it
-  -- (undocked) until you click Dock or use /kc panel dock.
+  -- (undocked) until you click Dock or use /ens panel dock.
   fp:SetScript("OnDragStart", function(self) self:StartMoving() end)
   fp:SetScript("OnDragStop", function(self)
     self:StopMovingOrSizing()
@@ -3529,7 +3529,7 @@ function UI:AddApplicantTooltip(member)
     if ev.applicantID == id then
       local c = ev.rating.color
       GameTooltip:AddLine(" ")
-      GameTooltip:AddLine("Keystone Command: " .. ev.rating.label .. " (" .. ev.score .. "/100)", c[1], c[2], c[3])
+      GameTooltip:AddLine("Ensemble: " .. ev.rating.label .. " (" .. ev.score .. "/100)", c[1], c[2], c[3])
       GameTooltip:AddLine(Plain(ev.headline), 1, 1, 1, true)
       if not ev.roleConflict and ev.groupAfter then
         GameTooltip:AddLine(UI:GroupAfterText(ev.groupAfter, "full"), 1, 1, 1, true)
@@ -3753,7 +3753,7 @@ function UI:RenderBestKey()
   L:Finish()
 end
 
--- Glossary popup (the "?" in the title bar, /kc glossary).
+-- Glossary popup (the "?" in the title bar, /ens glossary).
 function UI:ShowGlossary()
   self:Build()
   if not self.glossary then
@@ -3882,7 +3882,7 @@ function UI:ShowImport()
   p.title:SetText("Import a comp string")
   p.value = nil
   p.box:SetText("")
-  p.hint:SetText("Paste a KC1: string (Ctrl+V), then Import.")
+  p.hint:SetText("Paste a ENS1: string (Ctrl+V), then Import.")
   p.import:Show()
   p:Show()
   p.box:SetFocus()
@@ -4463,7 +4463,7 @@ function UI:BuildSettingsPage()
     self.settingsNav[sec.key] = b
   end
   local about = Text(nav, 10, C.muted); about:SetPoint("BOTTOMLEFT", 2, 2); about:SetWidth(148)
-  about:SetText("Keystone Command " .. tostring(ns.VERSION) .. "\n/kc help")
+  about:SetText("Ensemble " .. tostring(ns.VERSION) .. "\n/ens help")
 
   -- Content area
   for _, sec in ipairs(self.SETTINGS_SECTIONS) do
@@ -4542,7 +4542,7 @@ function UI:BuildSettings_general(f)
   local nb = Note(f, 8, y - 8, 520, "These settings can also be opened from Blizzard's Options > AddOns.")
   local tour = Button(f, "Take the tour", 130, 24, function() if ns.Tour then ns.Tour:Start() end end)
   tour:SetPoint("TOPLEFT", nb, "BOTTOMLEFT", 0, -10)
-  tour.tooltip = "A seven-step look at the window (same as /kc tour)"
+  tour.tooltip = "A seven-step look at the window (same as /ens tour)"
 end
 
 -- What to check: every need, grouped like the Readiness panel. A group's switch turns all
@@ -4656,7 +4656,7 @@ function UI:BuildSettings_bosses(f)
   y = y - 34
   local open = Button(f, "Open the boss window", 180, 24, function() ns.BossWindow:Show() end)
   open:SetPoint("TOPLEFT", 8, y)
-  open.tooltip = "Same as /kc boss. Outside a dungeon it shows the dungeon you're checking."
+  open.tooltip = "Same as /ens boss. Outside a dungeon it shows the dungeon you're checking."
   local reset = Button(f, "Reset its position and size", 200, 24, function()
     local b = bw(); b.point, b.relPoint, b.x, b.y, b.width, b.height = nil, nil, nil, nil, nil, nil
     if ns.BossWindow.frame then ns.BossWindow:ApplyGeometry() end
@@ -4684,27 +4684,27 @@ function UI:BuildSettings_data(f)
   end)
   SubHead(f, 8, -144, "Everything")
   Note(f, 8, -162, 520, "Wipes " .. ns.RESET_WIPES .. ". Can't be undone.")
-  local reset = Button(f, "Reset all Keystone Command data", 260, 26)
+  local reset = Button(f, "Reset all Ensemble data", 260, 26)
   reset:SetPoint("TOPLEFT", 8, -184)
   reset:SetScript("OnClick", function(btn)
     if btn.armed then
-      btn.armed = nil; btn.text:SetText("Reset all Keystone Command data")
-      ns:ResetDB(); ns:Print("All Keystone Command data reset.")
+      btn.armed = nil; btn.text:SetText("Reset all Ensemble data")
+      ns:ResetDB(); ns:Print("All Ensemble data reset.")
     else
       btn.armed = true; btn.text:SetText("Click again to confirm")
-      C_Timer.After(4, function() if btn.armed then btn.armed = nil; btn.text:SetText("Reset all Keystone Command data") end end)
+      C_Timer.After(4, function() if btn.armed then btn.armed = nil; btn.text:SetText("Reset all Ensemble data") end end)
     end
   end)
   SubHead(f, 8, -232, "Report a problem")
   local rn = Note(f, 8, -250, 520, "Opens a copyable report with your version, setup and recent errors. Add what happened at the top, then paste it with your issue.")
   local rep = Button(f, "Copy a bug report", 180, 24, function() if ns.Report then ns.Report:Run() end end)
   rep:SetPoint("TOPLEFT", rn, "BOTTOMLEFT", 0, -8)
-  rep.tooltip = "Same as /kc report. Includes specs and settings, never player names."
+  rep.tooltip = "Same as /ens report. Includes specs and settings, never player names."
   SubHead(f, 8, -334, "Game data")
-  Note(f, 8, -352, 420, "Keystone Command " .. tostring(ns.VERSION) .. ". " .. DD:FreshnessText())
+  Note(f, 8, -352, 420, "Ensemble " .. tostring(ns.VERSION) .. ". " .. DD:FreshnessText())
   local src = Button(f, "Sources", 90, 24, function() UI:ShowSources() end)
   src:SetPoint("TOPLEFT", 440, -350)
-  src.tooltip = "The guides this data comes from (same as /kc sources)"
+  src.tooltip = "The guides this data comes from (same as /ens sources)"
   self.sourcesBtn = src
 end
 
@@ -4738,7 +4738,7 @@ end
 UI.SetThemeHex = SetThemeHex
 
 -- Embedded color wheel built from the client's ColorSelect widget (the same widget the
--- Blizzard color picker uses). confirmed present in 12.1.0 (build 69933) by /kc verify:
+-- Blizzard color picker uses). confirmed present in 12.1.0 (build 69933) by /ens verify:
 -- CreateFrame("ColorSelect"), SetColorWheelTexture / SetColorValueTexture and their thumbs,
 -- SetColorRGB, OnColorSelect. If it isn't available, a button opens Blizzard's picker.
 local function BuildWheel(parent)
@@ -4856,7 +4856,7 @@ function UI:BuildAppearance(page, topOffset, windowX)
   local rp = FlatButton(page, "Reset position & size", 150, 22, function() UI:ResetGeometry() end)
   rp:SetPoint("TOPLEFT", wx - 6, top - 132)
   local hint = Text(page, 10, C.muted); hint:SetPoint("TOPLEFT", wx, top - 162); hint:SetWidth(270)
-  hint:SetText("Unlocked: drag the title bar to move and the bottom-right grip to resize (more room, same text). /kc lock also works.")
+  hint:SetText("Unlocked: drag the title bar to move and the bottom-right grip to resize (more room, same text). /ens lock also works.")
 end
 
 -- Reflect the current theme in the appearance controls (wheel, hex box, preset borders).
@@ -4893,7 +4893,7 @@ end
 
 function UI:CreateMinimapButton()
   if self.minimapButton or not Minimap then return end
-  local b = CreateFrame("Button", "KeystoneCommandMinimapButton", Minimap)
+  local b = CreateFrame("Button", "EnsembleMinimapButton", Minimap)
   b:SetSize(31, 31)
   b:SetFrameStrata("MEDIUM")
   b:SetFrameLevel(8)
@@ -4922,7 +4922,9 @@ function UI:CreateMinimapButton()
   b:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
   b:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-    GameTooltip:AddLine("Keystone Command")
+    -- Name in white, subtitle in the accent color, then the actions (unchanged).
+    GameTooltip:AddLine(UI.NAME, 1, 1, 1)
+    GameTooltip:AddLine(UI.SUBTITLE, C.accent[1], C.accent[2], C.accent[3])
     GameTooltip:AddLine("Left-click: toggle   Right-click: settings   Drag: move", 1, 1, 1)
     GameTooltip:Show()
   end)
@@ -4940,23 +4942,23 @@ end
 function UI:RegisterBlizzardOptions()
   if self.blizzCategory or not (Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory) then return end
   local panel = CreateFrame("Frame")
-  panel.name = "Keystone Command"
+  panel.name = "Ensemble"
   local logo = panel:CreateTexture(nil, "ARTWORK"); logo:SetTexture(UI.LOGO); logo:SetSize(48, 48); logo:SetPoint("TOPLEFT", 16, -16)
   local t = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge"); t:SetPoint("TOPLEFT", logo, "TOPRIGHT", 10, -6)
-  t:SetText("Keystone Command")
+  t:SetText("Ensemble")
   local sub = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal"); sub:SetPoint("TOPLEFT", t, "BOTTOMLEFT", 0, -4)
-  sub:SetText(UI.SLOGAN)
+  sub:SetText(UI.SUBTITLE)
   local body = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); body:SetPoint("TOPLEFT", logo, "BOTTOMLEFT", 0, -16)
   body:SetWidth(540); body:SetJustifyH("LEFT")
-  body:SetText("Every setting is in the addon's own window: General, What to check, Group Finder, Party chat, Appearance and Data. Type /kc to open the addon, or use the button below.")
+  body:SetText("Every setting is in the addon's own window: General, What to check, Group Finder, Party chat, Appearance and Data. Type /ens to open the addon, or use the button below.")
   local b = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
   b:SetSize(260, 26); b:SetPoint("TOPLEFT", body, "BOTTOMLEFT", 0, -14)
-  b:SetText("Open Keystone Command settings")
+  b:SetText("Open Ensemble settings")
   b:SetScript("OnClick", function()
     if SettingsPanel and SettingsPanel:IsShown() and HideUIPanel then pcall(HideUIPanel, SettingsPanel) end
     UI:OpenSettings("general")
   end)
-  local ok, cat = pcall(Settings.RegisterCanvasLayoutCategory, panel, "Keystone Command")
+  local ok, cat = pcall(Settings.RegisterCanvasLayoutCategory, panel, "Ensemble")
   if ok and cat then
     pcall(Settings.RegisterAddOnCategory, cat)
     self.blizzCategory = cat

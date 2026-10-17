@@ -1,12 +1,12 @@
--- Keystone Command / Links.lua
+-- Ensemble / Links.lua
 -- Ability / buff / item links: an icon in front, the name color-coded by type, and a
 -- real game tooltip on hover (shift-click puts the spell link in chat).
 --
--- Links are custom hyperlinks:  |Haddon:KeystoneCommand:<side>:<id>:<type>:<name>|h ... |h
+-- Links are custom hyperlinks:  |Haddon:Ensemble:<side>:<id>:<type>:<name>|h ... |h
 --   side = "a" (ally / class ability or buff), "e" (enemy ability in a dungeon), "i" (item)
 --   id   = spell or item ID, 0 when unknown (the tooltip then shows name + type only)
 -- Any frame that displays them must call Links:Enable(frame) so hover/click are handled.
--- All confirmed present in 12.1.0 (build 69933) by /kc verify: Frame:SetHyperlinksEnabled with the
+-- All confirmed present in 12.1.0 (build 69933) by /ens verify: Frame:SetHyperlinksEnabled with the
 -- OnHyperlinkEnter/Leave/Click scripts on plain frames, C_Spell.GetSpellTexture,
 -- C_Spell.DoesSpellExist, C_Spell.GetSpellLink, GameTooltip:SetSpellByID/SetItemByID.
 
@@ -15,7 +15,7 @@ local _, ns = ...
 local Links = {}
 ns.Links = Links
 
-local PREFIX = "addon:KeystoneCommand:"
+local PREFIX = "addon:Ensemble:"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
 
 ---------------------------------------------------------------------------
@@ -264,7 +264,7 @@ function Links:Reset() registry, names, baseIndex = nil, nil, nil; memo, memoSiz
 -- Hover / click handling
 ---------------------------------------------------------------------------
 local function Parse(link)
-  local side, id, typeKey, name = link:match("^addon:KeystoneCommand:(%a):(%d+):([%w_]+):(.*)$")
+  local side, id, typeKey, name = link:match("^addon:Ensemble:(%a):(%d+):([%w_]+):(.*)$")
   if not side then return nil end
   return side, tonumber(id), typeKey, name
 end
@@ -282,7 +282,7 @@ local function OnEnter(frame, link)
   if not shown then GameTooltip:SetText(name or "?", 1, 1, 1) end
   local t = Links.TYPES[typeKey]
   if t then
-    GameTooltip:AddLine("Keystone Command: " .. (side == "e" and t.enemy or t.ally), t.color[1], t.color[2], t.color[3])
+    GameTooltip:AddLine("Ensemble: " .. (side == "e" and t.enemy or t.ally), t.color[1], t.color[2], t.color[3])
   end
   if not shown and side ~= "i" then
     GameTooltip:AddLine("Spell ID not on file yet - add it in DungeonData.lua / UtilityDatabase.lua.", 0.6, 0.6, 0.6, true)

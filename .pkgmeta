@@ -1,7 +1,7 @@
 # Packaging for CurseForge, Wago and GitHub Releases (BigWigs packager, run by
 # .github/workflows/release.yml when a version tag is pushed). The addon lives in the
-# KeystoneCommand/ subfolder; everything else in the repo stays out of the zip.
-package-as: KeystoneCommand
+# Ensemble/ subfolder; everything else in the repo stays out of the zip.
+package-as: Ensemble
 
 ignore:
   - tests
@@ -15,7 +15,7 @@ ignore:
   - RELEASE_NOTES.md
 
 move-folders:
-  KeystoneCommand/KeystoneCommand: KeystoneCommand
+  Ensemble/Ensemble: Ensemble
 
 # Written by the workflow from this version's CHANGELOG.md section.
 manual-changelog:

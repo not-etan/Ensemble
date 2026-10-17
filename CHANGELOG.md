@@ -8,13 +8,14 @@
 - **Dungeon:** a walkthrough of all eight Season 2 dungeons, trash and bosses in order, with boss cards and a boss window that follows your key.
 - **Plan:** kick rotations, dispels and Bloodlust timing shared out by cooldown, posted to party chat in one click.
 
-Type `/kc` to start. Found a problem? `/kc report` builds a bug report to paste in a comment or GitHub issue.
+Type `/ens` to start. Found a problem? `/ens report` builds a bug report to paste in a comment or GitHub issue.
 
 **Changes since the 1.2.1 beta:**
-- **Sign Up note line:** it now appears even when another addon changes Blizzard's Sign Up dialog code (some interface addons do). `/kc verify` names any addon that replaced the Group Finder code Keystone Command relies on, and the feature it affects.
+- **New name: Ensemble.** `/ens` opens it (the only command). Settings, saved comps and run history from the beta don't carry over: Ensemble starts fresh. Messages in your own chat start with the addon's emblem, and party-chat posts start with "[Ensemble]". Shared comp strings now start with `ENS1:`, so strings exported from the beta won't import.
+- **Sign Up note line:** it now appears even when another addon changes Blizzard's Sign Up dialog code (some interface addons do). `/ens verify` names any addon that replaced the Group Finder code Ensemble relies on, and the feature it affects.
 - **Plan tab:** the full kick and dispel sheet now includes medium-danger casts after the critical and high ones (they were left out, which also hid some assignments), with "+N more" past five per category. "Post assignments" and "Post gaps" are real buttons under the sheet, with the same hover preview. The panels are titled "Your plan" and "Assignments: (dungeon)" instead of repeating their headings, and each affix line names its need, so Xal'atath's Guile no longer looks listed twice.
 - **Boss order:** where groups can choose which boss comes first (this season, The Blinding Vale's first two bosses), the Dungeon tab has "Move earlier / later" buttons. Your order is saved per dungeon and also sets the Bloodlust order and the boss window's next boss.
-- **Sources:** a new window lists the guides the data comes from, with links to copy (Settings > Data, the Dungeon tab, or `/kc sources`). Each dungeon's default Bloodlust timing now simply says it's a suggested default.
+- **Sources:** a new window lists the guides the data comes from, with links to copy (Settings > Data, the Dungeon tab, or `/ens sources`). Each dungeon's default Bloodlust timing now simply says it's a suggested default.
 - **Ability links from the dungeon journal** now work: the addon was asking the journal the wrong way, so boss abilities had no links and boss kills relied on names alone (which matters on non-English clients).
 - **Mythic Dungeon Tools route features removed:** the latest Mythic Dungeon Tools no longer lets other addons read routes, so the pull-by-pull plan, route order and the boss window's pull rows had stopped working. Bloodlust spots saved at a route pull go back to that dungeon's default.
 - **Bug reports** say when BugGrabber is catching errors instead of "error capture not active".
@@ -28,11 +29,11 @@ Type `/kc` to start. Found a problem? `/kc report` builds a bug report to paste 
 - **Groups you could join** are rated on equal terms: every spec you're compared with gets Bloodlust assumed like you do, and the rating treats talents as uncertain for everyone (as a host sees you), so you never rate above the best spec of your role. "What you'd add" still counts the talents you have.
 - **Chat posts are never cut:** a line too long for one chat message carries on to the next ("Ryvax (cont.): ..."), in the assignments post, the Bloodlust line, boss cards and the gaps post. Nothing is dropped any more (the assignments post used to drop backups and mob names first, then cut with "..."). The gaps post now uses the copy window when the game is blocking addon chat, like the other posts.
 - **Faster with many applicants:** a new or departing application re-rates only that application instead of everyone (about 4 ms instead of about 75 ms with 12 applicants and 4 open slots, plain Lua 5.1 in the test harness).
-- **Inside a key:** enemy forces and the roster scan treat values the game hides from addons as unknown instead of risking an error, and a roster scan that errors no longer escapes its timer. `/kc verify` reports both, and now also lists the functions the addon can do without and what each one missing costs.
-- **Reset** (`/kc reset`, Settings > Data) says everything it wipes: saved comps, the planner comp, every setting, run history, boss-card edits, Bloodlust timing and the error log. It also clears this session's hand-picked assignments and boss progress.
-- **Inside a key:** party inspects (how the addon learns other players' specs) now treat IDs the game hides from addons as unknown, like the roster scan already did, and an error inside the inspect timer is contained and reported by `/kc verify` instead of escaping.
-- **Docs:** the overview is shorter, with a new opening, and the README and overview no longer suggest support for other addons: Mythic Dungeon Tools route features carry a note that Keystone Command isn't affiliated with MDT, and the Raider.IO panel mention is gone.
-- **Releases** are now packaged and uploaded to CurseForge, Wago and GitHub automatically. The zip holds just the `KeystoneCommand` folder (with `LICENSE.txt` inside); the full guide is on the wiki instead of a readme beside the folder.
+- **Inside a key:** enemy forces and the roster scan treat values the game hides from addons as unknown instead of risking an error, and a roster scan that errors no longer escapes its timer. `/ens verify` reports both, and now also lists the functions the addon can do without and what each one missing costs.
+- **Reset** (`/ens reset`, Settings > Data) says everything it wipes: saved comps, the planner comp, every setting, run history, boss-card edits, Bloodlust timing and the error log. It also clears this session's hand-picked assignments and boss progress.
+- **Inside a key:** party inspects (how the addon learns other players' specs) now treat IDs the game hides from addons as unknown, like the roster scan already did, and an error inside the inspect timer is contained and reported by `/ens verify` instead of escaping.
+- **Docs:** the overview is shorter, with a new opening, and the README and overview no longer suggest support for other addons: Mythic Dungeon Tools route features carry a note that Ensemble isn't affiliated with MDT, and the Raider.IO panel mention is gone.
+- **Releases** are now packaged and uploaded to CurseForge, Wago and GitHub automatically. The zip holds just the `Ensemble` folder (with `LICENSE.txt` inside); the full guide is on the wiki instead of a readme beside the folder.
 - The listing-marker frames are kept in the addon's own table instead of a field on the Group Finder's result buttons, and the listing fit cache is cleared with each new search.
 
 ## 1.2.0
@@ -55,19 +56,17 @@ Type `/kc` to start. Found a problem? `/kc report` builds a bug report to paste 
 - Data checked against 12.1.5's patch notes, its Mythic+ dungeon tuning and the hotfixes through October 13. The rest of the tuning is damage, health and cooldown numbers, and no class utility the addon tracks changed.
 
 ## 1.1.0
-- Named **Keystone Command**. Command: `/kc`.
-- Slogan: "Command the key." Summary: "Learn the dungeon. Build the group. Make the plan. Command the key."
 - Invite applicants straight from the Applicants tab: an Invite button on every card.
 - Boss cards rewritten as short what-to-do lines (the why stays in the Dungeon walkthrough).
 - Boss cards: ability names are highlighted with their icon and show the game's tooltip on hover.
 - Dungeon data checked against every hotfix since 12.1.0 (to October 6): Kings' Rest's Risen Hexer now casts Shadow Bolt (its slow is marked unconfirmed until checked in game); Envenom is credited to the High Evolutionist; Toxic Spew to the Potatoad Matriarch; Rav'i's Regurgitate asks for a Disease dispel (on Rav'i's card too); Ascendant's alternatives match the Season 2 guide.
 - Tooltips no longer call root and snare effects "Magic debuff".
 - Faster: the Composition and Dungeon tabs redraw several times faster, the boss window no longer re-runs the plan when you page or resize, and unchanged roster or applicant updates no longer redraw the windows.
-- `/kc verify season`: the game's dungeon pool, bosses, ability spell IDs and affixes in one block (for updates). `/kc verify` now checks every game event the addon uses.
+- `/ens verify season`: the game's dungeon pool, bosses, ability spell IDs and affixes in one block (for updates). `/ens verify` now checks every game event the addon uses.
 - Applicant ratings weigh experience: each applicant's best run of the listed dungeon against your key level (10% of the score up to +5, 20% to +9, 30% from +10). Sorting by Fit uses it, with ties going to the higher M+ rating.
 - "What we need": a short line for your listing's description (open roles and missing needs), from the Applicants tab, the Group Finder panel and the Plan tab.
 - Host coaching: "Fills your only gap" headlines, and at low keys a note when a less experienced applicant fits well.
-- A short first-run tour (`/kc tour`, or Settings > General).
+- A short first-run tour (`/ens tour`, or Settings > General).
 - The Dungeon tab, Settings > Data and bug reports show how current the data is.
 - Pull-by-pull assignments from your Mythic Dungeon Tools route: the Plan tab lists each pull's kicks and dispels, and the boss window shows the pull you're on and how many assignments the next one has for you. Follows imported and shared routes. Settings > Boss cards to turn it off.
 - Shorter text: no repeated "nobody has it" lines, short need names in lists, one line per kick or dispel assignment (abilities and cooldowns in its tooltip), a one-line CC summary, and needs nobody brings merged into one line.
@@ -82,5 +81,5 @@ Type `/kc` to start. Found a problem? `/kc report` builds a bug report to paste 
 
 ## 1.0.0
 - First release for Midnight Season 2 (12.1).
-- Boss cards: a short, role-split card for all 28 Season 2 bosses, a pop-up boss window that follows your progress through the dungeon (resizable, own text size, your plan jobs highlighted), editable cards, and one-click posting to chat. `/kc boss` and Settings > Boss cards.
-- `/kc report` (also Settings > Data): a copyable bug report with version, setup, changed settings, other addons and the addon's recent Lua errors.
+- Boss cards: a short, role-split card for all 28 Season 2 bosses, a pop-up boss window that follows your progress through the dungeon (resizable, own text size, your plan jobs highlighted), editable cards, and one-click posting to chat. `/ens boss` and Settings > Boss cards.
+- `/ens report` (also Settings > Data): a copyable bug report with version, setup, changed settings, other addons and the addon's recent Lua errors.

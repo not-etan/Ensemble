@@ -1,4 +1,4 @@
--- Keystone Command / GroupFinderTracker.lua  (Feature 3)
+-- Ensemble / GroupFinderTracker.lua  (Feature 3)
 -- Live tracking of the current party (and Group Finder applicants) while the window is
 -- open in Live mode. Pure reads: roster, class, spec, LFG listing. Nothing here is
 -- protected or secure, so it works in combat (inspects are simply deferred).
@@ -10,7 +10,7 @@
 --
 -- Midnight "Secret Values": nothing here uses combat-log data. Class/spec/role queries on
 -- party units are not secret-restricted: player and party class/role confirmed readable in
--- 12.1.0 (/kc verify); worth re-checking inside a running key.
+-- 12.1.0 (/ens verify); worth re-checking inside a running key.
 
 local _, ns = ...
 
@@ -36,7 +36,7 @@ local inspectTimer = nil
 
 local frame = CreateFrame("Frame")
 
--- All confirmed present in 12.1.0 (build 69933); /kc verify probes every event the addon uses.
+-- All confirmed present in 12.1.0 (build 69933); /ens verify probes every event the addon uses.
 local EVENTS = {
   "GROUP_ROSTER_UPDATE",
   "PLAYER_SPECIALIZATION_CHANGED",
@@ -118,7 +118,7 @@ function Tracker:RequestUpdate(delay)
   updateTimer = C_Timer.NewTimer(delay or DEBOUNCE_SECONDS, function()
     updateTimer = nil
     -- A timer callback has nobody above it to catch an error: keep it contained (the next
-    -- roster event rescans again) and count it for /kc verify.
+    -- roster event rescans again) and count it for /ens verify.
     local ok, err = pcall(Tracker.Rescan, Tracker)
     if not ok then
       Tracker.rescanErrors = (Tracker.rescanErrors or 0) + 1
@@ -128,7 +128,7 @@ function Tracker:RequestUpdate(delay)
 end
 
 -- Unit reads inside a key may come back as Midnight "secret" values: treat one as unknown,
--- like a spec that hasn't been inspected yet. Counted for /kc verify.
+-- like a spec that hasn't been inspected yet. Counted for /ens verify.
 local function Readable(v)
   if v == nil or not issecretvalue then return v end
   local ok, secret = pcall(issecretvalue, v)
@@ -169,7 +169,7 @@ local function ScheduleInspect()
   inspectTimer = C_Timer.NewTimer(INSPECT_INTERVAL, function()
     inspectTimer = nil
     -- Same as the rescan timer: nothing above a timer callback catches an error, so keep it
-    -- contained (the next roster change queues the inspect again) and count it for /kc verify.
+    -- contained (the next roster change queues the inspect again) and count it for /ens verify.
     local ok, err = pcall(Tracker.ProcessInspectQueue, Tracker)
     if not ok then
       Tracker.rescanErrors = (Tracker.rescanErrors or 0) + 1

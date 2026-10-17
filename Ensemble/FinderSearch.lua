@@ -1,4 +1,4 @@
--- Keystone Command / FinderSearch.lua
+-- Ensemble / FinderSearch.lua
 -- Group Finder search results (groups you could apply to): a small marker on each listing
 -- and a "your fit" breakdown in its tooltip. The numbers come from ListingFit.lua.
 --
@@ -9,7 +9,7 @@
 -- no reliably free space for them.
 --
 -- Blizzard functions hooked (hooksecurefunc only: nothing of Blizzard's is replaced, so
--- the protected Sign Up flow is untouched). Both are long-standing; /kc verify reports them:
+-- the protected Sign Up flow is untouched). Both are long-standing; /ens verify reports them:
 --   LFGListSearchEntry_Update(button)            - a search-result row is (re)drawn
 --   LFGListUtil_SetSearchEntryTooltip(tooltip, resultID) - its tooltip is built
 --   LFGListApplicationDialog_Show(dialog, resultID) - the Sign Up dialog opens: a line for
@@ -24,7 +24,7 @@ local _, ns = ...
 local FS = {}
 ns.FinderSearch = FS
 
-local LOGO = "Interface\\AddOns\\KeystoneCommand\\Media\\LogoMark"
+local LOGO = "Interface\\AddOns\\Ensemble\\Media\\LogoMark"
 local WHITE = "Interface\\Buttons\\WHITE8x8"
 local FRAME_BUDGET_MS = 6      -- evaluation time per frame while results stream in (at least one)
 
@@ -184,7 +184,7 @@ function FS:AddTooltip(tooltip, resultID)
   if not ok or not res then return end
   local r = res.rating
   tooltip:AddLine(" ")
-  tooltip:AddLine("|T" .. LOGO .. ":14:14|t Keystone Command - your fit: " .. r.hex .. r.word .. " " .. res.score .. "|r", 1, 1, 1)
+  tooltip:AddLine("|T" .. LOGO .. ":14:14|t Ensemble - your fit: " .. r.hex .. r.word .. " " .. res.score .. "|r", 1, 1, 1)
   if res.roleConflict then
     tooltip:AddLine("No open " .. (res.role == "DAMAGER" and "DPS" or res.role:lower()) .. " slot for you.", 0.93, 0.38, 0.38, true)
   end

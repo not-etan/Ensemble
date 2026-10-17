@@ -1,4 +1,4 @@
--- Keystone Command / ListingFit.lua
+-- Ensemble / ListingFit.lua
 -- "Your fit" for groups you could apply to: for a Group Finder search result, what YOU
 -- would add to that group, what it may already have (talents can't be seen), and what it
 -- would still be missing after you join. Pure logic, no frames; FinderSearch.lua draws it.
@@ -16,7 +16,7 @@
 -- join?" is the separate res.groupAfter status, never a score. Affixes count only when the key
 -- level can be read from the title.
 --
--- API (long-standing, all pcall-guarded; /kc verify reports which are present):
+-- API (long-standing, all pcall-guarded; /ens verify reports which are present):
 --   C_LFGList.GetSearchResultInfo(resultID) -> { activityIDs | activityID, numMembers, isDelisted }
 --   C_LFGList.GetSearchResultPlayerInfo(resultID, i) -> { classFilename, specName, assignedRole, specID? }
 --   C_LFGList.GetSearchResultMemberInfo(resultID, i) -> role, classFile, className, specName (older;

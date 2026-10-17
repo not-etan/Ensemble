@@ -1,4 +1,4 @@
--- Keystone Command / BossWindow.lua
+-- Ensemble / BossWindow.lua
 -- The boss-card pop-up: a small, movable, resizable window with its own text size that
 -- opens when you enter a Season dungeon and turns to the next boss when one dies. Shows
 -- your role's lines first (or every role), your kick / dispel jobs from the plan in a
@@ -23,7 +23,7 @@ local function Kit() return UI.Kit end
 
 ---------------------------------------------------------------------------
 -- What the window is showing: the dungeon you're in (and its current boss), or a dungeon
--- picked by hand (/kc boss outside a dungeon, or "Open in boss window" from the primer).
+-- picked by hand (/ens boss outside a dungeon, or "Open in boss window" from the primer).
 ---------------------------------------------------------------------------
 BW.view = {}
 
@@ -106,7 +106,7 @@ function BW:Build()
   if self.frame then return end
   local K = Kit()
   local C = K.C
-  local f = CreateFrame("Frame", "KeystoneCommandBossFrame", UIParent, "BackdropTemplate")
+  local f = CreateFrame("Frame", "EnsembleBossFrame", UIParent, "BackdropTemplate")
   self.frame = f
   K.Skin(f, C.bg, C.border)
   f:SetFrameStrata("MEDIUM")
@@ -131,7 +131,7 @@ function BW:Build()
   self.prev:SetPoint("LEFT", 4, 0)
   self.next = SmallBtn(head, ">", 20, "Next boss", function() BW:Step(1) end)
   self.next:SetPoint("LEFT", self.prev, "RIGHT", 2, 0)
-  self.close = SmallBtn(head, "x", 20, "Close (reopen with /kc boss)", function() BW:Hide(true) end)
+  self.close = SmallBtn(head, "x", 20, "Close (reopen with /ens boss)", function() BW:Hide(true) end)
   self.close:SetPoint("RIGHT", -4, 0)
   self.title = head:CreateFontString(nil, "OVERLAY")
   self.title:SetPoint("LEFT", self.next, "RIGHT", 6, 0); self.title:SetPoint("RIGHT", self.close, "LEFT", -6, 0)
@@ -322,7 +322,7 @@ end
 
 function BW:IsShown() return self.frame and self.frame:IsShown() or false end
 
--- /kc boss [dungeon name]
+-- /ens boss [dungeon name]
 function BW:Open(dk)
   if dk then self.view = { dk = dk } end   -- index unset: the first boss in your order
   self:Show()
@@ -363,7 +363,7 @@ function UI:OpenBossEditor(dk, i)
   local C, HEX = K.C, K.HEX
   local e = self.bossEditor
   if not e then
-    e = CreateFrame("Frame", "KeystoneCommandBossEditor", UIParent, "BackdropTemplate")
+    e = CreateFrame("Frame", "EnsembleBossEditor", UIParent, "BackdropTemplate")
     K.Skin(e, C.bg, C.border)
     e:SetSize(520, 330); e:SetPoint("CENTER"); e:SetFrameStrata("DIALOG")
     e:SetMovable(true); e:EnableMouse(true); e:RegisterForDrag("LeftButton")
@@ -394,7 +394,7 @@ function UI:OpenBossEditor(dk, i)
       e.edit:SetText(BC:DefaultText(e.dk, e.i))
     end)
     e.reset:SetPoint("RIGHT", e.cancel, "LEFT", -6, 0)
-    if UISpecialFrames then table.insert(UISpecialFrames, "KeystoneCommandBossEditor") end
+    if UISpecialFrames then table.insert(UISpecialFrames, "EnsembleBossEditor") end
     self.bossEditor = e
   end
   e.dk, e.i = dk, i

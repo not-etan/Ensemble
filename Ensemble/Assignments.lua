@@ -1,4 +1,4 @@
--- Keystone Command / Assignments.lua
+-- Ensemble / Assignments.lua
 -- Kick and dispel assignments for the selected dungeon, built from who is actually in
 -- the group and how long each of their abilities takes to come back.
 --
@@ -523,9 +523,9 @@ function AS:ChatLines(plan, dungeonName, style)
   local out = {}
   local where = dungeonName and (" " .. dungeonName) or ""
   if style == "short" then
-    out[1] = "[KC]" .. where .. " assignments:"
+    out[1] = "[Ensemble]" .. where .. " assignments:"
   else
-    out[1] = "[KC]" .. where .. " assignments. Kick your own casts first, help when free. 1st/2nd = who takes the next cast:"
+    out[1] = "[Ensemble]" .. where .. " assignments. Kick your own casts first, help when free. 1st/2nd = who takes the next cast:"
   end
   for _, job in ipairs(self:PlayerJobs(plan)) do
     local name = ShortName(job.label)

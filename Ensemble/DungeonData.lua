@@ -1,4 +1,4 @@
--- Keystone Command / DungeonData.lua  (Feature 5 data)
+-- Ensemble / DungeonData.lua  (Feature 5 data)
 -- HAND-MAINTAINED. Update by editing this file; ships with normal addon releases.
 -- Re-check after every hotfix / M+ tuning pass.
 --
@@ -54,15 +54,15 @@ local _, ns = ...
 local DD = { list = {}, order = {} }
 ns.Dungeons = DD
 
--- How current the game data is: shown in the Dungeons tab, Settings > Data, /kc report and
--- /kc verify. Update both with every data pass.
+-- How current the game data is: shown in the Dungeons tab, Settings > Data, /ens report and
+-- /ens verify. Update both with every data pass.
 DD.DATA_PATCH = "12.1.5"
 DD.DATA_CHECKED = "October 13, 2026"   -- newest hotfix post the data was checked against
 function DD:FreshnessText()
   return "Data for patch " .. self.DATA_PATCH .. ", checked against Blizzard's hotfixes through " .. self.DATA_CHECKED .. "."
 end
 
--- The guides the data comes from, credited in the Sources window (/kc sources, Settings >
+-- The guides the data comes from, credited in the Sources window (/ens sources, Settings >
 -- Data, the Dungeon tab). One link per site's guide index, not per article. Every URL was
 -- opened and checked on October 16, 2026; re-check them with each season update.
 DD.SOURCES = {
@@ -79,7 +79,7 @@ DD.SOURCES = {
     { name = "Blizzard's hotfix notes (World of Warcraft news)", url = "https://news.blizzard.com/en-us/feed/world-of-warcraft" },
   } },
 }
-DD.SOURCES_FOOTER = "Keystone Command isn't affiliated with these sites. Thanks to their authors."
+DD.SOURCES_FOOTER = "Ensemble isn't affiliated with these sites. Thanks to their authors."
 
 ---------------------------------------------------------------------------
 -- TUNABLE HEURISTICS. These are judgment calls, not published facts -- adjust freely.
@@ -599,13 +599,13 @@ end
 -- Map free text (slash command, LFG activity name) to a dungeon key.
 ---------------------------------------------------------------------------
 -- Identity by ID (locale-proof). Names are only a last-resort fallback.
--- Challenge-mode (keystone) map IDs confirmed in 12.1.0 (build 69933) by /kc verify.
+-- Challenge-mode (keystone) map IDs confirmed in 12.1.0 (build 69933) by /ens verify.
 ---------------------------------------------------------------------------
 DD.CHALLENGE_MAP_IDS = {
   AltarOfFangs = 588, TheBlindingVale = 584, VoidscarArena = 585, DenOfNalorakk = 586,
   MurderRow = 587, RubyLifePools = 399, KingsRest = 249, TempleOfSethraliss = 250,
 }
--- Group Finder activity IDs seen in-client (activity 1949 confirmed by /kc verify).
+-- Group Finder activity IDs seen in-client (activity 1949 confirmed by /ens verify).
 -- Others are resolved through the activity's instance map ID, then by name.
 DD.ACTIVITY_IDS = { [1949] = "TheBlindingVale" }
 
@@ -617,7 +617,7 @@ function DD:KeyForChallengeMap(mapID)
 end
 
 -- Instance (world) map IDs, learned from C_ChallengeMode.GetMapUIInfo's 6th return.
--- Confirmed in 12.1.0 (build 69933) by /kc verify; runtime learning covers later changes.
+-- Confirmed in 12.1.0 (build 69933) by /ens verify; runtime learning covers later changes.
 DD.INSTANCE_MAP_IDS = {
   AltarOfFangs = 2993, RubyLifePools = 2521, KingsRest = 1762, VoidscarArena = 2923,
   DenOfNalorakk = 2825, MurderRow = 2813, TheBlindingVale = 2859, TempleOfSethraliss = 1877,

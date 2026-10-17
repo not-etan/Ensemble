@@ -1,13 +1,13 @@
 Copyright (c) 2026 not-etan. All rights reserved.
 
-Keystone Command, including its source code, data, artwork, name and logo, may not
+Ensemble, including its source code, data, artwork, name and logo, may not
 be copied, modified, redistributed or republished, in whole or in part, without
 the author's written permission.
 
-You may download Keystone Command from its official release pages and use it in
+You may download Ensemble from its official release pages and use it in
 World of Warcraft for personal use. The source is published so it can be read,
 as World of Warcraft's UI Add-On Development Policy requires; publishing it does
 not grant any license to reuse it.
 
-World of Warcraft is a trademark of Blizzard Entertainment, Inc. Keystone Command
+World of Warcraft is a trademark of Blizzard Entertainment, Inc. Ensemble
 is a fan-made addon and isn't affiliated with or endorsed by Blizzard Entertainment.

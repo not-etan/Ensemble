@@ -1,7 +1,7 @@
--- Keystone Command / Tour.lua
+-- Ensemble / Tour.lua
 -- A short first-run tour: a callout with Back / Next / Skip that points at one part of the
 -- window at a time. Shown once, the first time the window opens; replay it from
--- Settings > General or with /kc tour. Pure UI, nothing saved but `db.tourSeen`.
+-- Settings > General or with /ens tour. Pure UI, nothing saved but `db.tourSeen`.
 local _, ns = ...
 
 local UI = ns.UI
@@ -33,7 +33,7 @@ Tour.STEPS = {
     text = "Applicants rates each player on what they add to your group and their experience in this dungeon. While you host, the best fits also show under your slots on Composition. \"What we need\" gives you a line for your listing's description." },
   { tab = "composition", title = "Help is close",
     target = function() return UI.helpBtn end,
-    text = "\"?\" opens the glossary. Boss cards open by themselves in a Season dungeon (/kc boss). Replay this tour from Settings > General or /kc tour." },
+    text = "\"?\" opens the glossary. Boss cards open by themselves in a Season dungeon (/ens boss). Replay this tour from Settings > General or /ens tour." },
 }
 
 function Tour:Build()

@@ -56,17 +56,17 @@ PAGES = {
 
 # page title -> [(after section heading, kind, text)]; kind is NOTE, TIP, IMPORTANT or WARNING.
 CALLOUTS = {
-    "Home": [("Opening it", "TIP", "New here? The tour runs the first time you open the window. Replay it any time with `/kc tour`.")],
+    "Home": [("Opening it", "TIP", "New here? The tour runs the first time you open the window. Replay it any time with `/ens tour`.")],
     "Applicants": [("Invite", "NOTE", "The addon never invites anyone on its own. Every invite takes your click.")],
     "Groups You Could Join": [("A line for your Sign Up note", "TIP", "Click the box, press Ctrl+C, then paste it into Blizzard's Sign Up note.")],
     "Plan": [("Changing an assignment", "NOTE", "Your changes last for this session only, and stop applying when that player changes spec or leaves.")],
     "Settings and More": [("Settings", "WARNING", "Resetting everything can't be undone.")],
-    "Boss Cards": [("Your route, pull by pull", "IMPORTANT", "Keystone Command isn't affiliated with or supported by Mythic Dungeon Tools, so an MDT update may break route features until Keystone Command catches up.")],
+    "Boss Cards": [("Your route, pull by pull", "IMPORTANT", "Ensemble isn't affiliated with or supported by Mythic Dungeon Tools, so an MDT update may break route features until Ensemble catches up.")],
     "Reporting a Problem": [(None, "NOTE", "Nothing is sent anywhere. You copy the report and paste it yourself.")],
 }
 # sentences removed from a section's text because its callout says them
 MOVE = [
-    " Keystone Command isn't affiliated with or supported by Mythic Dungeon Tools, so an MDT update may break route features until Keystone Command catches up.",
+    " Ensemble isn't affiliated with or supported by Mythic Dungeon Tools, so an MDT update may break route features until Ensemble catches up.",
 ]
 
 
@@ -211,7 +211,7 @@ def main():
 
     home_text = finish("Home", home)
     contents = ["", "## 📚 Pages", ""] + ["- " + link(t) for t, _ in pages]
-    write("Home", "\n".join(['<p align="center"><img src="%s" alt="Keystone Command" width="100%%"></p>' % BANNER, "",
+    write("Home", "\n".join(['<p align="center"><img src="%s" alt="Ensemble" width="100%%"></p>' % BANNER, "",
                              home_text] + contents + nav("Home")) + "\n")
     for title, body in pages:
         write(slug(title), finish(title, body) + "\n".join(nav(title)) + "\n")

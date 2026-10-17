@@ -1,4 +1,4 @@
--- Keystone Command / Affixes.lua
+-- Ensemble / Affixes.lua
 -- Weekly Mythic+ affix awareness: reads this week's affixes from the game and adds the
 -- utility they call for to the dungeon checks, filtered by the key level.
 --
@@ -10,7 +10,7 @@
 --   +12    Xal'atath's Guile replaces the Bargain (deaths cost time)
 -- Affix IDs are the long-standing ones (Tyrannical 9, Fortified 10) and The War Within's
 -- Xal'atath affixes; every affix is ALSO matched by name, so a changed ID still works on
--- English clients. Confirmed in 12.1.0 (build 69933) by /kc verify: Lindormi's Guidance 165,
+-- English clients. Confirmed in 12.1.0 (build 69933) by /ens verify: Lindormi's Guidance 165,
 -- Ascendant 148, Tyrannical 9, Fortified 10, Xal'atath's Guile 147.
 -- Ascendant handling (stops, displacements, interrupts or dispels; the orbs' shield is too
 -- big to kill) is as Icy Veins' Season 2 Mythic+ guide states it (rechecked October 2026).

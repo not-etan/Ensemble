@@ -1,11 +1,11 @@
 local FILES = {}
-for line in io.lines(ADDON_DIR .. "/KeystoneCommand.toc") do
+for line in io.lines(ADDON_DIR .. "/Ensemble.toc") do
   local f = line:match("^%s*([%w_]+%.lua)%s*$"); if f then FILES[#FILES + 1] = f end
 end
 ALLFRAMES = {}
 local ns = {}
-for _, f in ipairs(FILES) do assert(loadfile(ADDON_DIR .. "/" .. f))("KeystoneCommand", ns) end
-for _, fr in ipairs(ALLFRAMES) do if fr._events.ADDON_LOADED then fr._scripts.OnEvent(fr, "ADDON_LOADED", "KeystoneCommand"); fr._scripts.OnEvent(fr, "PLAYER_LOGIN") end end
+for _, f in ipairs(FILES) do assert(loadfile(ADDON_DIR .. "/" .. f))("Ensemble", ns) end
+for _, fr in ipairs(ALLFRAMES) do if fr._events.ADDON_LOADED then fr._scripts.OnEvent(fr, "ADDON_LOADED", "Ensemble"); fr._scripts.OnEvent(fr, "PLAYER_LOGIN") end end
 local function clean(t)
   t = t:gsub("|T[^|]*|t", "[icon]"):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
   t = t:gsub("|H[^|]*|h(.-)|h", "%1")

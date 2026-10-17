@@ -1,4 +1,4 @@
--- Keystone Command / UtilityDatabase.lua  (Feature 1)
+-- Ensemble / UtilityDatabase.lua  (Feature 1)
 -- Per-class, per-spec utility data. Pure data + small lookup helpers; no UI, no analysis.
 -- Blizzard retunes utility every patch: edit THIS file only, nothing else depends on its
 -- internals beyond the accessor functions at the bottom.
@@ -86,7 +86,7 @@ UD.CAP_EXPLAIN = {
 }
 function UD:CapExplain(key) return self.CAP_EXPLAIN[key] end
 
--- Glossary of the addon's terms (Glossary button, /kc glossary).
+-- Glossary of the addon's terms (Glossary button, /ens glossary).
 UD.GLOSSARY = {
   { "Needs", "What a dungeon (and this week's affixes) asks a group to handle: kicks, dispels, stops, tank help and more." },
   { "Gaps", "Needs your group doesn't cover (MISSING) or covers too thinly (THIN)." },
@@ -297,7 +297,7 @@ local function CC(name, ccType, opts)
 end
 
 local TAL = { talent = true }
--- For entries a guide doesn't confirm (none at the moment): /kc verify lists them.
+-- For entries a guide doesn't confirm (none at the moment): /ens verify lists them.
 local VER = { verify = true }
 local TAL_VER = { talent = true, verify = true }
 local CORE = { talent = true, core = true }
@@ -544,7 +544,7 @@ local SPECS = {
   [581] = { class = "DEMONHUNTER", name = "Vengeance", role = "TANK",    range = "melee",
             addCC = { CC("Sigil of Silence", "silence", { aoe = true, stop = true, talent = true }),
                       CC("Sigil of Chains", "knockback", { aoe = true, stop = true, talent = true }) } },
-  -- Devourer (spec 1480, confirmed by /kc verify): Void Nova replaces Chaos Nova. Range and
+  -- Devourer (spec 1480, confirmed by /ens verify): Void Nova replaces Chaos Nova. Range and
   -- primary stat aren't stated in the guide; ranged Intellect is assumed.
   [1480] = { class = "DEMONHUNTER", name = "Devourer", role = "DAMAGER", range = "ranged",
              removeCC = { "Chaos Nova" },
