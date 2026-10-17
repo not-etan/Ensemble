@@ -3951,12 +3951,24 @@ function UI:BuildPrimerPage()
   local left = Panel(page)
   left:SetPoint("TOPLEFT", 12, top); left:SetPoint("BOTTOMRIGHT", page, "BOTTOM", 70, 12)
   pp.walkTitle = AccentText(left); pp.walkTitle:SetPoint("TOPLEFT", 10, -8); pp.walkTitle:SetText("Walkthrough")
+  -- The boss window on the dungeon this tab shows (which starts as your key, listing or zone).
+  pp.bossBtn = Button(left, "Open boss cards", 124, 20, function() UI:OpenPrimerBossCards() end)
+  SetFontSize(pp.bossBtn.text, 11)
+  pp.bossBtn:SetPoint("TOPRIGHT", -6, -5)
+  pp.bossBtn.tooltip = "Open the boss window on this dungeon's cards. Inside a Season dungeon it shows the one you're in."
   pp.asks = LineList(left, 530, colH - 34):Fill(6, -28, -6, 6)
   pp.walk = pp.asks
   local right = Panel(page)
   right:SetPoint("TOPLEFT", page, "TOP", 80, top); right:SetPoint("BOTTOMRIGHT", -12, 12)
   local rt = AccentText(right); rt:SetPoint("TOPLEFT", 10, -8); rt:SetText("Best value here")
   pp.value = LineList(right, 370, colH - 34):Fill(6, -28, -6, 6)
+end
+
+-- Open the boss window on the Dungeon tab's dungeon (first boss in your order).
+function UI:OpenPrimerBossCards()
+  local key = self.primerKey
+  if not (key and DD.list[key]) then key = ns:GetEffectiveDungeon(false) or DD.order[1] end
+  if ns.BossWindow and key then ns.BossWindow:Open(key) end
 end
 
 -- Which needs a role handles or helps with. Everyone kicks, stops, soothes, purges, frees and

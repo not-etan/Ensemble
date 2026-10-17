@@ -23,7 +23,8 @@ local function Kit() return UI.Kit end
 
 ---------------------------------------------------------------------------
 -- What the window is showing: the dungeon you're in (and its current boss), or a dungeon
--- picked by hand (Settings > Boss cards > "Open the boss window" outside a dungeon).
+-- picked by hand (the Dungeon tab's "Open boss cards" or a card's "Open in the boss window",
+-- or Settings > Boss cards > "Open the boss window" outside a dungeon).
 ---------------------------------------------------------------------------
 BW.view = {}
 
@@ -131,7 +132,7 @@ function BW:Build()
   self.prev:SetPoint("LEFT", 4, 0)
   self.next = SmallBtn(head, ">", 20, "Next boss", function() BW:Step(1) end)
   self.next:SetPoint("LEFT", self.prev, "RIGHT", 2, 0)
-  self.close = SmallBtn(head, "x", 20, "Close (reopen from Settings > Boss cards)", function() BW:Hide(true) end)
+  self.close = SmallBtn(head, "x", 20, "Close (reopen from the Dungeon tab or Settings > Boss cards)", function() BW:Hide(true) end)
   self.close:SetPoint("RIGHT", -4, 0)
   self.title = head:CreateFontString(nil, "OVERLAY")
   self.title:SetPoint("LEFT", self.next, "RIGHT", 6, 0); self.title:SetPoint("RIGHT", self.close, "LEFT", -6, 0)

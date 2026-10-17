@@ -23,7 +23,7 @@ Ensemble is a Mythic+ companion that helps players of every skill level learn du
 ### 🏰 Dungeons and bosses
 - 🗺️ **Every Season 2 dungeon:** Altar of Fangs, Murder Row, Den of Nalorakk, The Blinding Vale, Voidscar Arena, Ruby Life Pools, Kings' Rest and Temple of Sethraliss.
 - 📖 **Walkthrough:** every trash section and boss in order, with what each mechanic does and how to answer it, filtered by role if you like, plus a short card for every boss.
-- 🪟 **Boss window:** opens when you enter the dungeon, follows your progress and highlights your own assignments.
+- 🪟 **Boss window:** opens when you enter the dungeon, follows your progress and highlights your own assignments. Open any dungeon's cards from the Dungeon tab too.
 - 🥇 **Best key:** rank every dungeon by how well your current group covers it.
 
 ### 📊 Composition

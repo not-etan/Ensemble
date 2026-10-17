@@ -4115,5 +4115,33 @@ do
   end
 end
 
+-- 64. Dungeon tab: "Open boss cards" opens the boss window on the dungeon the tab shows,
+-- which starts as the auto-detected dungeon (key, listing or zone).
+do
+  EnsembleDB = nil
+  ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" } }
+  local ns64 = boot()
+  local UI64, BW64 = ns64.UI, ns64.BossWindow
+  ns64.BossCards.state = { killed = {} }   -- not inside a dungeon
+  ns64:SetManualDungeon("KingsRest")
+  UI64:Show("dungeons"); RunTimers()
+  local btn = UI64.pp.bossBtn
+  ok(btn and btn.text:GetText() == "Open boss cards" and btn.tooltip and btn.tooltip:find("this dungeon's cards", 1, true),
+    "Dungeon tab has an Open boss cards button")
+  ok(UI64.primerKey == "KingsRest", "the tab starts on the detected dungeon")
+  btn:Click(); RunTimers()
+  ok(BW64:IsShown() and BW64.title:GetText():find("The Golden Serpent", 1, true), "opens the detected dungeon's first boss card")
+  BW64:Hide(true)
+  -- Pick another dungeon on the tab: the button follows it.
+  UI64.primerKey = "TempleOfSethraliss"; UI64:QueueRefresh(); RunTimers()
+  btn:Click(); RunTimers()
+  ok(BW64:IsShown() and BW64.title:GetText():find("Adderis and Aspix", 1, true), "opens the dungeon picked on the tab")
+  -- Pressing it again while open keeps the window open (it doesn't toggle).
+  btn:Click(); RunTimers()
+  ok(BW64:IsShown(), "a second click keeps the window open")
+  BW64:Hide(true); UI64:Hide()
+  ns64:SetManualDungeon("AUTO")
+end
+
 print(string.format("%d passed, %d failed", passes, fails))
 return fails
