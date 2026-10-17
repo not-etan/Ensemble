@@ -22,44 +22,29 @@ Ensemble is a Mythic+ companion that helps players of every skill level learn du
 
 ### 🏰 Dungeons and bosses
 - 🗺️ **Every Season 2 dungeon:** Altar of Fangs, Murder Row, Den of Nalorakk, The Blinding Vale, Voidscar Arena, Ruby Life Pools, Kings' Rest and Temple of Sethraliss.
-- 📖 **Walkthrough:** every trash section and boss in order, with what each mechanic does and how to answer it, filtered by role if you like. Every boss has a short card with notes for everyone plus tank, healer and DPS lines.
-- 🪟 **Boss window:** opens when you enter the dungeon, follows your progress and highlights your own assignments. Resize, lock or fade it in combat, and rewrite any card or post it to chat.
+- 📖 **Walkthrough:** every trash section and boss in order, with what each mechanic does and how to answer it, filtered by role if you like, plus a short card for every boss.
+- 🪟 **Boss window:** opens when you enter the dungeon, follows your progress and highlights your own assignments.
 - 🥇 **Best key:** rank every dungeon by how well your current group covers it.
-- 📅 **This week's affixes:** read from the game and included in every check and plan.
 
 ### 📊 Composition
-- 🛠️ **Planner or live party:** plan a comp from scratch or let the slots fill with your real group, then save, load and share comps with an export string.
-- 🧭 **Group check:** a summary of what your group has, what's thin and what's missing, with one color-coded chip per key need.
-- 🔎 **Every gap explained:** who covers it now, which dungeon casts need it, and which classes could cover it with which ability.
-- 💡 **Filling open slots:** the best-fit classes for each empty slot with a short reason, and a preview of what any spec would add or cost before you pick it.
-- 🏷️ **Slot badges:** what each player brings, with a marker on anyone who's the group's only source of something.
-- 🌟 **Raid buffs:** the buffs your group brings and how well each suits it.
-- 🧠 **Talent-aware:** abilities that depend on an optional talent are marked, so you know what's guaranteed.
+- 🛠️ **Planner or live party:** plan a comp from scratch or let the slots fill with your real group, then save and share comps with an export string.
+- 🔎 **Every gap explained:** what your group has, what's thin and what's missing for this dungeon and this week's affixes, and which classes could cover each gap.
+- 💡 **Filling open slots:** the best-fit classes for each empty slot, with a preview of what any spec would add before you pick it.
 
 ### 📥 Applicant ratings
-- 🚦 **Fit rating:** every applicant rated Great, Good, Fair or Poor with a score out of 100, based on how well their spec fits your group and key. Browsing for a group? Every Mythic+ listing shows how strong a pick you'd be.
+- 🚦 **Fit rating:** every applicant rated Great, Good, Fair or Poor out of 100, by how well their spec fits your group and key and by their best run of this dungeon, with a point-by-point "Why?". Browsing for a group? Every Mythic+ listing shows how strong a pick you'd be.
 - ✅ **Group after:** a plain line saying whether the group is ready once they join (or once you do), or what's still missing.
-- 🧗 **Experience:** their best run of this dungeon this season counts too, more so at higher keys.
-- 🧾 **Why this score?** A point-by-point breakdown of every rating, and on listings, what you'd add.
-- ⚖️ **Compare, sort and filter:** pin two applicants side by side, sort by fit, rating or item level, and hide Poor fits.
-- 📨 **Invite from the card**, with a compact panel beside the Group Finder and ratings in Blizzard's own tooltip.
+- ⚖️ **Compare and invite:** pin two applicants side by side, sort by fit, hide Poor fits, and invite from the card or the panel beside the Group Finder.
 - 📝 **Ready-to-copy lines:** "What we need" for your listing ("LF 2 DPS. Need: Poison dispel, Brez."), and a Sign Up note with your spec, rating, best run and what you'd bring.
 
 ### 🗝️ The plan
-- 🎯 **Your assignments:** your kicks, dispels and backups in one place.
-- ⏱️ **Kick and dispel plan:** rotations shared out by cooldown, with backups for dangerous casts and a "kick first" order. Click any assignment to change who takes it.
+- ⏱️ **Kick and dispel plan:** rotations shared out by cooldown, with backups for dangerous casts and your own assignments in one place. Click any assignment to change who takes it.
 - 🥁 **Bloodlust timing:** a sensible default for every dungeon that you can move, annotate or add to.
 - 💬 **Post to party chat:** the whole plan, one line per player, or just the gaps, in one click.
 
 ### 🎓 Learning and history
-- 💡 **Learning mode:** plain-language explanations throughout, or switch it off for a compact expert view, with one-click Learning and Expert presets.
-- 📚 **Glossary and tour:** every term one click away, plus a quick tour on first open.
+- 💡 **Learning mode:** plain-language explanations throughout, a glossary and a quick tour, or switch it off for a compact expert view.
 - 📈 **Run history:** your keys saved locally, with timed rates with and without each gap and a takeaway from every run.
-
-### 🎨 Customization
-- ↔️ **Resizable window** with adjustable text size and accent colors.
-- 🎚️ **Choose what to check:** turn off needs you don't care about.
-- 🌍 **Works on any client language.** Checks use the game's IDs, though the addon's own text is English only.
 
 ---
 
