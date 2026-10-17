@@ -7,7 +7,7 @@
 
 **Learn the dungeon. Build the group. Time the key.**
 
-Ensemble brings dungeon knowledge, group building and a shared plan into one Mythic+ companion for players of every skill level, so you spend less time checking guides and more time playing.
+Ensemble is a Mythic+ companion that helps players of every skill level learn each dungeon, build a group that covers what the key demands, and time the key with a plan everyone can follow. It's all in one place, so you spend less time checking guides and more time playing.
 
 ## ✨ Who it's for
 
