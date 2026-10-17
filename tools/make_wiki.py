@@ -29,8 +29,8 @@ import os
 import re
 import sys
 
-REPO = "https://github.com/not-etan/Keystone-Command"
-BANNER = "https://raw.githubusercontent.com/not-etan/Keystone-Command/main/branding/banner-1200x300.png"
+REPO = "https://github.com/not-etan/Ensemble"
+BANNER = "https://raw.githubusercontent.com/not-etan/Ensemble/main/branding/banner-1200x300.png"
 
 TITLES = {
     "Groups you could join (Group Finder search results)": "Groups You Could Join",
