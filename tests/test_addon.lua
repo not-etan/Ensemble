@@ -338,8 +338,8 @@ ok(ns3.db.savedComps[1].slots[5] == 0, "short slots padded")
 ok(type(ns3.db.currentComp) == "table" and ns3.db.currentComp[1] == 0, "bad currentComp reset")
 
 -- 16. Slash commands
-SlashCmdList.ENSEMBLE("dungeon temple of sethraliss")
-ok(ns3.db.selectedDungeon == "TempleOfSethraliss", "slash dungeon")
+ns3:SetManualDungeon("TempleOfSethraliss")
+ok(ns3.db.selectedDungeon == "TempleOfSethraliss", "dungeon picked")
 SlashCmdList.ENSEMBLE("reset")
 ok(ns3.db.selectedDungeon == "TempleOfSethraliss", "reset needs confirm")
 SlashCmdList.ENSEMBLE("reset confirm")
@@ -463,8 +463,8 @@ do
   ok(UIF.fp.side:IsShown() and UIF.fp.side.text:GetText() == "Dock right", "switch-side button shown while docked")
   UIF.fp.side:Click(); RunTimers(); UIF:RefreshFinderPanel()
   ok(nsF.db.settings.finderPanel.side == "right" and UIF.fp._point[3] == "TOPRIGHT" and UIF.fp:GetWidth() == 280, "right side: single column")
-  SlashCmdList.ENSEMBLE("panel below"); UIF:RefreshFinderPanel()
-  ok(nsF.db.settings.finderPanel.side == "below" and UIF.fp._point[3] == "BOTTOMLEFT", "/ens panel below")
+  UIF.fp.side:Click(); RunTimers(); UIF:RefreshFinderPanel()
+  ok(nsF.db.settings.finderPanel.side == "below" and UIF.fp._point[3] == "BOTTOMLEFT", "side button flips back below")
   UIF.fp._left, UIF.fp._top = 300, 500
   UIF.fp._scripts.OnDragStart(UIF.fp); UIF.fp._scripts.OnDragStop(UIF.fp); RunTimers()
   local fpPos = nsF.db.settings.finderPanel
@@ -475,8 +475,8 @@ do
   UIF.fp.dock:Click(); RunTimers()
   ok(fpPos.docked and UIF.fp._point[2] == PVEFrame and not UIF.fp.dock:IsShown(), "Dock button re-attaches")
   fpPos.docked = false; UIF:PositionFinderPanel()
-  SlashCmdList.ENSEMBLE("panel dock")
-  ok(fpPos.docked and UIF.fp._point[2] == PVEFrame, "/ens panel dock re-attaches")
+  UIF.fp.dock:Click()
+  ok(fpPos.docked and UIF.fp._point[2] == PVEFrame, "Dock re-attaches again")
   PVEFrame:Hide(); RunTimers()
   ok(not UIF.fp:IsShown() and not TT.enabled, "closing Group Finder hides panel and releases tracker")
   -- Not hosting
@@ -627,12 +627,12 @@ do
   ok(UIA.frame._w == 1400, "text size leaves the window size alone")
   UIA:SetTextSize(200); ok(nsA.db.settings.textSize == 125, "text size clamped high")
   UIA:SetTextSize(10); ok(nsA.db.settings.textSize == 80, "text size clamped low")
-  SlashCmdList.ENSEMBLE("text 110"); ok(nsA.db.settings.textSize == 110, "/ens text")
+  UIA:SetTextSize(110); ok(nsA.db.settings.textSize == 110, "text size set")
   UIA.grip._scripts.OnMouseDown(UIA.grip); ok(UIA.frame._sizing, "grip resizes")
   UIA.grip._scripts.OnMouseUp(UIA.grip)
-  SlashCmdList.ENSEMBLE("lock"); RunTimers()
+  UIA.lockBtn:Click(); RunTimers()
   ok(nsA.db.settings.window.locked and UIA.lockBtn.text:GetText() == "Locked" and not UIA.grip:IsShown(), "locked: grip hidden")
-  SlashCmdList.ENSEMBLE("unlock"); RunTimers()
+  UIA.lockBtn:Click(); RunTimers()
   ok(not nsA.db.settings.window.locked and UIA.grip:IsShown(), "unlocked: grip shown")
   UIA:ResetGeometry(); ok(nsA.db.settings.window.width == 952 and nsA.db.settings.window.point == "CENTER", "reset geometry")
   UIA:SetTextSize(100)
@@ -951,8 +951,8 @@ do
   nsD:CheckKeystoneChange()
   ok(nsD.db.selectedDungeon == "NONE", "same key does not override a pick")
   nsD:SetManualDungeon("AUTO")
-  SlashCmdList.ENSEMBLE("dungeon none"); ok(nsD.db.selectedDungeon == "NONE", "/ens dungeon none")
-  SlashCmdList.ENSEMBLE("dungeon auto"); ok(nsD.db.selectedDungeon == "AUTO", "/ens dungeon auto")
+  nsD:SetManualDungeon("NONE"); ok(nsD.db.selectedDungeon == "NONE", "dungeon none")
+  nsD:SetManualDungeon("AUTO"); ok(nsD.db.selectedDungeon == "AUTO", "dungeon auto")
   -- No keystone: nothing
   OWNED_KEY = nil
   ok(nsD:GetEffectiveDungeon(false) == nil, "no key, no default")
@@ -1495,8 +1495,8 @@ do
   ok(dump(nsH.UI.hp.runs):find("No keys recorded yet", 1, true), "dungeon filter")
   nsH.UI.hp.clear:Click(); nsH.UI.hp.clear:Click(); RunTimers()
   ok(#nsH.db.history == 0, "clear history (two clicks)")
-  SlashCmdList.ENSEMBLE("history"); RunTimers()
-  ok(nsH.UI.currentTab == "history", "/ens history opens the tab")
+  nsH.UI:Show("history"); RunTimers()
+  ok(nsH.UI.currentTab == "history", "History tab opens")
   nsH.UI:Hide()
 end
 
@@ -1805,7 +1805,7 @@ do
   UIl:Show("composition"); RunTimers()
   nsL.db.settings.explain = true
   -- glossary
-  SlashCmdList.ENSEMBLE("glossary"); RunTimers()
+  UIl:ShowGlossary(); RunTimers()
   local g = dump(UIl.glossary.list)
   ok(UIl.glossary:IsShown() and g:find("THIN", 1, true) and g:find("Rotational kick", 1, true) and g:find("Curse dispel", 1, true), "glossary")
   UIl.glossary:Hide()
@@ -1848,7 +1848,7 @@ do
     for i = 2, #l do ok(l[i - 1].score >= l[i].score, "primer ranking " .. role) end
   end
   ok(UIl.cp.lastPlan ~= false, "primer leaves the Builder's plan alone")
-  SlashCmdList.ENSEMBLE("dungeons"); ok(UIl.currentTab == "dungeons", "/ens dungeons")
+  UIl:Show("dungeons"); ok(UIl.currentTab == "dungeons", "Dungeon tab opens")
   UIl:Hide()
 end
 
@@ -2145,8 +2145,8 @@ do
   nsF.UI:Show("builder"); RunTimers()
   nsF.UI:ShowBestKey()
   ok(nsF.UI.bestKey and nsF.UI.bestKey:IsShown() and nsF.UI.bestKey.list.used > 8, "best key popup lists the dungeons")
-  SlashCmdList.ENSEMBLE("bestkey")
-  ok(nsF.UI.bestKey:IsShown(), "/ens bestkey opens it")
+  nsF.UI.cp.bestKeyBtn:Click()
+  ok(nsF.UI.bestKey:IsShown(), "the Best key button opens it")
 
   -- Needs that matter: ignoring a need removes it everywhere
   local base = Af:Analyze({ { specID = 250 } }, "TempleOfSethraliss", nsF.db.settings)
@@ -2465,8 +2465,8 @@ do
   nsB.CurrentInstanceDungeon = realCur
   BC:CheckZone()
   -- Slash and editor
-  SlashCmdList.ENSEMBLE("boss ruby life pools")
-  ok(BW:IsShown() and BW.title:GetText():find("Melidrussa", 1, true), "/ens boss <dungeon> opens that dungeon's cards")
+  BW:Open("RubyLifePools")
+  ok(BW:IsShown() and BW.title:GetText():find("Melidrussa", 1, true), "the boss window opens on a given dungeon's cards")
   nsB.UI:OpenBossEditor("RubyLifePools", 1)
   local ed = nsB.UI.bossEditor
   ok(ed and ed:IsShown() and ed.edit:GetText():find("^ALL: "), "editor opens with the card's text")
@@ -2709,8 +2709,8 @@ do
   ok(not Tour:IsActive() and not Tour.frame:IsShown(), "Done ends the tour")
   UIE:Hide(); UIE:Show(); RunTimers()
   ok(not Tour:IsActive(), "tour shows only once")
-  SlashCmdList.ENSEMBLE("tour")
-  ok(Tour:IsActive() and Tour.step == 1, "/ens tour replays it")
+  Tour:Start()
+  ok(Tour:IsActive() and Tour.step == 1, "the tour replays")
   Tour.frame.skip._scripts.OnClick(Tour.frame.skip)
   ok(not Tour:IsActive(), "Skip ends it")
   C_LFGList.GetApplicantDungeonScoreForListing = nil
@@ -3978,11 +3978,8 @@ do
     and all:find("raider.io", 1, true) and all:find("wowhead.com/guides/classes", 1, true) and all:find("blizzard.com", 1, true),
     "Method.gg, Icy Veins, Wowhead (dungeons and classes), Raider.IO, Blizzard")
   ok(not all:lower():find("wowcarry", 1, true), "the Bloodlust timing source is not listed")
-  -- /ens sources opens the window; each link in a read-only box; the footer.
-  PRINTED = ""
-  SlashCmdList.ENSEMBLE("help")
-  ok(PRINTED:find("/ens sources", 1, true), "/ens help lists /ens sources")
-  SlashCmdList.ENSEMBLE("sources")
+  -- The Sources window; each link in a read-only box; the footer.
+  UI62:ShowSources()
   local p = UI62.sources
   ok(p and p:IsShown() and #p.boxes == 6 and p.boxes[1]:GetText() == DD62.SOURCES[1].items[1].url, "/ens sources opens the window with every link")
   local b = p.boxes[3]
@@ -4036,6 +4033,34 @@ do
   -- /ens is the only command.
   ok(SLASH_ENSEMBLE1 == "/ens" and SLASH_ENSEMBLE2 == nil and type(SlashCmdList.ENSEMBLE) == "function", "/ens registered")
   ok(SLASH_KEYSTONECOMMAND1 == nil and SlashCmdList.KEYSTONECOMMAND == nil, "no /kc")
+  -- Only the baseline commands: everything else is done in the interface.
+  local H = ns63.SLASH_HELP
+  local cmds = {}
+  for _, l in ipairs(H) do cmds[#cmds + 1] = l:match("^(/ens[%w ]-) %- ") end
+  ok(#H == 7 and table.concat(cmds, ",") == "/ens,/ens minimap,/ens verify,/ens verify season,/ens report,/ens reset confirm,/ens help",
+    "/ens help lists only the baseline commands: " .. table.concat(cmds, ","))
+  PRINTED = ""
+  SlashCmdList.ENSEMBLE("help")
+  ok(select(2, PRINTED:gsub("\n", "")) == 7, "/ens help prints seven lines")
+  local Tour63 = ns63.Tour
+  local dk0, lock0 = ns63.db.selectedDungeon, ns63.db.settings.window.locked
+  for _, gone in ipairs({ "tour", "glossary", "sources", "bestkey", "boss", "boss ruby life pools", "lock", "unlock",
+      "text 110", "panel dock", "dungeon none", "planner", "party", "composition", "settings", "show", "hide",
+      "toggle", "bug", "credits" }) do
+    PRINTED = ""
+    SlashCmdList.ENSEMBLE(gone)
+    ok(PRINTED:find("/ens verify season", 1, true) ~= nil, "/ens " .. gone .. " is gone: prints the help list")
+  end
+  ok(ns63.db.selectedDungeon == dk0 and ns63.db.settings.window.locked == lock0 and ns63.db.settings.textSize == 100
+    and not (Tour63 and Tour63:IsActive()) and not (ns63.BossWindow and ns63.BossWindow:IsShown())
+    and not (ns63.UI.glossary and ns63.UI.glossary:IsShown()) and not (ns63.UI.sources and ns63.UI.sources:IsShown()),
+    "dropped commands change nothing")
+  -- The kept ones still work.
+  local hide0 = ns63.db.settings.minimap.hide
+  SlashCmdList.ENSEMBLE("minimap"); ok(ns63.db.settings.minimap.hide ~= hide0, "/ens minimap toggles the button")
+  SlashCmdList.ENSEMBLE("minimap")
+  PRINTED = ""; SlashCmdList.ENSEMBLE("reset")
+  ok(PRINTED:find("/ens reset confirm", 1, true) ~= nil, "/ens reset asks for confirm")
   ok(type(Ensemble_OnAddonCompartmentClick) == "function" and type(Ensemble_OnAddonCompartmentEnter) == "function"
     and type(Ensemble_OnAddonCompartmentLeave) == "function", "compartment globals exist")
   -- Chat prefix (D): the emblem as a text-height icon, then "Ensemble:" in white.

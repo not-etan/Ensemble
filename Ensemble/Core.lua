@@ -439,7 +439,7 @@ local function IsLive(self, live)
 end
 
 -- The dungeon the analysis should use right now, and why:
---   "manual"   - picked in the dropdown (or /ens dungeon, or a loaded saved comp)
+--   "manual"   - picked in the dropdown (or a loaded saved comp)
 --   "auto"     - Live/Applicants: your Group Finder listing, else the dungeon you're in
 --                (ns.state.autoSource says which)
 --   "keystone" - Builder: the keystone in your bags
@@ -622,96 +622,36 @@ end)
 ---------------------------------------------------------------------------
 -- Slash commands
 ---------------------------------------------------------------------------
+-- Only what has no button in the window, or must work when the window can't help: everything
+-- else (tabs, planner or party, dungeon, lock, text size, panel, glossary, sources, tour, best key,
+-- boss window) is done in the interface.
 local HELP = {
-  "/ens - toggle the window",
-  "/ens composition, applicants, dungeons, plan, history or settings - open a tab",
-  "/ens planner or party - Composition for the planner or for your party (Auto is in the tab's mode menu)",
-  "/ens dungeon <name, auto or none> - set the dungeon to check against (auto = your key, listing or zone)",
-  "/ens lock or unlock - lock or unlock moving and resizing the window",
-  "/ens text <80-125> - set the text size in percent (drag the window's corner to resize it)",
-  "/ens panel below, right or dock - attach the applicant panel below or beside the Group Finder",
-  "/ens glossary - what the addon's terms mean",
-  "/ens sources - the guides the addon's data comes from",
-  "/ens tour - a short tour of the window",
-  "/ens bestkey - rank every Season dungeon for your current group",
+  "/ens - open or close the window",
+  "/ens minimap - show or hide the minimap button",
   "/ens verify - check this client and print a report to paste back",
   "/ens verify season - the game's dungeon pool, bosses, ability IDs and affixes (for updates)",
-  "/ens boss [dungeon] - open or close the boss-card window",
   "/ens report - a copyable bug report (version, setup, recent errors) to paste with your issue",
-  "/ens minimap - show/hide the minimap button",
-  "/ens reset confirm - wipe all Ensemble data: saved comps, the planner comp, every setting, run history, boss-card edits, Bloodlust timing, boss order and the error log",
+  "/ens reset confirm - wipe all Ensemble data: " .. ns.RESET_WIPES,
+  "/ens help - this list",
 }
+ns.SLASH_HELP = HELP
 
 SLASH_ENSEMBLE1 = "/ens"
 SlashCmdList["ENSEMBLE"] = function(msg)
   if not ns.db then return end
   local cmd, rest = Util.Trim(msg or ""):match("^(%S*)%s*(.-)$")
   cmd = (cmd or ""):lower()
-  local UI = ns.UI
-  if cmd == "" or cmd == "toggle" then
-    if UI then UI:Toggle() end
-  elseif cmd == "show" then
-    if UI then UI:Show() end
-  elseif cmd == "hide" then
-    if UI then UI:Hide() end
-  elseif cmd == "builder" or cmd == "planner" or cmd == "live" or cmd == "party" then
-    -- Composition, fixed to the planner or to your party.
-    ns.db.settings.compMode = (cmd == "builder" or cmd == "planner") and "planner" or "party"
-    if UI then UI:Show("composition") end
-  elseif cmd == "composition" or cmd == "comp" or cmd == "applicants" or cmd == "history" or cmd == "dungeons" or cmd == "plan" then
-    if UI then UI:Show(cmd == "comp" and "composition" or cmd) end
-  elseif cmd == "settings" or cmd == "config" or cmd == "options" then
-    if UI then UI:Show("settings") end
-  elseif cmd == "dungeon" then
-    local key = ns.Dungeons and ns.Dungeons:FindKey(rest)
-    if rest:lower() == "auto" or rest == "" then
-      ns:SetManualDungeon("AUTO")
-      local k = ns:GetEffectiveDungeon()
-      ns:Print("Dungeon: automatic" .. (k and (" (" .. ns.Dungeons.list[k].name .. ")") or " (nothing detected yet)") .. ".")
-    elseif rest:lower() == "none" then
-      ns:SetManualDungeon("NONE"); ns:Print("Dungeon cleared: generic checks only.")
-    elseif key then
-      ns:SetManualDungeon(key); ns:Print("Dungeon: " .. ns.Dungeons.list[key].name)
-    else
-      ns:Print("Unknown dungeon '" .. rest .. "'.")
-    end
-  elseif cmd == "lock" or cmd == "unlock" then
-    ns.db.settings.window.locked = (cmd == "lock")
+  if cmd == "" then
+    if ns.UI then ns.UI:Toggle() end
+  elseif cmd == "minimap" then
+    ns.db.settings.minimap.hide = not ns.db.settings.minimap.hide
     ns:Fire("SETTINGS_CHANGED")
-    ns:Print(cmd == "lock" and "Window locked." or "Window unlocked: drag the title bar to move, the corner grip to resize.")
-  elseif cmd == "panel" then
-    local arg = rest:lower()
-    if UI and (arg == "dock" or arg == "below" or arg == "right") then
-      UI:DockFinderPanel(arg ~= "dock" and arg or nil)
-      ns:Print("Applicant panel docked " .. (ns.db.settings.finderPanel.side == "right" and "to the right of" or "below")
-        .. " the Group Finder.")
-    else ns:Print("Usage: /ens panel below, /ens panel right or /ens panel dock. Drag the panel to move it anywhere.") end
-  elseif cmd == "text" or cmd == "font" then
-    local v = tonumber((rest:gsub("%%", "")))
-    if v and ns.UI then ns.UI:SetTextSize(v); ns:Print(string.format("Text size %d%%", ns.db.settings.textSize))
-    else ns:Print("Usage: /ens text 80-125 (percent)") end
-  elseif cmd == "tour" or cmd == "tutorial" then
-    if ns.Tour then ns.Tour:Start() end
-  elseif cmd == "glossary" or cmd == "terms" then
-    if UI then UI:ShowGlossary() end
-  elseif cmd == "sources" or cmd == "credits" then
-    if UI then UI:ShowSources() end
-  elseif cmd == "bestkey" or cmd == "best" then
-    if UI then UI:Show(); UI:ShowBestKey() end
   elseif cmd == "verify" then
     if ns.Verify then
       if rest:lower() == "season" then ns.Verify:RunSeason() else ns.Verify:Run() end
     end
-  elseif cmd == "boss" or cmd == "bosses" then
-    if ns.BossWindow then
-      local dk = rest ~= "" and ns.Dungeons and ns.Dungeons:FindKey(rest) or nil
-      if dk then ns.BossWindow:Open(dk) else ns.BossWindow:Toggle() end
-    end
-  elseif cmd == "report" or cmd == "bug" then
+  elseif cmd == "report" then
     if ns.Report then ns.Report:Run() end
-  elseif cmd == "minimap" then
-    ns.db.settings.minimap.hide = not ns.db.settings.minimap.hide
-    ns:Fire("SETTINGS_CHANGED")
   elseif cmd == "reset" then
     if rest:lower() == "confirm" then
       ns:ResetDB(); ns:Print("All Ensemble data reset.")

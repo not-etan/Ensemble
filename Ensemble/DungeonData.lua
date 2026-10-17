@@ -62,7 +62,7 @@ function DD:FreshnessText()
   return "Data for patch " .. self.DATA_PATCH .. ", checked against Blizzard's hotfixes through " .. self.DATA_CHECKED .. "."
 end
 
--- The guides the data comes from, credited in the Sources window (/ens sources, Settings >
+-- The guides the data comes from, credited in the Sources window (Settings >
 -- Data, the Dungeon tab). One link per site's guide index, not per article. Every URL was
 -- opened and checked on October 16, 2026; re-check them with each season update.
 DD.SOURCES = {

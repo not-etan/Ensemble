@@ -86,7 +86,7 @@ UD.CAP_EXPLAIN = {
 }
 function UD:CapExplain(key) return self.CAP_EXPLAIN[key] end
 
--- Glossary of the addon's terms (Glossary button, /ens glossary).
+-- Glossary of the addon's terms (the "?" button).
 UD.GLOSSARY = {
   { "Needs", "What a dungeon (and this week's affixes) asks a group to handle: kicks, dispels, stops, tank help and more." },
   { "Gaps", "Needs your group doesn't cover (MISSING) or covers too thinly (THIN)." },

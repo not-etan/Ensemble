@@ -3349,7 +3349,7 @@ function UI:BuildFinderPanel()
   fp:EnableMouse(true)
   fp:RegisterForDrag("LeftButton")
   -- Drag anywhere outside the applicant rows to move it; it then stays where you put it
-  -- (undocked) until you click Dock or use /ens panel dock.
+  -- (undocked) until you click Dock.
   fp:SetScript("OnDragStart", function(self) self:StartMoving() end)
   fp:SetScript("OnDragStop", function(self)
     self:StopMovingOrSizing()
@@ -3753,7 +3753,7 @@ function UI:RenderBestKey()
   L:Finish()
 end
 
--- Glossary popup (the "?" in the title bar, /ens glossary).
+-- Glossary popup (the "?" in the title bar).
 function UI:ShowGlossary()
   self:Build()
   if not self.glossary then
@@ -4542,7 +4542,7 @@ function UI:BuildSettings_general(f)
   local nb = Note(f, 8, y - 8, 520, "These settings can also be opened from Blizzard's Options > AddOns.")
   local tour = Button(f, "Take the tour", 130, 24, function() if ns.Tour then ns.Tour:Start() end end)
   tour:SetPoint("TOPLEFT", nb, "BOTTOMLEFT", 0, -10)
-  tour.tooltip = "A seven-step look at the window (same as /ens tour)"
+  tour.tooltip = "A seven-step look at the window"
 end
 
 -- What to check: every need, grouped like the Readiness panel. A group's switch turns all
@@ -4656,7 +4656,7 @@ function UI:BuildSettings_bosses(f)
   y = y - 34
   local open = Button(f, "Open the boss window", 180, 24, function() ns.BossWindow:Show() end)
   open:SetPoint("TOPLEFT", 8, y)
-  open.tooltip = "Same as /ens boss. Outside a dungeon it shows the dungeon you're checking."
+  open.tooltip = "Outside a dungeon it shows the dungeon you're checking."
   local reset = Button(f, "Reset its position and size", 200, 24, function()
     local b = bw(); b.point, b.relPoint, b.x, b.y, b.width, b.height = nil, nil, nil, nil, nil, nil
     if ns.BossWindow.frame then ns.BossWindow:ApplyGeometry() end
@@ -4704,7 +4704,7 @@ function UI:BuildSettings_data(f)
   Note(f, 8, -352, 420, "Ensemble " .. tostring(ns.VERSION) .. ". " .. DD:FreshnessText())
   local src = Button(f, "Sources", 90, 24, function() UI:ShowSources() end)
   src:SetPoint("TOPLEFT", 440, -350)
-  src.tooltip = "The guides this data comes from (same as /ens sources)"
+  src.tooltip = "The guides this data comes from"
   self.sourcesBtn = src
 end
 
@@ -4856,7 +4856,7 @@ function UI:BuildAppearance(page, topOffset, windowX)
   local rp = FlatButton(page, "Reset position & size", 150, 22, function() UI:ResetGeometry() end)
   rp:SetPoint("TOPLEFT", wx - 6, top - 132)
   local hint = Text(page, 10, C.muted); hint:SetPoint("TOPLEFT", wx, top - 162); hint:SetWidth(270)
-  hint:SetText("Unlocked: drag the title bar to move and the bottom-right grip to resize (more room, same text). /ens lock also works.")
+  hint:SetText("Unlocked: drag the title bar to move and the bottom-right grip to resize (more room, same text).")
 end
 
 -- Reflect the current theme in the appearance controls (wheel, hex box, preset borders).

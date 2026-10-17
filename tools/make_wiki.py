@@ -56,7 +56,7 @@ PAGES = {
 
 # page title -> [(after section heading, kind, text)]; kind is NOTE, TIP, IMPORTANT or WARNING.
 CALLOUTS = {
-    "Home": [("Opening it", "TIP", "New here? The tour runs the first time you open the window. Replay it any time with `/ens tour`.")],
+    "Home": [("Opening it", "TIP", "New here? The tour runs the first time you open the window. Replay it any time from Settings > General.")],
     "Applicants": [("Invite", "NOTE", "The addon never invites anyone on its own. Every invite takes your click.")],
     "Groups You Could Join": [("A line for your Sign Up note", "TIP", "Click the box, press Ctrl+C, then paste it into Blizzard's Sign Up note.")],
     "Plan": [("Changing an assignment", "NOTE", "Your changes last for this session only, and stop applying when that player changes spec or leaves.")],

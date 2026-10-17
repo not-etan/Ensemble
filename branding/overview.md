@@ -62,15 +62,6 @@ Ensemble is a Mythic+ companion that helps players of every skill level learn du
 | Command | What it does |
 |---|---|
 | `/ens` | Open or close the window |
-| `/ens composition` · `applicants` · `dungeons` · `plan` · `history` · `settings` | Open a tab |
-| `/ens planner` · `/ens party` | Show the planner or your party |
-| `/ens glossary` · `/ens tour` | Open the glossary or the tour |
-| `/ens bestkey` | Rank every dungeon for your group |
-| `/ens boss [dungeon]` | Open or close the boss window |
-| `/ens dungeon <name \| auto \| none>` | Choose the dungeon to check against |
-| `/ens text <80-125>` | Set the text size |
-| `/ens panel below \| right \| dock` | Move the applicant panel |
-| `/ens lock` · `/ens unlock` | Lock or unlock the window |
 | `/ens minimap` | Show or hide the minimap button |
 | `/ens verify` · `/ens report` | Check the addon against your client, or build a bug report |
 | `/ens reset confirm` | Reset all saved data and settings |
