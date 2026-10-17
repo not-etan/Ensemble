@@ -62,6 +62,25 @@ function DD:FreshnessText()
   return "Data for patch " .. self.DATA_PATCH .. ", checked against Blizzard's hotfixes through " .. self.DATA_CHECKED .. "."
 end
 
+-- The guides the data comes from, credited in the Sources window (/kc sources, Settings >
+-- Data, the Dungeon tab). One link per site's guide index, not per article. Every URL was
+-- opened and checked on October 16, 2026; re-check them with each season update.
+DD.SOURCES = {
+  { group = "Dungeons and boss cards", items = {
+    { name = "Method.gg dungeon guides", url = "https://www.method.gg/guides" },
+    { name = "Icy Veins dungeon guides", url = "https://www.icy-veins.com/wow/dungeons-guide" },
+    { name = "Wowhead dungeon guides", url = "https://www.wowhead.com/guides/dungeons" },
+    { name = "Raider.IO quick boss guides", url = "https://raider.io/news?tag=quick-boss-guides" },
+  } },
+  { group = "Classes and specs", items = {
+    { name = "Wowhead class guides", url = "https://www.wowhead.com/guides/classes" },
+  } },
+  { group = "Hotfix checks", items = {
+    { name = "Blizzard's hotfix notes (World of Warcraft news)", url = "https://news.blizzard.com/en-us/feed/world-of-warcraft" },
+  } },
+}
+DD.SOURCES_FOOTER = "Keystone Command isn't affiliated with these sites. Thanks to their authors."
+
 ---------------------------------------------------------------------------
 -- TUNABLE HEURISTICS. These are judgment calls, not published facts -- adjust freely.
 ---------------------------------------------------------------------------
@@ -724,10 +743,8 @@ DD.LUST = {
   KingsRest       = { { at = "b2", note = "on pull, or the opening pack if it's kept small" }, { at = "b4", note = "on pull" } },
   TempleOfSethraliss = { { at = "b2", note = "on pull, or on Adderis and Aspix instead" }, { at = "b4", note = "when the Tormentor waves stack up" } },
 }
-DD.LUST_SOURCE = {
-  RubyLifePools = "No guide gives a timing for Ruby Life Pools; this is the common first and last boss default.",
-}
-DD.LUST_SOURCE_DEFAULT = "Suggested by one Season 2 guide (WoWCarry). Tanks and routes differ: set your own."
+-- Shown with every dungeon's default (1.3.0: one line for all, no source named in game).
+DD.LUST_SOURCE_DEFAULT = "A suggested default. Tanks and routes differ: set your own."
 
 -- Boss order the group can choose. Each entry is a list of groups of boss indexes (positions
 -- in `bosses` above) that can be done in any order among themselves, e.g. { { 1, 2 } } = the

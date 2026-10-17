@@ -3957,5 +3957,61 @@ do
   ns61.UI:Hide()
 end
 
+-- 62. Sources window and the Bloodlust default line (1.3.0)
+do
+  KeystoneCommandDB = nil
+  local ns62 = boot()
+  local DD62, UI62 = ns62.Dungeons, ns62.UI
+  -- The list: grouped by use, one link per site's guide index, https only.
+  local groups, total = {}, 0
+  for _, g in ipairs(DD62.SOURCES) do
+    groups[#groups + 1] = g.group
+    for _, it in ipairs(g.items) do
+      total = total + 1
+      ok(type(it.url) == "string" and it.url:find("^https://[%w%.%-]+/") and not it.url:find("%s"), "source link is a plain https URL: " .. tostring(it.url))
+    end
+  end
+  ok(table.concat(groups, "|") == "Dungeons and boss cards|Classes and specs|Hotfix checks" and total == 6, "three groups, six links")
+  local all = ""
+  for _, g in ipairs(DD62.SOURCES) do for _, it in ipairs(g.items) do all = all .. it.name .. " " .. it.url .. "\n" end end
+  ok(all:find("method.gg", 1, true) and all:find("icy-veins.com", 1, true) and all:find("wowhead.com/guides/dungeons", 1, true)
+    and all:find("raider.io", 1, true) and all:find("wowhead.com/guides/classes", 1, true) and all:find("blizzard.com", 1, true),
+    "Method.gg, Icy Veins, Wowhead (dungeons and classes), Raider.IO, Blizzard")
+  ok(not all:lower():find("wowcarry", 1, true), "the Bloodlust timing source is not listed")
+  -- /kc sources opens the window; each link in a read-only box; the footer.
+  PRINTED = ""
+  SlashCmdList.KEYSTONECOMMAND("help")
+  ok(PRINTED:find("/kc sources", 1, true), "/kc help lists /kc sources")
+  SlashCmdList.KEYSTONECOMMAND("sources")
+  local p = UI62.sources
+  ok(p and p:IsShown() and #p.boxes == 6 and p.boxes[1]:GetText() == DD62.SOURCES[1].items[1].url, "/kc sources opens the window with every link")
+  local b = p.boxes[3]
+  b:SetText("typed"); b._scripts.OnTextChanged(b, true)
+  ok(b:GetText() == DD62.SOURCES[1].items[3].url, "link boxes are read-only (typing restores the link)")
+  ok(p.footer:GetText() == "Keystone Command isn't affiliated with these sites. Thanks to their authors.", "footer: not affiliated, thanks")
+  p:Hide()
+  -- Settings > Data button and the Dungeon tab's link.
+  UI62:Show("settings"); UI62:ShowSettingsSection("data"); RunTimers()
+  ok(UI62.sourcesBtn ~= nil, "Settings > Data has a Sources button")
+  UI62.sourcesBtn:Click()
+  ok(p:IsShown(), "the Sources button opens the window"); p:Hide()
+  UI62:Show("dungeons"); RunTimers()
+  local L = UI62.pp.walk
+  local srcBtn
+  for j = 1, L.bused do if L.bpool[j].tip == "The guides this data comes from" then srcBtn = L.bpool[j] end end
+  ok(L.pool[1]:GetText():find("checked against", 1, true) and L.pool[1]:GetText():find("Sources|r", 1, true) and srcBtn,
+    "Dungeon tab: Sources link on the data line")
+  if srcBtn then srcBtn:Click() end
+  ok(p:IsShown(), "the Dungeon tab link opens the window"); p:Hide()
+  -- Bloodlust: one line for every dungeon, no source named.
+  ok(DD62.LUST_SOURCE == nil, "no per-dungeon Bloodlust source text")
+  local same = true
+  for _, dk in ipairs(DD62.order) do
+    if ns62.Walkthrough:LustSource(dk) ~= "A suggested default. Tanks and routes differ: set your own." then same = false end
+  end
+  ok(same, "every dungeon's default Bloodlust says it's a suggestion")
+  UI62:Hide()
+end
+
 print(string.format("%d passed, %d failed", passes, fails))
 return fails

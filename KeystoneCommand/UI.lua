@@ -3783,6 +3783,52 @@ function UI:ShowGlossary()
   self.glossary:Show()
 end
 
+-- Sources: the guides the data comes from, grouped by use, each link in a read-only box to
+-- copy (addons can't open a browser or show clickable web links).
+function UI:ShowSources()
+  self:Build()
+  if not self.sources then
+    local p = CreateFrame("Frame", nil, self.frame, "BackdropTemplate")
+    p:SetFrameStrata("DIALOG")
+    p:EnableMouse(true)
+    Skin(p, C.bg, C.accent)
+    Accent(p, "border")
+    p.title = AccentText(p); p.title:SetPoint("TOPLEFT", 12, -10); p.title:SetText("Sources")
+    local close = Button(p, "Close", 80, 22, function() p:Hide() end); close:SetPoint("TOPRIGHT", -10, -6)
+    local y = -38
+    local intro = Text(p, 11, C.muted); intro:SetPoint("TOPLEFT", 14, y); intro:SetPoint("RIGHT", -14, 0)
+    intro:SetText("The dungeon, boss and class data is written from these guides. Click a link, then Ctrl+C to copy it.")
+    y = y - 34
+    p.boxes = {}
+    for _, grp in ipairs(DD.SOURCES) do
+      local h = Text(p, 12, C.accent); h:SetPoint("TOPLEFT", 14, y); h:SetText(grp.group)
+      y = y - 20
+      for _, it in ipairs(grp.items) do
+        local name = Text(p, 11, C.text); name:SetPoint("TOPLEFT", 22, y); name:SetText(it.name)
+        y = y - 16
+        local box = EditBox(p, 490, 22)
+        box:SetPoint("TOPLEFT", 22, y)
+        box.value = it.url
+        box:SetText(it.url); box:SetCursorPosition(0)
+        -- Read-only: typing puts the link back; focusing selects it for Ctrl+C.
+        box:SetScript("OnTextChanged", function(b, user) if user then b:SetText(b.value); b:HighlightText() end end)
+        box:SetScript("OnEditFocusGained", function(b) b:HighlightText() end)
+        p.boxes[#p.boxes + 1] = box
+        y = y - 30
+      end
+      y = y - 4
+    end
+    local foot = Text(p, 11, C.muted); foot:SetPoint("TOPLEFT", 14, y - 4); foot:SetPoint("RIGHT", -14, 0)
+    foot:SetText(DD.SOURCES_FOOTER)
+    p.footer = foot
+    p:SetSize(540, -y + 40); p:SetPoint("CENTER")
+    self.sources = p
+  end
+  self.frame:Show()
+  self.sources:Show()
+  return self.sources
+end
+
 -- Export popup: a read-only, pre-selected edit box to copy from.
 function UI:BuildSharePopup()
   local p = CreateFrame("Frame", nil, self.frame, "BackdropTemplate")
@@ -4109,7 +4155,8 @@ function UI:RefreshPrimer()
 
   local L = pp.asks
   L:Clear()
-  L:Add(HEX.muted .. DD:FreshnessText() .. "|r", { size = 10, gap = 4 })
+  L:Add(HEX.muted .. DD:FreshnessText() .. "|r  " .. HEX.accent .. "Sources|r", { size = 10, gap = 4,
+    onClick = function() UI:ShowSources() end, tooltip = "The guides this data comes from" })
   self:RenderAffixLine(L, { key = key }, false)
   self:RenderWalkthrough(L, key, explainOn)
   L:Finish()
@@ -4654,7 +4701,11 @@ function UI:BuildSettings_data(f)
   rep:SetPoint("TOPLEFT", rn, "BOTTOMLEFT", 0, -8)
   rep.tooltip = "Same as /kc report. Includes specs and settings, never player names."
   SubHead(f, 8, -334, "Game data")
-  Note(f, 8, -352, 520, "Keystone Command " .. tostring(ns.VERSION) .. ". " .. DD:FreshnessText())
+  Note(f, 8, -352, 420, "Keystone Command " .. tostring(ns.VERSION) .. ". " .. DD:FreshnessText())
+  local src = Button(f, "Sources", 90, 24, function() UI:ShowSources() end)
+  src:SetPoint("TOPLEFT", 440, -350)
+  src.tooltip = "The guides this data comes from (same as /kc sources)"
+  self.sourcesBtn = src
 end
 
 function UI:RefreshSettings()

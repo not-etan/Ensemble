@@ -235,5 +235,5 @@ end
 function WT:LustSource(dk)
   local _, custom = self:Lust(dk)
   if custom then return "Your timing for this dungeon." end
-  return DD().LUST_SOURCE[dk] or DD().LUST_SOURCE_DEFAULT
+  return DD().LUST_SOURCE_DEFAULT
 end

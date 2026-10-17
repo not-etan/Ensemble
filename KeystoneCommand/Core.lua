@@ -625,6 +625,7 @@ local HELP = {
   "/kc text <80-125> - set the text size in percent (drag the window's corner to resize it)",
   "/kc panel below, right or dock - attach the applicant panel below or beside the Group Finder",
   "/kc glossary - what the addon's terms mean",
+  "/kc sources - the guides the addon's data comes from",
   "/kc tour - a short tour of the window",
   "/kc bestkey - rank every Season dungeon for your current group",
   "/kc verify - check this client and print a report to paste back",
@@ -688,6 +689,8 @@ SlashCmdList["KEYSTONECOMMAND"] = function(msg)
     if ns.Tour then ns.Tour:Start() end
   elseif cmd == "glossary" or cmd == "terms" then
     if UI then UI:ShowGlossary() end
+  elseif cmd == "sources" or cmd == "credits" then
+    if UI then UI:ShowSources() end
   elseif cmd == "bestkey" or cmd == "best" then
     if UI then UI:Show(); UI:ShowBestKey() end
   elseif cmd == "verify" then
