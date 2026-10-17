@@ -14,7 +14,7 @@ Ensemble is a Mythic+ companion that helps players of every skill level learn du
 
 🎮 **Game version:** World of Warcraft Retail, *Midnight* Season 2 (patch 12.1.5).
 
-🔄 **Kept current:** dungeon data is checked against Blizzard's hotfixes. Last checked: patch 12.1.5 and hotfixes through October 13, 2026. The Dungeon tab shows this date too.
+🔄 **Kept current:** dungeon data is checked against Blizzard's hotfixes. The Dungeon tab shows when it was last checked.
 
 ---
 
