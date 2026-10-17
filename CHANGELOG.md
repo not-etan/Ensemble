@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.3.1
+- **Window title:** "A Mythic+ Companion" under the Ensemble name now shows in your accent color (blue by default, or the color you picked in Settings > Appearance, including your class color) instead of gray, and changes with it.
+
 ## 1.3.0
 **First public release.** A Mythic+ companion for *Midnight* Season 2 (patch 12.1.5) that helps you understand each dungeon, build stronger groups and walk into every key with a plan.
 
@@ -11,7 +14,7 @@
 Type `/ens` to start. Found a problem? `/ens report` builds a bug report to paste in a comment or GitHub issue.
 
 **Changes since the 1.2.1 beta:**
-- **New name: Ensemble.** `/ens` opens it. The slash commands are down to the essentials (`/ens`, `minimap`, `verify`, `report`, `reset confirm` and `help`); everything else is done with the window's buttons and Settings. Settings, saved comps and run history from the beta don't carry over: Ensemble starts fresh. The window's title reads "Ensemble" with "A Mythic+ Companion" under it, in your accent color. Messages in your own chat start with the addon's emblem, and party-chat posts start with "[Ensemble]". Shared comp strings now start with `ENS1:`, so strings exported from the beta won't import.
+- **New name: Ensemble.** `/ens` opens it. The slash commands are down to the essentials (`/ens`, `minimap`, `verify`, `report`, `reset confirm` and `help`); everything else is done with the window's buttons and Settings. Settings, saved comps and run history from the beta don't carry over: Ensemble starts fresh. Messages in your own chat start with the addon's emblem, and party-chat posts start with "[Ensemble]". Shared comp strings now start with `ENS1:`, so strings exported from the beta won't import.
 - **Sign Up note line:** it now appears even when another addon changes Blizzard's Sign Up dialog code (some interface addons do). `/ens verify` names any addon that replaced the Group Finder code Ensemble relies on, and the feature it affects.
 - **Plan tab:** the full kick and dispel sheet now includes medium-danger casts after the critical and high ones (they were left out, which also hid some assignments), with "+N more" past five per category. "Post assignments" and "Post gaps" are real buttons under the sheet, with the same hover preview. The panels are titled "Your plan" and "Assignments: (dungeon)" instead of repeating their headings, and each affix line names its need, so Xal'atath's Guile no longer looks listed twice.
 - **Boss order:** where groups can choose which boss comes first (this season, The Blinding Vale's first two bosses), the Dungeon tab has "Move earlier / later" buttons. Your order is saved per dungeon and also sets the Bloodlust order and the boss window's next boss.
