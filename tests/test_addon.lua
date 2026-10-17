@@ -3738,7 +3738,7 @@ do
   ok(inFolder and root and inFolder == root, "Ensemble/LICENSE.txt is an exact copy of LICENSE")
   local toc = slurp(ADDON_DIR .. "/Ensemble.toc") or ""
   ok(toc:find("\n## X%-Curse%-Project%-ID: 1745945") ~= nil, "TOC has the CurseForge project ID")
-  ok(toc:find("\n## X%-Wago%-ID: b6XyAbKp") ~= nil, "TOC has the Wago project ID")
+  ok(toc:find("\n## X%-Wago%-ID: QKyq2vK7") ~= nil, "TOC has the Wago project ID")
 end
 
 -- 60. Plan tab (1.3.0 issues #5, #6, #7, #9), the issue's own case: Den of Nalorakk +17 with
