@@ -2499,9 +2499,11 @@ end
 
 -- 49. Ability links on boss cards (encounter journal)
 do
-  EJ_GetInstanceForMap = function(map) return map == 2993 and 1300 or 0 end
+  -- Like the client (issue #10): EJ_GetInstanceForMap takes a UI map ID, so an instance map ID
+  -- gives 0; GetInstanceForGameMap takes the instance map ID (2993 -> 1322, in game).
+  EJ_GetInstanceForMap = function(map) return 0 end
   EJ_GetEncounterInfoByIndex = function(n, jid)
-    if jid ~= 1300 then return nil end
+    if jid ~= 1322 then return nil end
     local bosses = { { "Rav'i", 10 }, { "The Writhing Coil", 20 }, { "Zul'jan", 30 } }
     local b = bosses[n]; if not b then return nil end
     return b[1], "", 9000 + n, b[2]
@@ -2513,7 +2515,8 @@ do
     [20] = { title = "Death Rattle", spellID = 3333 },
     [30] = { title = "Boneslicer", spellID = 4444 },
   }
-  C_EncounterJournal = { GetSectionInfo = function(id) return SECTIONS[id] end }
+  C_EncounterJournal = { GetSectionInfo = function(id) return SECTIONS[id] end,
+    GetInstanceForGameMap = function(map) return map == 2993 and 1322 or 0 end }
   KeystoneCommandDB = nil
   local nsL2 = boot()
   local BC2 = nsL2.BossCards
@@ -2541,7 +2544,34 @@ do
   ok(season:find("== This week's affixes ==", 1, true), "season dump has the affix section")
   SlashCmdList.KEYSTONECOMMAND("verify season")
   ok(nsL2.db.lastSeason and nsL2.db.lastSeason:find("season data", 1, true), "/kc verify season opens the copy window")
-  EJ_GetInstanceForMap, EJ_GetEncounterInfoByIndex, C_EncounterJournal = nil, nil, nil
+  -- Issue #10: which call finds the journal, and the in-dungeon fallback.
+  local jid, how = BC2:JournalInstance("AltarOfFangs")
+  ok(jid == 1322 and how == "C_EncounterJournal.GetInstanceForGameMap", "journal found from the instance map, anywhere")
+  ok(BC2:JournalInstance("MurderRow") == nil, "no journal for a dungeon the client doesn't map (outside it)")
+  C_EncounterJournal.GetInstanceForGameMap = nil
+  C_Map = { GetBestMapForUnit = function(u) return u == "player" and 2433 or nil end }
+  EJ_GetInstanceForMap = function(map) return map == 2433 and 1304 or 0 end
+  ok(BC2:JournalInstance("MurderRow") == nil, "fallback not used outside the dungeon")
+  local realCur = nsL2.CurrentInstanceDungeon
+  nsL2.CurrentInstanceDungeon = function() return "MurderRow" end
+  local j2, how2 = BC2:JournalInstance("MurderRow")
+  ok(j2 == 1304 and how2 == "EJ_GetInstanceForMap(C_Map.GetBestMapForUnit)", "inside the dungeon: UI map fallback")
+  ok(BC2:JournalInstance("AltarOfFangs") == nil, "the fallback only answers for the dungeon you are in")
+  C_Map.GetBestMapForUnit = function() error("client error") end
+  ok(BC2:JournalInstance("MurderRow") == nil, "a failing map call is contained")
+  nsL2.CurrentInstanceDungeon = realCur
+  -- /kc verify lists each dungeon's journal ID and the call that found it.
+  C_EncounterJournal.GetInstanceForGameMap = function(map)
+    local J = { [2993] = 1322, [2521] = 1302, [1877] = 1300, [1762] = 1301, [2859] = 1309, [2923] = 1313, [2825] = 1311, [2813] = 1304 }
+    return J[map] or 0
+  end
+  local vtx = nsL2.Verify:Build()
+  ok(vtx:find("[OK] journal found for 8 of 8 dungeons", 1, true) and vtx:find("Murder Row 2813 -> 1304 (C_EncounterJournal.GetInstanceForGameMap)", 1, true),
+    "verify: every dungeon's journal ID and the call that found it")
+  C_EncounterJournal.GetInstanceForGameMap = nil
+  vtx = nsL2.Verify:Build()
+  ok(vtx:find("GetInstanceForGameMap missing", 1, true) and vtx:find("journal found for 0 of 8 dungeons", 1, true), "verify: missing call is a WARN")
+  EJ_GetInstanceForMap, EJ_GetEncounterInfoByIndex, C_EncounterJournal, C_Map = nil, nil, nil, nil
 end
 
 -- 50. Full review (October 2026): resource and data fixes
@@ -2551,9 +2581,9 @@ do
   -- Journal not ready: not cached as empty, so links appear once it loads.
   local BCF = nsF.BossCards
   ok(next(BCF:JournalSpells("AltarOfFangs")) == nil, "no journal: no ability links yet")
-  EJ_GetInstanceForMap = function(map) return map == 2993 and 1300 or 0 end
-  EJ_GetEncounterInfoByIndex = function(n, jid) if jid == 1300 and n == 1 then return "Rav'i", "", 9001, 10 end end
-  C_EncounterJournal = { GetSectionInfo = function(id) if id == 10 then return { title = "Hydrastrike", spellID = 1111 } end end }
+  EJ_GetEncounterInfoByIndex = function(n, jid) if jid == 1322 and n == 1 then return "Rav'i", "", 9001, 10 end end
+  C_EncounterJournal = { GetSectionInfo = function(id) if id == 10 then return { title = "Hydrastrike", spellID = 1111 } end end,
+    GetInstanceForGameMap = function(map) return map == 2993 and 1322 or 0 end }
   ok(BCF:JournalSpells("AltarOfFangs").Hydrastrike ~= nil, "journal read once it is available")
   EJ_GetInstanceForMap, EJ_GetEncounterInfoByIndex, C_EncounterJournal = nil, nil, nil
   -- Boss-card plan reused while nothing changes; settings clear it.

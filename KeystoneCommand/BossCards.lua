@@ -255,17 +255,47 @@ end
 
 local function norm(s) return (tostring(s or ""):lower():gsub("[^%w]", "")) end
 
+-- The encounter journal's instance ID for a dungeon (issue #10). EJ_GetInstanceForMap wants a
+-- UI map ID, not the instance map ID we hold, so it always returned 0. First choice:
+-- C_EncounterJournal.GetInstanceForGameMap(instance map ID), which works anywhere (confirmed
+-- for all eight Season 2 dungeons, October 16, build 70448). Fallback, only while you are
+-- inside that dungeon: EJ_GetInstanceForMap(C_Map.GetBestMapForUnit("player")).
+-- Returns the journal ID (or nil) and which call found it.
+function BC:JournalInstance(dk, instanceMapID)
+  instanceMapID = instanceMapID or (dk and ns.Dungeons and ns.Dungeons.INSTANCE_MAP_IDS and ns.Dungeons.INSTANCE_MAP_IDS[dk])
+  local CEJ = rawget(_G, "C_EncounterJournal")
+  local byGame = type(CEJ) == "table" and CEJ.GetInstanceForGameMap
+  if instanceMapID and byGame then
+    local ok, jid = pcall(byGame, instanceMapID)
+    if ok and type(jid) == "number" and jid > 0 then return jid, "C_EncounterJournal.GetInstanceForGameMap" end
+  end
+  local here = false
+  if dk and ns.CurrentInstanceDungeon then
+    local ok, cur = pcall(ns.CurrentInstanceDungeon, ns)
+    here = ok and cur == dk
+  end
+  local getInst = rawget(_G, "EJ_GetInstanceForMap")
+  local CMap = rawget(_G, "C_Map")
+  local best = type(CMap) == "table" and CMap.GetBestMapForUnit
+  if here and getInst and best then
+    local okM, uiMap = pcall(best, "player")
+    if okM and type(uiMap) == "number" then
+      local ok, jid = pcall(getInst, uiMap)
+      if ok and type(jid) == "number" and jid > 0 then return jid, "EJ_GetInstanceForMap(C_Map.GetBestMapForUnit)" end
+    end
+  end
+  return nil
+end
+
 -- Encounter-journal IDs for each boss, by position (best effort; names are the fallback).
 local ejCache = {}
 function BC:EncounterIDs(dk)
   if ejCache[dk] ~= nil then return ejCache[dk] or nil end
   local ids = false
-  local inst = ns.Dungeons and ns.Dungeons.INSTANCE_MAP_IDS and ns.Dungeons.INSTANCE_MAP_IDS[dk]
-  local getInst = rawget(_G, "EJ_GetInstanceForMap")
   local getEnc = rawget(_G, "EJ_GetEncounterInfoByIndex")
-  if inst and getInst and getEnc then
-    local ok, jid = pcall(getInst, inst)
-    if ok and jid and jid > 0 then
+  if getEnc then
+    local jid = self:JournalInstance(dk)
+    if jid then
       ids = { byID = {}, byName = {} }
       for n = 1, 12 do
         local ok2, name, _, _, _, _, _, dungeonEncounterID = pcall(getEnc, n, jid)
@@ -288,14 +318,12 @@ local NO_SPELLS = {}   -- shared "nothing found" table, so link-name lists built
 function BC:JournalSpells(dk)
   if spellCache[dk] then return spellCache[dk] end
   local out, found = {}, false
-  local inst = ns.Dungeons and ns.Dungeons.INSTANCE_MAP_IDS and ns.Dungeons.INSTANCE_MAP_IDS[dk]
-  local getInst = rawget(_G, "EJ_GetInstanceForMap")
   local getEnc = rawget(_G, "EJ_GetEncounterInfoByIndex")
   local CEJ = rawget(_G, "C_EncounterJournal")
-  local getSec = CEJ and CEJ.GetSectionInfo
-  if inst and getInst and getEnc and getSec then
-    local ok, jid = pcall(getInst, inst)
-    if ok and jid and jid > 0 then
+  local getSec = type(CEJ) == "table" and CEJ.GetSectionInfo
+  if getEnc and getSec then
+    local jid = self:JournalInstance(dk)
+    if jid then
       found = true
       for n = 1, 12 do
         local ok2, name, _, _, rootSection = pcall(getEnc, n, jid)

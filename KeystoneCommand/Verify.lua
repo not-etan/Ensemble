@@ -619,9 +619,27 @@ local function CheckBosses()
     if n == 0 then empty[#empty + 1] = ns.Dungeons.list[key].name end
   end
   Add(#empty == 0 and "OK" or "WARN", string.format("%d boss cards%s", cards, #empty > 0 and (" (none for " .. table.concat(empty, ", ") .. ")") or ""))
-  local hasEJ = rawget(_G, "EJ_GetInstanceForMap") and rawget(_G, "EJ_GetEncounterInfoByIndex")
-  Add(hasEJ and "OK" or "INFO", hasEJ and "encounter journal available (boss IDs matched by journal, names as fallback)"
-    or "encounter journal functions missing: bosses are matched by name only (English clients)")
+  local CEJ = rawget(_G, "C_EncounterJournal")
+  local hasEnc = rawget(_G, "EJ_GetEncounterInfoByIndex")
+  local hasGame = type(CEJ) == "table" and CEJ.GetInstanceForGameMap
+  local hasUI = rawget(_G, "EJ_GetInstanceForMap") and type(rawget(_G, "C_Map")) == "table" and C_Map.GetBestMapForUnit
+  if not hasEnc or not (hasGame or hasUI) then
+    Add("INFO", "encounter journal functions missing: bosses are matched by name only (English clients), no journal ability links")
+  else
+    Add(hasGame and "OK" or "WARN", hasGame and "C_EncounterJournal.GetInstanceForGameMap present (journal found for any dungeon, anywhere)"
+      or "C_EncounterJournal.GetInstanceForGameMap missing: the journal is only found inside a dungeon (EJ_GetInstanceForMap fallback)")
+    -- Each Season dungeon's journal instance, and which call found it.
+    local found, parts = 0, {}
+    for _, key in ipairs(ns.Dungeons.order) do
+      local jid, how = BC:JournalInstance(key)
+      if jid then found = found + 1 end
+      parts[#parts + 1] = ns.Dungeons.list[key].name .. " " .. tostring(ns.Dungeons.INSTANCE_MAP_IDS[key]) .. " -> "
+        .. (jid and (jid .. " (" .. how .. ")") or "not found")
+    end
+    Add(found == #ns.Dungeons.order and "OK" or "WARN", string.format("journal found for %d of %d dungeons%s", found,
+      #ns.Dungeons.order, found < #ns.Dungeons.order and " (outside a dungeon, the fallback only works inside it)" or ""))
+    for _, p in ipairs(parts) do Note(p) end
+  end
   -- Ability links on the cards: how many names the journal (plus the dungeon data) turns
   -- into links, for the dungeon you're in or your keystone's.
   local linkDk = BC:CurrentDungeon()
@@ -775,13 +793,13 @@ end
 -- spell IDs, and this week's affixes; each marked as known to the addon or NEW.
 ---------------------------------------------------------------------------
 local function JournalBosses(instanceMapID)
-  local getInst = rawget(_G, "EJ_GetInstanceForMap")
   local getEnc = rawget(_G, "EJ_GetEncounterInfoByIndex")
   local CEJ = rawget(_G, "C_EncounterJournal")
-  local getSec = CEJ and CEJ.GetSectionInfo
-  if not (instanceMapID and getInst and getEnc) then return nil end
-  local ok, jid = pcall(getInst, instanceMapID)
-  if not ok or not jid or jid == 0 then return nil end
+  local getSec = type(CEJ) == "table" and CEJ.GetSectionInfo
+  if not (instanceMapID and getEnc and ns.BossCards) then return nil end
+  local dk = ns.Dungeons.KeyForInstanceMap and ns.Dungeons:KeyForInstanceMap(instanceMapID) or nil
+  local jid = ns.BossCards:JournalInstance(dk, instanceMapID)
+  if not jid then return nil end
   local bosses = {}
   for n = 1, 12 do
     local ok2, name, _, _, rootSection, _, _, encounterID = pcall(getEnc, n, jid)
