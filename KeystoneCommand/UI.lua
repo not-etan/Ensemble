@@ -757,10 +757,8 @@ function UI:Build()
 
   f:SetScript("OnShow", function()
     UI:SetTab(UI.currentTab or ns.db.lastTab or "composition")
-    if ns.Route then ns.Route:UpdateWatching() end
   end)
   f:SetScript("OnHide", function()
-    if ns.Route then ns.Route:UpdateWatching() end
     UI:HideMenu()
     if ns.Tracker then ns.Tracker:Disable() end
   end)
@@ -1550,7 +1548,6 @@ function UI:RefreshPlan()
   mine:Clear()
   self:RenderYourJob(mine, r, assign, live)
   if self.RenderLust then self:RenderLust(mine, dungeonKey) end
-  self:RenderRoute(mine, dungeonKey, assign)
   if r.filled == 0 then
     mine:Add(HEX.muted .. "Add players on the Composition tab (or join a group) to get assignments.|r", { size = 11 })
   end
@@ -1691,46 +1688,6 @@ function UI:RenderYourJob(list, r, plan, live)
   if #kicks + #stops + #dispels + #backups == 0 then
     list:Add(HEX.muted .. "No kicks or dispels assigned to you here. Help kick when free.|r", { indent = 6, size = 11, gap = 2 })
   end
-  list:Space(4)
-end
-
--- Your Mythic Dungeon Tools route, pull by pull: each pull that has a job, with who does it
--- (yours highlighted). Nothing when MDT isn't loaded, the setting is off or there's no route.
-local ROUTE_SHOW = 6
-function UI:RenderRoute(list, dungeonKey, plan)
-  local R = ns.Route
-  local route = R and R:For(dungeonKey)
-  if not route then return end
-  local inKey = ns.BossCards and ns.BossCards.state and ns.BossCards.state.dk == dungeonKey
-  local current = inKey and R:CurrentPull(route) or nil
-  list:Header("Your route: " .. route.name)
-  list:Add(HEX.muted .. #route.pulls .. " pulls from Mythic Dungeon Tools. Pulls with assignments:|r", { size = 10, gap = 3,
-    tooltip = "Follows the route you have selected in Mythic Dungeon Tools for this dungeon. Import or receive a new route and this updates. Turn it off in Settings > Boss cards." })
-  local withJobs = {}
-  for i, p in ipairs(route.pulls) do
-    if not current or i >= current then
-      local jobs = R:PullJobs(p, plan)
-      if #jobs > 0 then withJobs[#withJobs + 1] = { p = p, jobs = jobs } end
-    end
-  end
-  if #withJobs == 0 then
-    list:Add(HEX.muted .. "No kicks or dispels on this route's pulls.|r", { indent = 6, size = 11, gap = 4 })
-    return
-  end
-  local key = "route:" .. dungeonKey
-  local showAll = self:IsOpen(key, false)
-  local n = showAll and #withJobs or math.min(ROUTE_SHOW, #withJobs)
-  for i = 1, n do
-    local e = withJobs[i]
-    local now = current and e.p.n == current
-    list:Add((now and (HEX.accent .. "> ") or HEX.text) .. "Pull " .. e.p.n .. ":|r " .. HEX.muted .. R:PullLabel(e.p) .. "|r",
-      { indent = 4, size = 11, gap = 1 })
-    for _, j in ipairs(e.jobs) do
-      list:Add((j.mine and (HEX.accent .. "YOU|r ") or "") .. (j.mine and HEX.text or HEX.muted) .. j.text .. "|r",
-        { indent = 16, size = 10, gap = 1 })
-    end
-  end
-  self:MoreLine(list, key, #withJobs - n, 4, (#withJobs - n) == 1 and "pull" or "pulls")
   list:Space(4)
 end
 
@@ -3904,9 +3861,9 @@ end
 -- Settings page
 ---------------------------------------------------------------------------
 ---------------------------------------------------------------------------
--- Dungeon: a walkthrough of any Season dungeon in the order you meet it (your Mythic
--- Dungeon Tools route, or the guides' order): each trash section and boss with what
--- happens there, the Bloodlust plan, filtered by role. Right: which classes answer the
+-- Dungeon: a walkthrough of any Season dungeon in the order you meet it (the guides'
+-- order): each trash section and boss with what happens there, the Bloodlust plan,
+-- filtered by role. Right: which classes answer the
 -- most of it on their own, and the key-needs sheet. No group needed.
 ---------------------------------------------------------------------------
 local PRIMER_TOP = 5
@@ -3983,7 +3940,6 @@ function UI:WalkReq(L, q, explainOn)
     .. "  " .. sev .. (q.severity or ""):upper() .. "|r"
     .. (#alts > 0 and (HEX.muted .. " (or " .. table.concat(alts, " / ") .. ")|r") or "")
     .. (q.affix and (HEX.muted .. " (affix: " .. q.affix .. ")|r") or "")
-    .. (q.notInRoute and (HEX.muted .. " (not in your route's pulls)|r") or "")
     .. (q.confidence ~= "verified" and (HEX.warn .. " [unconfirmed]|r") or ""),
     { indent = 8, size = 11, gap = 1, tooltip = tip })
   if q.note and not (q.need == "interrupt" and q.note == "Interrupt every cast.") then
@@ -3996,8 +3952,7 @@ function UI:WalkLust(L, dk, st)
   local WT = ns.Walkthrough
   for _, x in ipairs(WT:LustAt(dk, st)) do
     local u = x.use
-    local where = u.at:sub(1, 1) == "p" and (WT:SpotLabel(dk, u.at, true) .. ": ") or ""
-    L:Add(HEX.warn .. "BLOODLUST|r  " .. where .. (u.note or (st.kind == "boss" and "on pull" or "here")), {
+    L:Add(HEX.warn .. "BLOODLUST|r  " .. (u.note or (st.kind == "boss" and "on pull" or "here")), {
       indent = 8, size = 11, gap = 2, tooltip = "Lust #" .. x.i .. ". " .. WT:LustSource(dk) .. "\nClick to change it.",
       onClick = function(btn) UI:OpenLustMenu(btn, dk, x.i) end })
   end
@@ -4030,8 +3985,8 @@ function UI:RenderLust(L, dk)
   end
 end
 
--- Menu for lust #i: every spot in the dungeon (route pulls when you have a route), a note,
--- remove. i past the end adds a new one.
+-- Menu for lust #i: every spot in the dungeon (the trash before each boss, and the boss), a
+-- note, remove. i past the end adds a new one.
 function UI:OpenLustMenu(anchor, dk, i)
   local WT = ns.Walkthrough
   local uses = WT:Lust(dk)
@@ -4071,10 +4026,8 @@ function UI:RenderWalkthrough(L, key, explainOn)
     elseif st.kind == "trash" then
       local lust = WT:LustAt(key, st)
       if #reqs > 0 or #lust > 0 then
-        local range = WT:PullRange(st)
         local head = st.boss and bosses[st.boss] and ("Trash before " .. bosses[st.boss].name) or "Trash after the last boss"
         L:Header(head)
-        if range then L:Add(HEX.muted .. range .. " of your route|r", { indent = 2, size = 10, gap = 2 }) end
         self:WalkLust(L, key, st)
         for _, q in ipairs(reqs) do self:WalkReq(L, q, explainOn) end
       end
@@ -4085,8 +4038,6 @@ function UI:RenderWalkthrough(L, key, explainOn)
       local lines, edited, changed = BC:Lines(key, i)
       L:Space(2)
       L:Add((open and "- " or "+ ") .. HEX.accent .. i .. ". " .. boss.name:upper() .. "|r"
-        .. (st.pull and (HEX.muted .. "  pull " .. st.pull .. "|r") or "")
-        .. (st.missing and (HEX.muted .. "  (not in your route)|r") or "")
         .. (edited and (HEX.muted .. "  (edited)|r") or "") .. (changed and (HEX.warn .. "  default updated|r") or ""), {
         size = 12, gap = 2, onClick = function() UI:SetOpen(k, not open) end,
         tooltip = open and "Click to fold" or "Click to show this boss" })
@@ -4123,8 +4074,7 @@ function UI:RefreshPrimer()
   local explainOn = ns.db.settings.explain ~= false
   local role = ns.db.settings.walkRole or "ALL"
   for k, b in pairs(pp.roleBtns) do b:SetActive(k == role) end
-  local route = ns.Route and ns.Route:For(key)
-  pp.note:SetText(route and ("In the order of your route \"" .. route.name .. "\"") or "In the guides' order. No group needed.")
+  pp.note:SetText("In the guides' order. No group needed.")
   pp.walkTitle:SetText("Walkthrough" .. (role ~= "ALL" and (": " .. (role == "HEAL" and "healer" or role:lower())) or ""))
 
   local L = pp.asks
@@ -4336,7 +4286,7 @@ UI.SECTION_KEYS = {
   finder = { "applicantPanel", "finderPanel", "compApplicants", "finderTooltip", "applicantView", "listingMarker",
              "listingHidePoor", "listingTooltip", "applyLine" },
   chat = { "chatStyle" },
-  bosses = { "bossWindow", "routePlan" },
+  bosses = { "bossWindow" },
   appearance = { "theme", "textSize" },
   data = { "history" },
 }
@@ -4619,9 +4569,6 @@ function UI:BuildSettings_bosses(f)
     "Make the window see-through while you're in combat so it never hides the fight.")
   row("Lock the window", function() return bw().locked end, function(v) bw().locked = v end,
     "Stop moving and resizing the boss window.")
-  row("Pull-by-pull assignments from my Mythic Dungeon Tools route", function() return S().routePlan ~= false end,
-    function(v) S().routePlan = v end,
-    "Uses the route you have selected in Mythic Dungeon Tools: the Plan tab lists each pull's kicks and dispels, and the boss window shows the pull you're on. Off, or without MDT or a route, assignments are the same as always.")
   y = y - 6
   local lbl = Text(f, 12, C.text); lbl:SetPoint("TOPLEFT", 8, y)
   self.bossFontLabel = lbl
@@ -4946,7 +4893,6 @@ modeWatcher:SetScript("OnEvent", function()
   local tab = UI.currentTab
   if (tab == "composition" or tab == "plan") and UI:CompMode() ~= ns.state.mode then UI:SetTab(tab) end
 end)
-ns:On("ROUTE_CHANGED", function() UI:QueueRefresh() end)
 ns:On("LUST_CHANGED", function() UI:QueueRefresh() end)
 ns:On("ASSIGNMENTS_CHANGED", function() UI:QueueRefresh() end)
 ns:On("HISTORY_CHANGED", function() UI:QueueRefresh() end)

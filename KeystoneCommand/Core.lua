@@ -247,8 +247,6 @@ ns.DEFAULTS = {
     textSize = 100,
     -- Boss-card window: opens in Season dungeons, follows the current boss.
     bossWindow = { autoOpen = true, showAll = false, fadeInCombat = true, locked = false, fontSize = 12 },
-    -- Pull-by-pull jobs from the player's Mythic Dungeon Tools route (when MDT is loaded).
-    routePlan = true,
     -- Composition and Plan: "auto" (your party when grouped or listed, else the planner),
     -- "planner" or "party".
     compMode = "auto",
@@ -266,8 +264,8 @@ ns.DEFAULTS = {
   currentComp = { 0, 0, 0, 0, 0 }, -- spec IDs per slot, 0 = empty
   savedComps = {},              -- array of { name, slots = {5 specIDs}, dungeon, created }
   lastTab = "composition",
-  -- Bloodlust timing per dungeon key: { { at = "b1"|"t2"|"p7", note }, ... }. Missing = the
-  -- default from DungeonData.LUST.
+  -- Bloodlust timing per dungeon key: { { at = "b1"|"t2", note }, ... } (boss N, or the trash
+  -- before boss N). Missing = the default from DungeonData.LUST.
   lust = {},
   history = {},                 -- recorded runs, newest first (History.lua)
 }
@@ -299,13 +297,22 @@ local function SanitizeDB(db)
   for dk, uses in pairs(db.lust) do
     if type(uses) ~= "table" then db.lust[dk] = nil
     else
+      -- Uses saved at a Mythic Dungeon Tools route pull ("p<N>", up to 1.2.1) are dropped: route
+      -- tracking was removed in 1.3.0. A plan left empty only by that falls back to the
+      -- dungeon's default; a plan the player emptied on purpose stays empty.
+      local droppedPull = false
       for i = #uses, 1, -1 do
         local u = uses[i]
-        if type(u) ~= "table" or type(u.at) ~= "string" or not u.at:match("^[tbp]%d+$") then table.remove(uses, i)
+        if type(u) == "table" and type(u.at) == "string" and u.at:match("^p%d+$") then
+          table.remove(uses, i); droppedPull = true
+        elseif type(u) ~= "table" or type(u.at) ~= "string" or not u.at:match("^[tb]%d+$") then table.remove(uses, i)
         elseif u.note ~= nil and type(u.note) ~= "string" then u.note = nil end
       end
+      if droppedPull and #uses == 0 then db.lust[dk] = nil end
     end
   end
+  -- Settings that no longer exist (1.3.0: the Mythic Dungeon Tools route switch).
+  if type(db.settings) == "table" then db.settings.routePlan = nil end
 end
 
 function ns:InitDB()

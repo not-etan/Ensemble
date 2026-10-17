@@ -468,7 +468,6 @@ add("RubyLifePools", {
 ---------------------------------------------------------------------------
 add("KingsRest", {
   name = "Kings' Rest",
-  aliases = { "King's Rest", "Kings Rest" },
   bosses = { "The Golden Serpent", "Mchimba the Embalmer", "The Council of Tribes", "Dazar, the First King" },
   requirements = {
     { id = "KR_HEX_VOLLEY", need = "interrupt", severity = "critical", minProviders = 2,
@@ -640,10 +639,8 @@ function DD:FindKey(text)
   if n == "" then return nil end
   for _, key in ipairs(self.order) do
     local d = self.list[key]
+    -- norm() drops case and punctuation, so "King's Rest" and "Kings Rest" match "Kings' Rest".
     if norm(key) == n or norm(d.name) == n then return key end
-    if d.aliases then
-      for _, a in ipairs(d.aliases) do if norm(a) == n then return key end end
-    end
   end
   -- Substring match (e.g. "Kings' Rest (Mythic Keystone)").
   for _, key in ipairs(self.order) do
@@ -665,8 +662,6 @@ end
 -- instead, so a requirement listed on a boss card needs an entry here only when its mobs
 -- also appear as trash. A requirement with neither shows under "Throughout the dungeon".
 -- From Method.gg's and Icy Veins' Season 2 guides (trash sections by boss), October 2026.
--- With a Mythic Dungeon Tools route, the walkthrough follows the route's pull order and
--- uses these only for mobs the route doesn't pull.
 DD.AREAS = {
   AltarOfFangs = {
     AOF_PARALYZE = { 1 }, AOF_ENRAGE = { 1 }, AOF_PIERCING_HISS = { 1 }, AOF_CORROSIVE_FANGS = { 1, 2, 3 },
@@ -713,8 +708,7 @@ DD.AREAS = {
 }
 
 -- Default Bloodlust timing, shown until the player sets their own (Plan or Dungeon tab).
--- `at` is where it goes: "b<N>" = boss N, "t<N>" = the trash before boss N ("p<N>", pull N
--- of a Mythic Dungeon Tools route, only comes from the player's own edits). Method.gg and
+-- `at` is where it goes: "b<N>" = boss N, "t<N>" = the trash before boss N. Method.gg and
 -- Icy Veins give no timing; these follow WoWCarry's Season 2 guides (one source, so they
 -- show as suggestions). Ruby Life Pools has no guide timing: first and last boss.
 DD.LUST = {

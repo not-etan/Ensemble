@@ -2717,98 +2717,69 @@ do
   LISTING = nil
 end
 
--- 52. Pull-by-pull jobs from a Mythic Dungeon Tools route
+-- 52. Mythic Dungeon Tools route tracking removed (1.3.0, issue #11): nothing reads MDT, even
+-- when it's loaded; saved route-pull Bloodlust entries are dropped on load.
 do
-  KeystoneCommandDB = nil
-  MDTDB = {
-    presets = { [77] = { { text = "My route", uid = "a", value = { pulls = {
-      { [1] = { 1, 2 }, [2] = { 1 }, color = "ff0000" },   -- 2 Risen Hexers + a Phantom Hex Priest
-      { [4] = { 1 } },                                     -- Queen Wasi (matched by name)
-      { [3] = { 1 } },                                     -- The Golden Serpent (boss)
-      { [5] = { 1, 2, 3 } },                               -- nothing that needs a job
-    } } } } },
-    currentPreset = { [77] = 1 },
-  }
-  MDT = {
-    GetDB = function() return MDTDB end,
-    mapInfo = { [77] = { mapID = 249, englishName = "Kings' Rest" } },
-    dungeonTotalCount = { [77] = { normal = 100 } },
-    dungeonEnemies = { [77] = {
-      [1] = { name = "Risen Hexer", count = 4, spells = { [269972] = {} } },
-      [2] = { name = "Phantom Hex Priest", count = 5, spells = { [270492] = {} } },
-      [3] = { name = "The Golden Serpent", count = 0, isBoss = true, spells = {} },
-      [4] = { name = "Queen Wasi", count = 6, spells = {} },
-      [5] = { name = "Spectral Berserker", count = 2, spells = {} },
-    } },
-  }
+  local function slurp(path) local f = io.open(path, "rb"); if not f then return nil end local t = f:read("*a"); f:close(); return t end
+  local toc = slurp(ADDON_DIR .. "/KeystoneCommand.toc") or ""
+  ok(not toc:find("Route.lua", 1, true) and not toc:find("MythicDungeonTools", 1, true), "TOC: no Route.lua, no MDT dependency")
+  ok(slurp(ADDON_DIR .. "/Route.lua") == nil, "Route.lua is gone")
+  for _, f in ipairs(FILES) do
+    local src = slurp(ADDON_DIR .. "/" .. f) or ""
+    ok(not src:find("rawget(_G, \"MDT\")", 1, true) and not src:find("MythicDungeonToolsAPI", 1, true) and not src:find("ns.Route", 1, true),
+      "no code reads Mythic Dungeon Tools: " .. f)
+  end
+  -- Saved data from 1.2.1: route-pull Bloodlust entries and the old setting.
+  KeystoneCommandDB = { settings = { routePlan = false }, lust = {
+    KingsRest = { { at = "p3", note = "big pack" }, { at = "b4", note = "on pull" } },   -- mixed: keep the boss one
+    AltarOfFangs = { { at = "p7" }, { at = "p12" } },                                   -- only pulls: back to the default
+    MurderRow = {},                                                                      -- emptied on purpose: stays empty
+  } }
+  -- An MDT that's loaded (old global and the new API) changes nothing.
+  MDT = { GetDB = function() error("must not be read") end }
+  MythicDungeonToolsAPI = { GetDB = function() error("must not be read") end }
   local nsR = boot()
-  local R = nsR.Route
-  ok(R:DungeonIndex("KingsRest") == 77, "MDT dungeon matched by map ID")
-  local route = R:For("KingsRest")
-  ok(route and #route.pulls == 4 and route.name == "My route", "route read from MDT's current preset")
-  local ids = {}
-  for _, q in ipairs(route.pulls[1].reqs) do ids[q.id] = true end
-  ok(ids.KR_HEX_VOLLEY and ids.KR_HEX, "pull 1: Hex Volley and Hex matched by spell ID")
-  local ids2 = {}
-  for _, q in ipairs(route.pulls[2].reqs) do ids2[q.id] = true end
-  ok(ids2.KR_BIND_SOUL, "pull 2: Queen Wasi's Bind Soul matched by name")
-  ok(route.pulls[3].boss == 1 and #route.pulls[3].reqs > 0, "boss pull: the boss card's requirements")
-  ok(route.pulls[1].forces == 13 and math.abs(route.pulls[2].frac - 0.19) < 1e-9, "running forces per pull")
-  ok(R:PullLabel(route.pulls[1]) == "Risen Hexer x2, Phantom Hex Priest", "pull label")
-  -- Jobs from the plan
-  local members = { { specID = 73, isPlayer = true }, { specID = 256 }, { specID = 63 }, { specID = 71 }, { specID = 260 } }
-  local r = nsR.Analysis:Analyze(members, "KingsRest", nsR.db.settings)
-  local plan = nsR.Assignments:Build(r)
-  local jobs = R:PullJobs(route.pulls[1], plan)
-  local any, mine = false, false
-  for _, j in ipairs(jobs) do if j.text:find("^Kick Hex Volley") then any = true end; if j.mine then mine = true end end
-  ok(any, "pull 1 job: Kick Hex Volley")
-  -- Plan column shows the route
+  ok(nsR.Route == nil, "no route module")
+  ok(nsR.db.settings.routePlan == nil and nsR.DEFAULTS.settings.routePlan == nil, "the route setting is gone (saved value dropped)")
+  local kr = nsR.db.lust.KingsRest
+  ok(#kr == 1 and kr[1].at == "b4" and kr[1].note == "on pull", "route-pull lust dropped, the boss one kept")
+  ok(nsR.db.lust.AltarOfFangs == nil and not select(2, nsR.Walkthrough:Lust("AltarOfFangs")) and #nsR.Walkthrough:Lust("AltarOfFangs") == 2,
+    "a plan of only route pulls falls back to the dungeon default")
+  ok(type(nsR.db.lust.MurderRow) == "table" and #nsR.db.lust.MurderRow == 0 and select(2, nsR.Walkthrough:Lust("MurderRow")),
+    "a plan emptied on purpose stays empty")
+  -- Walkthrough, Plan tab, boss window and Settings: guide order, no route anywhere.
+  ok(nsR.Walkthrough:Build("KingsRest").order == "guide", "walkthrough in the guides' order")
+  local spots = nsR.Walkthrough:Spots("KingsRest")
+  local onlyTB = #spots == 8
+  for _, sp in ipairs(spots) do if not sp.at:match("^[tb]%d$") then onlyTB = false end end
+  ok(onlyTB, "Bloodlust spots: the trash before each boss and the boss, nothing else")
   nsR.db.currentComp = { 73, 256, 63, 71, 260 }
   nsR:SetManualDungeon("KingsRest")
   local UIR = nsR.UI
-  UIR:Show("builder"); RunTimers()
   UIR:Show("plan"); RunTimers()
   local t = {} for i = 1, UIR.pl.mine.used do t[#t + 1] = UIR.pl.mine.pool[i]:GetText() end
-  local tx = table.concat(t, "\n")
-  ok(tx:upper():find("YOUR ROUTE: MY ROUTE", 1, true) and tx:find("Pull 1:", 1, true) and tx:find("YOU|r", 1, true), "plan column lists the route's pulls with jobs")
-  ok(not tx:find("Pull 4:", 1, true), "pulls without jobs are left out")
-  -- A new route imported or shared: MDT makes it the current preset
-  local changed = 0
-  nsR:On("ROUTE_CHANGED", function() changed = changed + 1 end)
-  MDTDB.presets[77][2] = { text = "Shared route", uid = "b", value = { pulls = { { [4] = { 1 } } } } }
-  MDTDB.currentPreset[77] = 2
-  R:CheckChanged()
-  ok(changed == 1 and R:For("KingsRest").name == "Shared route", "an imported or shared route replaces the old one")
-  MDTDB.currentPreset[77] = 1; R:CheckChanged()
-  -- Following the run: enemy forces and boss kills
-  local progress = 0
-  C_ScenarioInfo = {
-    GetStepInfo = function() return { numCriteria = 1 } end,
-    GetCriteriaInfo = function() return { isWeightedProgress = true, quantity = progress, totalQuantity = 100 } end,
-  }
-  route = R:For("KingsRest")
-  ok(R:CurrentPull(route) == 1, "start: pull 1")
-  progress = 13
-  ok(R:CurrentPull(route) == 2, "pull 1's forces done: pull 2")
-  progress = 19
-  ok(R:CurrentPull(route) == 3, "next is the boss pull")
-  nsR.BossCards.state.killed = { [1] = true }
-  ok(R:CurrentPull(route) == 4, "boss dead: on to pull 4")
-  -- Boss window inside the dungeon shows the pull you're on
+  ok(not table.concat(t, "\n"):upper():find("ROUTE", 1, true), "Plan tab: no route section")
   nsR.BossCards.state = { dk = "KingsRest", index = 1, killed = {} }
-  progress = 0
-  nsR.BossWindow:Show()
-  local first = nsR.BossWindow.items[1]
-  ok(first and first.tag:find("PULL", 1, true) and first.text:find("Pull 1/4", 1, true), "boss window: the current pull first")
-  -- Setting off, or no MDT: the plan is as before
-  nsR.db.settings.routePlan = false; nsR:Fire("SETTINGS_CHANGED")
-  ok(R:For("KingsRest") == nil, "setting off: no route")
-  nsR.db.settings.routePlan = true; nsR:Fire("SETTINGS_CHANGED")
-  MDT = nil
-  ok(R:For("KingsRest") == nil and not R:Enabled(), "no MDT: no route")
-  nsR.BossWindow:Hide()
-  C_ScenarioInfo, MDTDB = nil, nil
+  local kinds = {}
+  for _, r in ipairs(nsR.BossWindow:Rows("KingsRest", 1, "TANK", true, true)) do kinds[r.kind] = true end
+  ok(not (kinds.pull or kinds.pullmine or kinds.pulljob or kinds.next), "boss window: no PULL or NEXT rows")
+  nsR.BossCards.state = { killed = {} }
+  UIR:Show("settings"); UIR:ShowSettingsSection("bosses"); RunTimers()
+  local mdtText = false
+  for _, fr in ipairs(ALLFRAMES) do
+    local tx = rawget(fr, "_text")
+    if type(tx) == "string" and tx:find("Mythic Dungeon Tools", 1, true) then mdtText = true end
+  end
+  ok(not mdtText, "no window text mentions Mythic Dungeon Tools")
+  local vt = nsR.Verify:Build()
+  ok(not vt:find("Mythic Dungeon Tools", 1, true) and not vt:find("== Route", 1, true) and not vt:find("enemy forces", 1, true),
+    "verify: no Route section")
+  ok(vt:find("all 20 game events the addon uses accepted", 1, true), "verify: 20 events (the route's scenario event is gone)")
+  -- Dungeon names with or without the apostrophe still find Kings' Rest (the aliases were MDT's).
+  ok(nsR.Dungeons:FindKey("King's Rest") == "KingsRest" and nsR.Dungeons:FindKey("Kings Rest") == "KingsRest"
+    and nsR.Dungeons:FindKey("Kings' Rest (Mythic Keystone)") == "KingsRest", "Kings' Rest found by any spelling")
+  UIR:Hide()
+  MDT, MythicDungeonToolsAPI = nil, nil
 end
 
 -- 53. Dungeon walkthrough, role filter and the Bloodlust plan
@@ -2837,34 +2808,10 @@ do
     and w.steps[#w.steps].kind == "boss" and w.steps[#w.steps].boss == 4, "guide order: trash, boss, ... last boss")
   local ids = {} for _, q in ipairs(w.steps[1].reqs) do ids[q.id] = true end
   ok(ids.KR_HEX_VOLLEY and not ids.KR_HEX, "Hex Volley before the first boss, Hex later")
-  -- Route order (MDT)
-  MDTDB = { presets = { [77] = { { text = "R1", uid = "a", value = { pulls = {
-      { [1] = { 1, 2 }, [2] = { 1 } }, { [4] = { 1 } }, { [3] = { 1 } }, { [5] = { 1 } } } } } } },
-    currentPreset = { [77] = 1 } }
-  MDT = { GetDB = function() return MDTDB end, mapInfo = { [77] = { mapID = 249 } },
-    dungeonTotalCount = { [77] = { normal = 100 } },
-    dungeonEnemies = { [77] = {
-      [1] = { name = "Risen Hexer", count = 4, spells = { [269972] = {} } },
-      [2] = { name = "Phantom Hex Priest", count = 5, spells = { [270492] = {} } },
-      [3] = { name = "The Golden Serpent", count = 0, isBoss = true, spells = {} },
-      [4] = { name = "Queen Wasi", count = 6, spells = {} },
-      [5] = { name = "Spectral Berserker", count = 2, spells = {} } } } }
-  nsW.Route:Reset()
-  w = WT:Build("KingsRest")
-  ok(w.order == "route" and w.steps[1].kind == "trash" and WT:PullRange(w.steps[1]) == "Pulls 1-2", "route order: pulls 1-2 first")
-  ids = {} for _, q in ipairs(w.steps[1].reqs) do ids[q.id] = true end
-  ok(ids.KR_HEX_VOLLEY and ids.KR_HEX and ids.KR_BIND_SOUL, "route trash: what those pulls bring, Hex included")
-  ok(w.steps[2].kind == "boss" and w.steps[2].boss == 1 and w.steps[2].pull == 3, "then the boss at its pull")
-  local seenR, notIn = {}, false
-  for _, st in ipairs(w.steps) do for _, q in ipairs(st.reqs) do seenR[q.id] = true; if q.id == "KR_UNHOLY_MENDING" and q.notInRoute then notIn = true end end end
-  local all = true
-  for _, q in ipairs(DDw.list.KingsRest.requirements) do if not seenR[q.id] then all = false end end
-  ok(all and notIn, "route order keeps everything; unpulled trash marked, in its guide section")
   -- Bloodlust plan
   local uses, custom = WT:Lust("KingsRest")
   ok(#uses == 2 and not custom and uses[1].at == "b2", "default lust plan")
   ok(WT:LustChat("KingsRest"):find("^Lust: Mchimba the Embalmer") , "lust chat line: " .. WT:LustChat("KingsRest"))
-  MDT = nil; nsW.Route:Reset()
   WT:SetLustAt("KingsRest", 3, "t1")
   uses, custom = WT:Lust("KingsRest")
   ok(custom and #uses == 3 and uses[1].at == "t1", "added lust sorted into dungeon order")
@@ -2903,30 +2850,13 @@ do
   local lines = UIw:PlanChatLines(UIw.cp.lastPlan, "KingsRest")
   ok(lines[1]:find("assignments", 1, true) and lines[2]:find("^Lust: "), "plan post: lust second")
   ok(dump(UIw.pl.mine):find("BLOODLUST", 1, true), "Plan tab shows the lust plan")
-  -- Boss window: lust on the boss, next pull line
+  -- Boss window: lust on the boss
   WT:SetLustAt("KingsRest", 1, "b1")
   local rows = nsW.BossWindow:Rows("KingsRest", 1, "TANK", false, false)
   local lustRow
   for _, r in ipairs(rows) do if r.kind == "lust" then lustRow = r end end
   ok(lustRow and lustRow.text:find("Bloodlust", 1, true), "boss window: lust row on its boss")
-  MDT = { GetDB = function() return MDTDB end, mapInfo = { [77] = { mapID = 249 } },
-    dungeonTotalCount = { [77] = { normal = 100 } },
-    dungeonEnemies = { [77] = {
-      [1] = { name = "Risen Hexer", count = 4, spells = { [269972] = {} } },
-      [2] = { name = "Phantom Hex Priest", count = 5, spells = { [270492] = {} } },
-      [3] = { name = "The Golden Serpent", count = 0, isBoss = true, spells = {} },
-      [4] = { name = "Queen Wasi", count = 6, spells = {} },
-      [5] = { name = "Spectral Berserker", count = 2, spells = {} } } } }
-  nsW.Route:Reset()
-  C_ScenarioInfo = { GetStepInfo = function() return { numCriteria = 1 } end,
-    GetCriteriaInfo = function() return { isWeightedProgress = true, quantity = 0, totalQuantity = 100 } end }
-  nsW.BossCards.state = { dk = "KingsRest", index = 1, killed = {} }
-  rows = nsW.BossWindow:Rows("KingsRest", 1, "TANK", false, true)
-  local nextRow
-  for _, r in ipairs(rows) do if r.kind == "next" then nextRow = r end end
-  ok(nextRow and nextRow.text:find("^Next: pull 2 %(") and nextRow.text:find("for you)", 1, true), "boss window: next pull line: " .. tostring(nextRow and nextRow.text))
   UIw:Hide()
-  MDT, MDTDB, C_ScenarioInfo = nil, nil, nil
 end
 
 -- 54. Assignments chosen by hand
@@ -3682,23 +3612,10 @@ do
   for _, l in ipairs(pl) do if l:find("^Lust") then lustTxt = lustTxt .. l end end
   ok(lustTxt:find("last boss", 1, true) and pl[3]:find("^Lust %(cont%.%)"), "Bloodlust line carried on, not cut")
 
-  -- Secret values: enemy forces.
+  -- Secret values (the route's enemy-forces reads went with route tracking in 1.3.0).
   local SECRET = {}
   local function mark(v) local t = { v = v }; SECRET[t] = true; return t end
   issecretvalue = function(v) return SECRET[v] == true end
-  local crit = { isWeightedProgress = true, quantity = 50, totalQuantity = 200, quantityString = "25%" }
-  C_ScenarioInfo = { GetStepInfo = function() return { numCriteria = 1 } end, GetCriteriaInfo = function() return crit end }
-  local R = nsV.Route
-  ok(R:ForcesFraction() == 0.25, "forces: readable values")
-  crit.totalQuantity = mark(200)
-  ok(R:ForcesFraction() == nil and R.forcesSecret, "forces: a secret total means unknown")
-  crit.totalQuantity, crit.quantity, crit.quantityString = nil, nil, mark("25%")
-  ok(R:ForcesFraction() == nil and R.forcesSecret, "forces: a secret progress text means unknown")
-  C_ScenarioInfo.GetStepInfo = function() return { numCriteria = mark(1) } end
-  ok(R:ForcesFraction() == nil, "forces: a secret criteria count means unknown")
-  C_ScenarioInfo.GetStepInfo = function() return { numCriteria = 1 } end
-  C_ScenarioInfo.GetCriteriaInfo = function() return setmetatable({}, { __index = function() error("boom") end }) end
-  ok(R:ForcesFraction() == nil and R.forcesError ~= nil, "forces: an error inside means unknown, never a Lua error")
   -- Secret values: roster reads (class and spec hidden for party1 -> spec pending, no error).
   local T = nsV.Tracker
   ROSTER = {
@@ -3760,9 +3677,6 @@ do
   -- /kc verify reports both, and the guarded functions it didn't list before (item 10).
   T.secretReads = 3
   ACTIVE_CHALLENGE = 249
-  MDT = { GetDB = function() return { global = {} } end, mapInfo = {} }
-  crit = { isWeightedProgress = true, quantity = 1, totalQuantity = mark(100) }
-  C_ScenarioInfo = { GetStepInfo = function() return { numCriteria = 1 } end, GetCriteriaInfo = function() return crit end }
   local realLead, realSB = UnitIsGroupLeader, C_SpellBook
   UnitIsGroupLeader, C_SpellBook = nil, nil
   local realIPS = IsPlayerSpell
@@ -3771,8 +3685,6 @@ do
   IsPlayerSpell, UnitIsGroupLeader, C_SpellBook = realIPS, realLead, realSB
   ok(text:find("party reads hidden by the game (secret values): 3", 1, true) and text:find("roster scans or inspects that errored: 1", 1, true),
     "verify: roster secret reads and contained errors reported")
-  ok(text:find("enemy forces during this key: not readable (the game hides it from addons here: a secret value)", 1, true),
-    "verify: enemy forces hidden by a secret value is reported")
   for _, name in ipairs({ "C_ChallengeMode.GetOverallDungeonScore", "C_ChatInfo.InChatMessagingLockdown", "UnitIsGroupAssistant",
                           "C_MythicPlus.RequestMapInfo" }) do
     ok(text:find(name .. " present", 1, true) or text:find(name .. " missing: ", 1, true), "verify reports " .. name)
@@ -3780,7 +3692,7 @@ do
   ok(text:find("[WARN] UnitIsGroupLeader missing: the Invite buttons", 1, true)
     and text:find("[WARN] IsPlayerSpell / C_SpellBook.IsSpellKnown missing: your talents can't be read", 1, true),
     "verify: a missing guarded function says what it costs")
-  issecretvalue, C_ScenarioInfo, MDT, ACTIVE_CHALLENGE = nil, nil, nil, nil
+  issecretvalue, ACTIVE_CHALLENGE = nil, nil
   T:Release("test58")
   ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" } }
 

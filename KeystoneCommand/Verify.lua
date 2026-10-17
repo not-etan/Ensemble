@@ -121,7 +121,7 @@ local function CheckAPIs()
                    "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "ZONE_CHANGED_NEW_AREA",
                    "CHALLENGE_MODE_START", "CHALLENGE_MODE_COMPLETED", "CHALLENGE_MODE_RESET",
                    "CHALLENGE_MODE_MAPS_UPDATE", "BAG_UPDATE_DELAYED", "MYTHIC_PLUS_CURRENT_AFFIX_UPDATE",
-                   "TRAIT_CONFIG_UPDATED", "ENCOUNTER_START", "ENCOUNTER_END", "SCENARIO_CRITERIA_UPDATE" }
+                   "TRAIT_CONFIG_UPDATED", "ENCOUNTER_START", "ENCOUNTER_END" }
   for _, ev in ipairs(EVENTS) do
     if not pcall(probe.RegisterEvent, probe, ev) then bad[#bad + 1] = ev end
   end
@@ -678,43 +678,6 @@ local function CheckBosses()
   end
 end
 
--- Pull-by-pull jobs from Mythic Dungeon Tools: is MDT loaded, which dungeon index matches,
--- is there a route, how many pulls got jobs, and can the key's enemy forces be read (how the
--- boss window follows the route). Read-only.
-local function CheckRoute()
-  Section("Route (Mythic Dungeon Tools)")
-  local R = ns.Route
-  local MDT = rawget(_G, "MDT")
-  if type(MDT) ~= "table" then Add("INFO", "Mythic Dungeon Tools not loaded: assignments aren't split by pull"); return end
-  local ver = C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata("MythicDungeonTools", "Version")
-  Add(ns.db.settings.routePlan ~= false and "OK" or "INFO", "Mythic Dungeon Tools " .. tostring(ver or "?") .. " loaded; pull-by-pull assignments "
-    .. (ns.db.settings.routePlan ~= false and "on" or "OFF (Settings > Boss cards)"))
-  local dk = ns.BossCards and ns.BossCards:CurrentDungeon()
-  if not dk and ns.OwnKeystoneDungeon then local okK, k = pcall(ns.OwnKeystoneDungeon, ns); dk = okK and k or nil end
-  dk = dk or ns:GetEffectiveDungeon(false)
-  if dk then
-    local idx = R:DungeonIndex(dk)
-    local route = R:For(dk)
-    local withReqs = 0
-    if route then for _, p in ipairs(route.pulls) do if #p.reqs > 0 then withReqs = withReqs + 1 end end end
-    Add(route and "OK" or "WARN", string.format("%s: MDT dungeon %s, %s", ns.Dungeons.list[dk].name, tostring(idx or "not matched"),
-      route and string.format("route \"%s\", %d pulls, %d with kicks/dispels, total forces %s", route.name, #route.pulls, withReqs,
-        tostring(route.total)) or "no route selected in MDT for this dungeon"))
-  end
-  if C_ChallengeMode and C_ChallengeMode.GetActiveChallengeMapID and select(2, pcall(C_ChallengeMode.GetActiveChallengeMapID)) then
-    local frac = R:ForcesFraction()
-    local route = dk and R:For(dk)
-    local cur = route and R:CurrentPull(route)
-    local why = (R.forcesSecret and " (the game hides it from addons here: a secret value)")
-      or (R.forcesError and (" (error: " .. R.forcesError .. ")")) or ""
-    Add(frac and "OK" or "WARN", "enemy forces during this key: " .. (frac and string.format("%.1f%%", frac * 100) or ("not readable" .. why))
-      .. (cur and (", following pull " .. cur) or ""))
-    if not frac then Note("Without it the boss window can't tell which pull you're on; boss cards and assignments still work.") end
-  else
-    Add("INFO", "enemy forces: run /kc verify during a key to check the boss window can follow the route")
-  end
-end
-
 ---------------------------------------------------------------------------
 -- Report window (copyable)
 ---------------------------------------------------------------------------
@@ -778,7 +741,6 @@ function Verify:Build()
   Try("group finder search", CheckSearch)
   Try("party", CheckGroup)
   Try("boss cards", CheckBosses)
-  Try("route", CheckRoute)
   Try("flags", ListFlags)
   table.insert(lines, 2, string.format("Summary: %d OK, %d WARN, %d FAIL, %d INFO",
     counts.OK or 0, counts.WARN or 0, counts.FAIL or 0, counts.INFO or 0))

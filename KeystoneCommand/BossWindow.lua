@@ -47,7 +47,7 @@ function BW:Step(d)
 end
 
 ---------------------------------------------------------------------------
--- Bloodlust planned at a spot ("b2", "p7"): rows of kind "lust".
+-- Bloodlust planned at a spot ("b2", "t3"): rows of kind "lust".
 function BW:LustRows(dk, at)
   local out = {}
   local WT = ns.Walkthrough
@@ -58,37 +58,12 @@ function BW:LustRows(dk, at)
   return out
 end
 
--- Content: rows of { kind = "job" | "line" | "pull" | "pullmine" | "pulljob" | "next" | "lust", tag, text }
+-- Content: rows of { kind = "job" | "line" | "lust", tag, text }
 ---------------------------------------------------------------------------
 function BW:Rows(dk, i, role, all, inside)
   local BC = ns.BossCards
   local rows = {}
   local plan, r = BC:Plan(dk)
-  -- Inside the dungeon with an MDT route: the pull you're on, with its jobs (until it's a
-  -- boss pull, where the boss card below takes over).
-  local R = ns.Route
-  local route = inside and R and R:For(dk)
-  if route then
-    local cur = R:CurrentPull(route)
-    local p = cur and route.pulls[cur]
-    if p and not p.boss then
-      rows[#rows + 1] = { kind = "pull", text = "Pull " .. p.n .. "/" .. #route.pulls .. ": " .. R:PullLabel(p) }
-      for _, j in ipairs(R:PullJobs(p, plan)) do
-        rows[#rows + 1] = { kind = j.mine and "pullmine" or "pulljob", text = j.text }
-      end
-      for _, x in ipairs(self:LustRows(dk, "p" .. p.n)) do rows[#rows + 1] = x end
-    end
-    -- What's coming: the next pull and how many assignments in it are yours.
-    local nx = cur and route.pulls[cur + 1]
-    if nx then
-      local mine = 0
-      for _, j in ipairs(R:PullJobs(nx, plan)) do if j.mine then mine = mine + 1 end end
-      local bosses = BC:Bosses(dk)
-      rows[#rows + 1] = { kind = "next", text = "Next: pull " .. nx.n
-        .. (nx.boss and bosses[nx.boss] and (", " .. bosses[nx.boss].name) or "")
-        .. " (" .. (mine == 0 and "no assignments" or (mine .. " assignment" .. (mine > 1 and "s" or ""))) .. " for you)" }
-    end
-  end
   for _, x in ipairs(self:LustRows(dk, "b" .. i)) do rows[#rows + 1] = x end
   for _, j in ipairs(BC:Jobs(dk, i, plan, r)) do
     rows[#rows + 1] = { kind = "job", backup = j.backup, text = j.text }
@@ -296,16 +271,8 @@ function BW:Refresh()
   local items = {}
   local firstJob, firstLine = true, true
   for _, r in ipairs(self:Rows(dk, i, role, s.showAll, inside)) do
-    if r.kind == "pull" then
-      items[#items + 1] = { first = true, tag = HEX.accent .. "PULL|r", text = HEX.text .. r.text .. "|r" }
-    elseif r.kind == "pullmine" then
-      items[#items + 1] = { job = true, tag = HEX.accent .. "YOU|r", text = HEX.text .. BC:Decorate(dk, r.text) .. "|r" }
-    elseif r.kind == "lust" then
+    if r.kind == "lust" then
       items[#items + 1] = { job = true, tag = HEX.warn .. "LUST|r", text = HEX.text .. r.text .. "|r" }
-    elseif r.kind == "next" then
-      items[#items + 1] = { tag = HEX.muted .. "NEXT|r", text = HEX.muted .. r.text .. "|r" }
-    elseif r.kind == "pulljob" then
-      items[#items + 1] = { tag = "", text = HEX.muted .. BC:Decorate(dk, r.text) .. "|r" }
     elseif r.kind == "job" then
       items[#items + 1] = { job = true, backup = r.backup, first = firstJob,
         tag = HEX.accent .. (r.backup and "BACKUP" or "YOU") .. "|r", text = HEX.text .. BC:Decorate(dk, r.text) .. "|r" }
@@ -338,7 +305,6 @@ function BW:Show()
   self.closedByUser = nil
   if ns.Tracker then ns.Tracker:Acquire("bosswindow") end
   self.frame:Show()
-  if ns.Route then ns.Route:UpdateWatching() end
   self:Refresh()
 end
 
@@ -346,7 +312,6 @@ function BW:Hide(byUser)
   if byUser then self.closedByUser = true end
   if self.frame then self.frame:Hide() end
   if ns.Tracker then ns.Tracker:Release("bosswindow") end
-  if ns.Route then ns.Route:UpdateWatching() end
 end
 
 function BW:Toggle()
@@ -381,10 +346,8 @@ end)
 ns:On("LIVE_ROSTER_CHANGED", function() if BW:IsShown() then BW:Refresh() end end)
 ns:On("SETTINGS_CHANGED", function() if BW:IsShown() then BW:Refresh() end end)
 ns:On("BOSS_COMBAT", function(on) BW.inCombat = on; BW:ApplyCombatFade() end)
-ns:On("ROUTE_CHANGED", function() if BW:IsShown() then BW:Refresh() end end)
 ns:On("LUST_CHANGED", function() if BW:IsShown() then BW:Refresh() end end)
 ns:On("ASSIGNMENTS_CHANGED", function() if BW:IsShown() then BW:Refresh() end end)
-ns:On("ROUTE_PROGRESS", function() if BW:IsShown() and ns.BossCards.state.dk then BW:Refresh() end end)
 
 ---------------------------------------------------------------------------
 -- Editor (shared by the window and the Dungeons tab)

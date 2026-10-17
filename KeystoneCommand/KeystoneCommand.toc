@@ -4,7 +4,6 @@
 ## Author: Keystone Command
 ## Version: 1.2.1
 ## SavedVariables: KeystoneCommandDB
-## OptionalDeps: MythicDungeonTools
 ## IconTexture: Interface\AddOns\KeystoneCommand\Media\Logo
 ## AddonCompartmentFunc: KeystoneCommand_OnAddonCompartmentClick
 ## AddonCompartmentFuncOnEnter: KeystoneCommand_OnAddonCompartmentEnter
@@ -28,7 +27,6 @@ GroupFinderTracker.lua
 Analysis.lua
 Assignments.lua
 BossCards.lua
-Route.lua
 Walkthrough.lua
 ApplicantFit.lua
 ListingFit.lua

@@ -27,7 +27,7 @@ Tour.STEPS = {
     text = "Everything this group handles. MISSING and THIN rows are gaps: click one to see why it matters and which classes could cover it." },
   { tab = "plan", title = "Assignments",
     target = function() return UI.pl and UI.pl.leftPanel end,
-    text = "Who takes each kick and dispel (click a line to change it), Bloodlust timing (click to set your own) and your route pull by pull. Post the assignments to party chat before the key starts: the game blocks addon chat during a key." },
+    text = "Who takes each kick and dispel (click a line to change it) and Bloodlust timing (click to set your own). Post the assignments to party chat before the key starts: the game blocks addon chat during a key." },
   { tab = "composition", title = "Hosting a key",
     target = function() return UI.tabButtons.applicants end,
     text = "Applicants rates each player on what they add to your group and their experience in this dungeon. While you host, the best fits also show under your slots on Composition. \"What we need\" gives you a line for your listing's description." },
