@@ -1836,7 +1836,7 @@ do
   ok(type(items[2].tooltip) == "function" and items[2].tooltip():find("Net:", 1, true), "spec menu items carry the preview")
   -- 3. Dungeon primer
   UIl:Show("dungeons"); RunTimers()
-  UIl.primerKey = "TempleOfSethraliss"; UIl:Refresh(); RunTimers()
+  UIl:SetPrimerPick("TempleOfSethraliss"); UIl:Refresh(); RunTimers()
   local at, vt = dump(UIl.pp.asks), dump(UIl.pp.value)
   ok(at:find("MAGIC DISPEL", 1, true) and at:find("Imbued Conduction", 1, true) and at:find("Dispel every one", 1, true), "primer: needs with mechanics")
   ok(vt:find("TANK", 1, true) and vt:find("HEALER", 1, true) and vt:find("DPS", 1, true) and vt:find("answers:", 1, true), "primer: best value per role")
@@ -2474,7 +2474,7 @@ do
   ok(BC:IsEdited("RubyLifePools", 1) and BW.title:GetText():find("(edited)", 1, true), "editor saves; the window marks it edited")
   BC:Reset("RubyLifePools", 1)
   -- Dungeons tab
-  nsB.UI:Show("dungeons"); nsB.UI.primerKey = "TempleOfSethraliss"; nsB.UI:RefreshPrimer(); RunTimers()
+  nsB.UI:Show("dungeons"); nsB.UI:SetPrimerPick("TempleOfSethraliss"); nsB.UI:RefreshPrimer(); RunTimers()
   local pt = {}
   local L = nsB.UI.pp.asks
   for i = 1, L.used do pt[#pt + 1] = L.pool[i]:GetText() end
@@ -2830,7 +2830,7 @@ do
   WT:RemoveLust("KingsRest", 3)
   ok(#WT:Lust("KingsRest") == 2, "lust removed")
   -- Dungeon tab: lust markers, role filter
-  UIw:Show("dungeons"); UIw.primerKey = "KingsRest"; UIw:Refresh(); RunTimers()
+  UIw:Show("dungeons"); UIw:SetPrimerPick("KingsRest"); UIw:Refresh(); RunTimers()
   local function dump(l) local t = {} for i = 1, l.used do t[#t + 1] = l.pool[i]:GetText() end return table.concat(t, "\n") end
   local tx = dump(UIw.pp.walk)
   ok(tx:find("BLOODLUST|r  first big packx", 1, true) and tx:find("BLOODLUST", 1, true) < tx:find("1. THE GOLDEN SERPENT", 1, true), "lust marker in the walkthrough")
@@ -3898,7 +3898,7 @@ do
   ns61.BossWindow:Hide()
   BC.state = { killed = {} }
   -- Dungeon tab: move and reset controls, only where the data allows.
-  ns61.UI:Show("dungeons"); ns61.UI.primerKey = "TheBlindingVale"; ns61.UI:Refresh(); RunTimers()
+  ns61.UI:Show("dungeons"); ns61.UI:SetPrimerPick("TheBlindingVale"); ns61.UI:Refresh(); RunTimers()
   local L = ns61.UI.pp.walk
   local tx = d61(L)
   ok(tx:find("1. IKUZZ THE LIGHT HUNTER", 1, true) and tx:find("Boss order: yours, Ikuzz the Light Hunter first.", 1, true),
@@ -3924,7 +3924,7 @@ do
   ok(reset ~= nil, "reset line shown with your own order")
   if reset then reset:Click(); RunTimers() end
   ok(ns61.db.bossOrder.TheBlindingVale == nil and not d61(L):find("Boss order: yours", 1, true), "reset to the guides' order")
-  ns61.UI.primerKey = "KingsRest"; ns61.UI:Refresh(); RunTimers()
+  ns61.UI:SetPrimerPick("KingsRest"); ns61.UI:Refresh(); RunTimers()
   ok(not d61(L):find("> Move ", 1, true), "fixed-order dungeon: no move lines")
   -- sharedTrash (no current dungeon has it): the group's trash becomes one section before it.
   DD61.BOSS_ORDER.KingsRest = { { 2, 3, sharedTrash = true } }
@@ -4115,32 +4115,75 @@ do
   end
 end
 
--- 64. Dungeon tab: "Open boss cards" opens the boss window on the dungeon the tab shows,
--- which starts as the auto-detected dungeon (key, listing or zone).
+-- 64. Dungeon tab: "Open boss cards" opens the boss window on the dungeon the tab shows. On
+-- Auto the tab follows detection (the dungeon you're in, else your listing, else your key); a
+-- hand pick holds until the detected dungeon changes, like the Composition picker.
 do
   EnsembleDB = nil
   ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" } }
+  OWNED_KEY, OWNED_LEVEL, LISTING, INSTANCE, ACTIVE_CHALLENGE = 249, 12, nil, nil, nil   -- Kings' Rest +12
   local ns64 = boot()
   local UI64, BW64 = ns64.UI, ns64.BossWindow
   ns64.BossCards.state = { killed = {} }   -- not inside a dungeon
-  ns64:SetManualDungeon("KingsRest")
+  local function note() return UI64.pp.note:GetText() or "" end
   UI64:Show("dungeons"); RunTimers()
   local btn = UI64.pp.bossBtn
   ok(btn and btn.text:GetText() == "Open boss cards" and btn.tooltip and btn.tooltip:find("this dungeon's cards", 1, true),
     "Dungeon tab has an Open boss cards button")
-  ok(UI64.primerKey == "KingsRest", "the tab starts on the detected dungeon")
+  ok(UI64.primerKey == "KingsRest" and note():find("Auto (your key +12)", 1, true), "Auto: the tab starts on your key: " .. note())
   btn:Click(); RunTimers()
   ok(BW64:IsShown() and BW64.title:GetText():find("The Golden Serpent", 1, true), "opens the detected dungeon's first boss card")
   BW64:Hide(true)
-  -- Pick another dungeon on the tab: the button follows it.
-  UI64.primerKey = "TempleOfSethraliss"; UI64:QueueRefresh(); RunTimers()
+  -- Detection changes while on Auto: a listing beats the key, the zone beats both.
+  LISTING = "Temple of Sethraliss (Mythic Keystone)"; UI64:QueueRefresh(); RunTimers()
+  ok(UI64.primerKey == "TempleOfSethraliss" and note():find("your listing", 1, true), "Auto follows a new listing")
+  INSTANCE = { "Ruby Life Pools", "party" }; UI64:QueueRefresh(); RunTimers()
+  ok(UI64.primerKey == "RubyLifePools" and note():find("you're in it", 1, true), "Auto follows the dungeon you're in")
+  btn:Click(); RunTimers()
+  ok(BW64:IsShown() and BW64.title:GetText():find("Melidrussa", 1, true), "the button opens the followed dungeon")
+  BW64:Hide(true)
+  INSTANCE, LISTING = nil, nil; UI64:QueueRefresh(); RunTimers()
+  ok(UI64.primerKey == "KingsRest", "leaving the dungeon and delisting: back to your key")
+  -- A hand pick holds while detection stays the same, and the button follows it.
+  UI64:SetPrimerPick("TempleOfSethraliss"); RunTimers()
+  ok(UI64.primerKey == "TempleOfSethraliss" and not note():find("Auto", 1, true), "hand pick shown (no Auto note)")
+  UI64:QueueRefresh(); RunTimers()
+  ok(UI64.primerKey == "TempleOfSethraliss", "the hand pick holds while detection is unchanged")
   btn:Click(); RunTimers()
   ok(BW64:IsShown() and BW64.title:GetText():find("Adderis and Aspix", 1, true), "opens the dungeon picked on the tab")
-  -- Pressing it again while open keeps the window open (it doesn't toggle).
   btn:Click(); RunTimers()
   ok(BW64:IsShown(), "a second click keeps the window open")
-  BW64:Hide(true); UI64:Hide()
-  ns64:SetManualDungeon("AUTO")
+  BW64:Hide(true)
+  -- Detection changes: the hand pick ends and the tab follows again.
+  OWNED_KEY, OWNED_LEVEL = 588, 10; UI64:QueueRefresh(); RunTimers()   -- a new key: Altar of Fangs
+  ok(UI64.primerPick == nil and UI64.primerKey == "AltarOfFangs", "a new key ends the hand pick")
+  -- The menu: Auto first (naming what it follows), then every dungeon.
+  local items
+  local oldShow = UI64.ShowMenu
+  UI64.ShowMenu = function(_, _, it) items = it end
+  UI64.pp.dungeonBtn:Click()
+  UI64.ShowMenu = oldShow
+  ok(items and items[1].text:find("Auto: Altar of Fangs", 1, true) and items[1].selected and #items == 1 + #ns64.Dungeons.order,
+    "menu: Auto (selected, names the detected dungeon) plus every dungeon")
+  items[3].onClick(); RunTimers()
+  ok(UI64.primerPick ~= nil and UI64.primerKey == UI64.primerPick, "picking from the menu sets a hand pick")
+  UI64.pp.dungeonBtn:Click()
+  -- (menu rebuilt; choose Auto again)
+  UI64:SetPrimerPick(nil); RunTimers()
+  ok(UI64.primerPick == nil and UI64.primerKey == "AltarOfFangs", "Auto goes back to detection")
+  -- Nothing detected: the last dungeon shown stays.
+  OWNED_KEY, OWNED_LEVEL = nil, nil; UI64:QueueRefresh(); RunTimers()
+  ok(UI64.primerKey == "AltarOfFangs", "nothing detected: the tab keeps the last dungeon")
+  -- A hand pick on Composition's planner counts, after the zone and listing.
+  ns64:SetManualDungeon("DenOfNalorakk", false); UI64:QueueRefresh(); RunTimers()
+  ok(UI64.primerKey == "DenOfNalorakk" and note():find("your Composition pick", 1, true), "Auto follows a Composition hand pick")
+  ns64:SetManualDungeon("AUTO", false)
+  -- "Auto dungeon" off in Settings: no detection, the tab keeps what it shows.
+  OWNED_KEY = 249; ns64.db.settings.liveAutoDungeon = false; UI64:QueueRefresh(); RunTimers()
+  ok(UI64.primerKey == "DenOfNalorakk" and UI64:PrimerDetected() == nil, "auto dungeon off: your key isn't followed, the tab keeps what it shows")
+  ns64.db.settings.liveAutoDungeon = true
+  OWNED_KEY, OWNED_LEVEL = nil, nil
+  UI64:Hide()
 end
 
 print(string.format("%d passed, %d failed", passes, fails))

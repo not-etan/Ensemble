@@ -3924,10 +3924,16 @@ function UI:BuildPrimerPage()
   bar:SetPoint("TOPLEFT", 12, -10); bar:SetPoint("TOPRIGHT", -12, -10); bar:SetHeight(30)
   local lbl = Text(bar, 12, C.muted); lbl:SetPoint("LEFT", 0, 0); lbl:SetText("Dungeon:")
   pp.dungeonBtn = Dropdown(bar, 280, 28, function(btn)
-    local items = {}
+    local det, why = UI:PrimerDetected()
+    local items = {
+      { text = det and ("Auto: " .. DD.list[det].name .. "  " .. HEX.muted .. "(" .. why .. ")|r")
+          or ("Auto  " .. HEX.muted .. "(the dungeon you're in, your listing or your keystone)|r"),
+        icon = det and UI:DungeonIcon(det) or nil, selected = UI.primerPick == nil,
+        onClick = function() UI:SetPrimerPick(nil) end },
+    }
     for _, key in ipairs(DD.order) do
-      table.insert(items, { text = DD.list[key].name, icon = UI:DungeonIcon(key), selected = UI.primerKey == key,
-        onClick = function() UI.primerKey = key; UI:QueueRefresh() end })
+      table.insert(items, { text = DD.list[key].name, icon = UI:DungeonIcon(key), selected = UI.primerPick == key,
+        onClick = function() UI:SetPrimerPick(key) end })
     end
     UI:ShowMenu(btn, items)
   end)
@@ -3964,10 +3970,48 @@ function UI:BuildPrimerPage()
   pp.value = LineList(right, 370, colH - 34):Fill(6, -28, -6, 6)
 end
 
+-- Which dungeon the Dungeon tab follows on Auto: the dungeon you're in, else your Group
+-- Finder listing, else the planner's dungeon (a hand pick on Composition, else your keystone).
+-- With "auto dungeon" off in Settings only a Composition hand pick counts. Its own check,
+-- because the roster tracker (which keeps the listing and zone for Composition) isn't running
+-- on this tab. Returns key, why (for the menu and the note).
+function UI:PrimerDetected()
+  local auto = ns.db.settings.liveAutoDungeon ~= false
+  if auto then
+    local key = ns:CurrentInstanceDungeon()
+    if key and DD.list[key] then return key, "you're in it" end
+    key = ns.Tracker and ns.Tracker.DetectListingDungeon and ns.Tracker:DetectListingDungeon()
+    if key and DD.list[key] then return key, "your listing" end
+  end
+  local key, src = ns:GetEffectiveDungeon(false)
+  if not (key and DD.list[key]) then return nil end
+  if src == "manual" then return key, "your Composition pick" end
+  local _, level = ns:OwnKeystoneDungeon()
+  return key, "your key" .. (level and (" +" .. level) or "")
+end
+
+-- A dungeon picked by hand on the Dungeon tab (nil = Auto). Like the Composition picker, a
+-- hand pick lasts until the detected dungeon changes (a new key, listing or zone).
+function UI:SetPrimerPick(key)
+  self.primerPick = key
+  self.primerPickDetected = key and (self:PrimerDetected()) or nil
+  self:QueueRefresh()
+end
+
+-- The dungeon the tab shows: the hand pick while it holds, else the detected one, else the
+-- last one shown (or the first Season dungeon).
+function UI:PrimerResolve()
+  local det, why = self:PrimerDetected()
+  if self.primerPick and det and det ~= self.primerPickDetected then self.primerPick, self.primerPickDetected = nil, nil end
+  local key = self.primerPick or det
+  if not (key and DD.list[key]) then key = (self.primerKey and DD.list[self.primerKey]) and self.primerKey or DD.order[1] end
+  self.primerKey = key
+  return key, (not self.primerPick) and det and why or nil
+end
+
 -- Open the boss window on the Dungeon tab's dungeon (first boss in your order).
 function UI:OpenPrimerBossCards()
-  local key = self.primerKey
-  if not (key and DD.list[key]) then key = ns:GetEffectiveDungeon(false) or DD.order[1] end
+  local key = self:PrimerResolve()
   if ns.BossWindow and key then ns.BossWindow:Open(key) end
 end
 
@@ -4152,17 +4196,14 @@ end
 
 function UI:RefreshPrimer()
   local pp = self.pp
-  if not self.primerKey or not DD.list[self.primerKey] then
-    self.primerKey = ns:GetEffectiveDungeon(false) or DD.order[1]
-  end
-  local key = self.primerKey
+  local key, autoWhy = self:PrimerResolve()
   pp.dungeonBtn.text:SetText(self:DungeonLabel(key))
   local level = ns.Affixes and ns.Affixes:KeyLevel(key)
   local prof = Analysis:DungeonProfile(key, ns.db.settings, level)
   local explainOn = ns.db.settings.explain ~= false
   local role = ns.db.settings.walkRole or "ALL"
   for k, b in pairs(pp.roleBtns) do b:SetActive(k == role) end
-  pp.note:SetText("In the guides' order. No group needed.")
+  pp.note:SetText(autoWhy and ("Auto (" .. autoWhy .. "). No group needed.") or "In the guides' order. No group needed.")
   pp.walkTitle:SetText("Walkthrough" .. (role ~= "ALL" and (": " .. (role == "HEAL" and "healer" or role:lower())) or ""))
 
   local L = pp.asks
@@ -4993,6 +5034,9 @@ ns:On("BOSS_ORDER_CHANGED", function() UI:QueueRefresh() end)
 ns:On("ASSIGNMENTS_CHANGED", function() UI:QueueRefresh() end)
 ns:On("HISTORY_CHANGED", function() UI:QueueRefresh() end)
 ns:On("DUNGEON_CHANGED", function() UI:QueueRefresh() end)
+-- Entering or leaving a Season dungeon changes what the Dungeon tab follows on Auto.
+ns:On("BOSS_DUNGEON_ENTERED", function() if UI.currentTab == "dungeons" then UI:QueueRefresh() end end)
+ns:On("BOSS_DUNGEON_LEFT", function() if UI.currentTab == "dungeons" then UI:QueueRefresh() end end)
 ns:On("LIVE_ROSTER_CHANGED", function()
   if ns.state.mode == "live" then UI:QueueRefresh() end
   UI:QueueFinderRefresh()
