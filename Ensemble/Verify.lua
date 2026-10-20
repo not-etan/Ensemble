@@ -155,7 +155,13 @@ local function CheckAPIs()
   if type(isSecret) == "function" then
     local _, cls = UnitClass("player")
     Add(isSecret(cls) and "WARN" or "OK", "UnitClass('player') " .. (isSecret(cls) and "is a secret value here" or "readable (not secret)"))
-    Note("Re-run inside a Mythic+ key with a party to check party units too.")
+    -- #13: the hint is only useful outside an instance (inside a key it's already that run).
+    local inInstance = false
+    if type(IsInInstance) == "function" then
+      local okI, inside = pcall(IsInInstance)
+      inInstance = okI and inside and true or false
+    end
+    if not inInstance then Note("Re-run inside a Mythic+ key with a party to check party units too.") end
     if IsInGroup and IsInGroup() and UnitExists("party1") then
       local _, pcls = UnitClass("party1")
       local role = UnitGroupRolesAssigned and UnitGroupRolesAssigned("party1")
@@ -628,6 +634,9 @@ local function CheckBosses()
   else
     Add(hasGame and "OK" or "WARN", hasGame and "C_EncounterJournal.GetInstanceForGameMap present (journal found for any dungeon, anywhere)"
       or "C_EncounterJournal.GetInstanceForGameMap missing: the journal is only found inside a dungeon (EJ_GetInstanceForMap fallback)")
+    local hasSelect = rawget(_G, "EJ_SelectInstance")
+    Add(hasSelect and "OK" or "WARN", hasSelect and "EJ_SelectInstance present (each journal read selects the dungeon first)"
+      or "EJ_SelectInstance missing: the journal may list no bosses or abilities (no ability links; boss kills matched by name)")
     -- Each Season dungeon's journal instance, and which call found it.
     local found, parts = 0, {}
     for _, key in ipairs(ns.Dungeons.order) do
@@ -656,12 +665,16 @@ local function CheckBosses()
         if n > 0 then linked = linked + 1 end
       end
     end
-    Add(fromJournal > 0 and "OK" or "INFO", string.format("%s: %d boss abilities from the journal; %d of %d card lines have ability links",
-      ns.Dungeons.list[linkDk].name, fromJournal, linked, lines))
+    local linkJid = BC:JournalInstance(linkDk)
+    -- #13: a found journal with no abilities is a failed read (WARN); no journal at all stays INFO.
+    Add(fromJournal > 0 and "OK" or (linkJid and "WARN" or "INFO"), string.format("%s: %d boss abilities from the journal%s; %d of %d card lines have ability links",
+      ns.Dungeons.list[linkDk].name, fromJournal,
+      (fromJournal == 0 and linkJid) and (" (journal " .. linkJid .. " found but read empty)") or "", linked, lines))
   end
   local dk = BC:CurrentDungeon()
   if dk then
     local ids = BC:EncounterIDs(dk)
+    local hereJid = BC:JournalInstance(dk)
     if ids then
       local unmatched = {}
       for name, n in pairs(ids.byName) do
@@ -670,6 +683,10 @@ local function CheckBosses()
       end
       Add(#unmatched == 0 and "OK" or "WARN", "journal bosses here: " .. Util_Count(ids.byName) .. ", cards: " .. #BD.list[dk]
         .. (#unmatched > 0 and (" (no card for: " .. table.concat(unmatched, ", ") .. ")") or ""))
+    elseif hereJid then
+      -- #13: the journal was found but listed no bosses (a failed read, not a pass).
+      Add("WARN", string.format("journal bosses here: 0, cards: %d (journal %d found but read empty: boss kills are matched by name only)",
+        #BD.list[dk], hereJid))
     end
     Add("INFO", string.format("inside %s: showing boss %d, killed %d", ns.Dungeons.list[dk].name, BC.state.index or 0,
       Util_Count(BC.state.killed or {})))
@@ -754,14 +771,7 @@ end
 -- instance map IDs and timers, each dungeon's bosses and their journal abilities with
 -- spell IDs, and this week's affixes; each marked as known to the addon or NEW.
 ---------------------------------------------------------------------------
-local function JournalBosses(instanceMapID)
-  local getEnc = rawget(_G, "EJ_GetEncounterInfoByIndex")
-  local CEJ = rawget(_G, "C_EncounterJournal")
-  local getSec = type(CEJ) == "table" and CEJ.GetSectionInfo
-  if not (instanceMapID and getEnc and ns.BossCards) then return nil end
-  local dk = ns.Dungeons.KeyForInstanceMap and ns.Dungeons:KeyForInstanceMap(instanceMapID) or nil
-  local jid = ns.BossCards:JournalInstance(dk, instanceMapID)
-  if not jid then return nil end
+local function JournalBossList(jid, getEnc, getSec)
   local bosses = {}
   for n = 1, 12 do
     local ok2, name, _, _, rootSection, _, _, encounterID = pcall(getEnc, n, jid)
@@ -788,6 +798,18 @@ local function JournalBosses(instanceMapID)
   return bosses
 end
 
+local function JournalBosses(instanceMapID)
+  local getEnc = rawget(_G, "EJ_GetEncounterInfoByIndex")
+  local CEJ = rawget(_G, "C_EncounterJournal")
+  local getSec = type(CEJ) == "table" and CEJ.GetSectionInfo
+  if not (instanceMapID and getEnc and ns.BossCards) then return nil end
+  local dk = ns.Dungeons.KeyForInstanceMap and ns.Dungeons:KeyForInstanceMap(instanceMapID) or nil
+  local jid = ns.BossCards:JournalInstance(dk, instanceMapID)
+  if not jid then return nil end
+  -- The journal must have this instance selected to answer (#12).
+  return ns.BossCards:WithJournalInstance(jid, function(j) return JournalBossList(j, getEnc, getSec) end), jid
+end
+
 function Verify:BuildSeason()
   local out = {}
   local function add(t) out[#out + 1] = t end
@@ -812,8 +834,11 @@ function Verify:BuildSeason()
       add(string.format("%d | %s | instance %s | timer %s | %s", mapID, tostring(okI and name or "?"), tostring(okI and instanceMapID or "?"),
         (okI and type(timeLimit) == "number") and string.format("%d:%02d", math.floor(timeLimit / 60), timeLimit % 60) or "?",
         key and ("addon: " .. key) or "NEW"))
-      local bosses = okI and JournalBosses(instanceMapID)
-      if bosses then
+      local bosses, jid
+      if okI then bosses, jid = JournalBosses(instanceMapID) end
+      if bosses and #bosses == 0 then
+        add(string.format("  (journal %s found but lists no bosses: the journal didn't answer, re-run later)", tostring(jid)))
+      elseif bosses then
         local cards = key and BD and BD.list[key] or {}
         for i, b in ipairs(bosses) do
           local card = cards[i]

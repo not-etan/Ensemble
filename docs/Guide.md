@@ -163,7 +163,7 @@ Every boss in the 8 Season 2 dungeons (28 in all) has a short card: lines for ev
 - **Editing:** Edit (in the window or the Dungeon tab) opens a box with one `ROLE: text` line per note. Your version is saved per boss and kept through updates; if the built-in card changes later, the card says "default updated". Reset to default any time.
 - **Chat:** Post sends the card as one line per role (ALL first, with the boss name), a moment apart; a role whose notes don't fit one chat message goes on to a second line for that role instead of being cut. Your personal assignments aren't posted (Post assignments covers everyone's). When the game is blocking addon chat, which can happen inside keys, the text opens in a copy window instead; posting before the key starts avoids that.
 - **Dungeon tab:** every card sits in the walkthrough where you meet that boss, with Edit card, Post to chat and Open in the boss window.
-- **Checking it:** `/ens verify` checks the boss window's events and the encounter journal (each dungeon's journal entry and how it was found), and lists any unconfirmed boss lines.
+- **Checking it:** `/ens verify` checks the boss window's events and the encounter journal (each dungeon's journal entry and how it was found, and a warning when an entry is found but lists no bosses or abilities), and lists any unconfirmed boss lines.
 
 ## Checking the addon against your game client
 

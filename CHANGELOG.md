@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.2
+- **Boss ability links work again:** the game's dungeon journal only answers for the dungeon it has selected, so the boss cards got no abilities from it, and boss kills were matched by name alone. Ensemble now selects the dungeon before reading (and puts the journal back on the dungeon you had open, if its window is showing), and an empty read is tried again later instead of being kept for the whole session.
+- **`/ens verify`:** a journal entry that's found but lists no bosses or no abilities is now a warning instead of a pass, and the report checks for the journal function the fix relies on. The "Re-run inside a Mythic+ key with a party" hint only shows when you're outside an instance.
+- **`/ens verify season`** lists each dungeon's bosses and abilities again (same journal fix), and says so when a journal entry is found but lists no bosses.
+
 ## 1.3.1
 - **Window title:** "A Mythic+ Companion" under the Ensemble name now shows in your accent color (blue by default, or the color you picked in Settings > Appearance, including your class color) instead of gray, and changes with it.
 

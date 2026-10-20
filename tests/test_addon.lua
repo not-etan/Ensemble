@@ -4192,5 +4192,123 @@ do
   UI64:Hide()
 end
 
+-- 65. Issues #12 and #13: the journal answers only for the selected instance; verify WARNs on
+-- an empty read; the party re-run note only outside an instance.
+do
+  -- Like the client (October 18, build 70448): encounter reads return nothing until
+  -- EJ_SelectInstance(jid) has selected that journal instance.
+  local selected, selects = 0, {}
+  local function installJournal()
+    EJ_GetCurrentInstance = function() return selected end
+    EJ_SelectInstance = function(j) selects[#selects + 1] = j; selected = j end
+  end
+  EJ_GetEncounterInfoByIndex = function(n, jid)
+    if jid ~= 1322 or selected ~= 1322 then return nil end
+    local bosses = { { "Rav'i", 10 }, { "The Writhing Coil", 20 }, { "Zul'jan", 30 } }
+    local b = bosses[n]; if not b then return nil end
+    return b[1], "", 9000 + n, b[2], nil, nil, 3300 + n
+  end
+  local SECTIONS = { [10] = { title = "Hydrastrike", spellID = 1111 }, [20] = { title = "Death Rattle", spellID = 3333 } }
+  C_EncounterJournal = { GetSectionInfo = function(id) return SECTIONS[id] end,
+    GetInstanceForGameMap = function(map) return map == 2993 and 1322 or 0 end }
+  EJ_SelectInstance, EJ_GetCurrentInstance, EncounterJournal = nil, nil, nil
+  EnsembleDB = nil
+  local ns65 = boot()
+  local BC65 = ns65.BossCards
+  -- No EJ_SelectInstance (an older or changed client): reads are empty and not cached.
+  ok(next(BC65:JournalSpells("AltarOfFangs")) == nil, "#12: without a selection the journal reads no abilities")
+  ok(BC65:EncounterIDs("AltarOfFangs") == nil, "#12: without a selection no encounter IDs (names stay the fallback)")
+  -- The select call appears: the next read works, so the empty read wasn't cached.
+  installJournal()
+  local js = BC65:JournalSpells("AltarOfFangs")
+  ok(js.Hydrastrike and js.Hydrastrike.id == 1111 and js["Death Rattle"], "#12: abilities read after selecting the instance")
+  ok(selects[1] == 1322, "#12: EJ_SelectInstance called with the dungeon's journal ID")
+  local ids = BC65:EncounterIDs("AltarOfFangs")
+  ok(ids and ids.byName.ravi == 1 and ids.byID[3303] == 3, "#12: encounter IDs read after selecting the instance")
+  ok(BC65:IndexForEncounter("AltarOfFangs", 3302, "Unknown") == 2, "#12: a boss kill matches by journal ID")
+  -- Cached once read: no further selects.
+  local n0 = #selects
+  BC65:JournalSpells("AltarOfFangs"); BC65:EncounterIDs("AltarOfFangs")
+  ok(#selects == n0, "#12: a successful read is cached")
+  -- Journal window open on another dungeon: its selection is put back after our read.
+  EnsembleDB = nil
+  local ns65b = boot()
+  EncounterJournal = { IsShown = function() return true end }
+  selected, selects = 1311, {}
+  ok(ns65b.BossCards:JournalSpells("AltarOfFangs").Hydrastrike ~= nil, "#12: read works with the journal open")
+  ok(selects[1] == 1322 and selects[2] == 1311 and selected == 1311, "#12: the open journal's selection is restored")
+  -- Journal window hidden: no restore (the window selects its own instance when opened).
+  EncounterJournal = { IsShown = function() return false end }
+  selected, selects = 1311, {}
+  ns65b.BossCards:EncounterIDs("AltarOfFangs")
+  ok(#selects == 1 and selected == 1322, "#12: hidden journal: selection not restored")
+  -- Already selected: no select call; a failing select is contained.
+  EnsembleDB = nil
+  local ns65c = boot()
+  selected, selects = 1322, {}
+  ok(ns65c.BossCards:JournalSpells("AltarOfFangs").Hydrastrike ~= nil and #selects == 0, "#12: no select when already on that instance")
+  EnsembleDB = nil
+  local ns65d = boot()
+  selected = 0
+  EJ_SelectInstance = function() error("client error") end
+  ok(next(ns65d.BossCards:JournalSpells("AltarOfFangs")) == nil and ns65d.BossCards:EncounterIDs("AltarOfFangs") == nil,
+    "#12: a failing select is contained and reads empty")
+  local okW = pcall(function() return ns65d.BossCards:WithJournalInstance(1322, function() error("read failed") end) end)
+  ok(okW, "#12: an error inside a read is contained")
+
+  -- #13: /ens verify. The dungeon here is Altar of Fangs; its journal is found.
+  local BCv = ns65d.BossCards
+  local realCur = BCv.CurrentDungeon
+  BCv.CurrentDungeon = function() return "AltarOfFangs" end
+  EJ_SelectInstance = nil
+  local vtx = ns65d.Verify:Build()
+  ok(vtx:find("[WARN] EJ_SelectInstance missing", 1, true), "#13: missing EJ_SelectInstance is a WARN")
+  ok(vtx:find("[WARN] Altar of Fangs: 0 boss abilities from the journal (journal 1322 found but read empty)", 1, true),
+    "#13: a found journal with no abilities is a WARN")
+  ok(vtx:find("[WARN] journal bosses here: 0, cards: ", 1, true) and vtx:find("journal 1322 found but read empty", 1, true),
+    "#13: a found journal with no bosses is a WARN")
+  installJournal(); selected = 0
+  vtx = ns65d.Verify:Build()
+  ok(vtx:find("[OK] EJ_SelectInstance present", 1, true), "#13: EJ_SelectInstance present is OK")
+  ok(vtx:find("[OK] Altar of Fangs: 2 boss abilities from the journal", 1, true), "#13: abilities read: OK")
+  ok(vtx:find("[OK] journal bosses here: 3, cards: ", 1, true), "#13: bosses read: OK")
+  -- No journal at all for the dungeon stays INFO.
+  C_EncounterJournal.GetInstanceForGameMap = function() return 0 end
+  EnsembleDB = nil
+  local ns65e = boot()
+  ns65e.BossCards.CurrentDungeon = function() return "AltarOfFangs" end
+  vtx = ns65e.Verify:Build()
+  ok(vtx:find("[INFO] Altar of Fangs: 0 boss abilities from the journal;", 1, true) and not vtx:find("journal bosses here", 1, true),
+    "#13: no journal found stays INFO")
+  C_EncounterJournal.GetInstanceForGameMap = function(map) return map == 2993 and 1322 or 0 end
+  BCv.CurrentDungeon = realCur
+
+  -- #13: the party re-run note only outside an instance.
+  issecretvalue = function() return false end
+  IsInInstance = function() return false end
+  ok(ns65d.Verify:Build():find("Re-run inside a Mythic+ key with a party", 1, true), "#13: re-run note outside an instance")
+  IsInInstance = function() return true, "party" end
+  ok(not ns65d.Verify:Build():find("Re-run inside a Mythic+ key", 1, true), "#13: no re-run note inside an instance")
+  IsInInstance = function() error("client error") end
+  ok(ns65d.Verify:Build():find("Re-run inside a Mythic+ key", 1, true), "#13: a failing IsInInstance keeps the note")
+  issecretvalue, IsInInstance = nil, nil
+
+  -- /ens verify season: bosses listed after selecting; an empty read is named, not silent.
+  local stubInstance = DUNGEON_MAPS[588][3]
+  DUNGEON_MAPS[588][3] = 2993
+  EnsembleDB = nil
+  local ns65f = boot()
+  selected = 0
+  local season = ns65f.Verify:BuildSeason()
+  ok(season:find("boss 1: Rav'i", 1, true) and season:find("Hydrastrike=1111", 1, true), "#12: season dump reads bosses after selecting")
+  EJ_SelectInstance = nil; selected = 0
+  season = ns65f.Verify:BuildSeason()
+  ok(season:find("(journal 1322 found but lists no bosses", 1, true) and not season:find("boss 1: Rav'i", 1, true),
+    "#12: season dump names a found but empty journal")
+  DUNGEON_MAPS[588][3] = stubInstance
+  EJ_GetInstanceForMap, EJ_GetEncounterInfoByIndex, C_EncounterJournal, C_Map = nil, nil, nil, nil
+  EJ_SelectInstance, EJ_GetCurrentInstance, EncounterJournal = nil, nil, nil
+end
+
 print(string.format("%d passed, %d failed", passes, fails))
 return fails

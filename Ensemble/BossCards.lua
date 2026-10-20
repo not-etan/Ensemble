@@ -287,67 +287,99 @@ function BC:JournalInstance(dk, instanceMapID)
   return nil
 end
 
+-- Issue #12: the journal answers encounter reads only for the instance it has selected
+-- (confirmed in game October 18, build 70448: EJ_GetEncounterInfoByIndex(1, 1311) returned
+-- nothing until EJ_SelectInstance(1311); loading Blizzard_EncounterJournal isn't needed).
+-- Runs read(jid) with jid selected and returns its one result. If the journal window is
+-- open on another instance, that selection is put back afterward so the window doesn't
+-- change under the player. EJ_SelectInstance isn't protected; every call is guarded.
+local function JournalWindowShown()
+  local ej = rawget(_G, "EncounterJournal")
+  if type(ej) ~= "table" or type(ej.IsShown) ~= "function" then return false end
+  local ok, shown = pcall(ej.IsShown, ej)
+  return ok and shown and true or false
+end
+
+function BC:WithJournalInstance(jid, read)
+  local selectFn = rawget(_G, "EJ_SelectInstance")
+  local getCur = rawget(_G, "EJ_GetCurrentInstance")
+  local prev
+  if getCur then
+    local ok, cur = pcall(getCur)
+    if ok and type(cur) == "number" then prev = cur end
+  end
+  local selected = false
+  if selectFn and prev ~= jid then selected = pcall(selectFn, jid) end
+  local ok, result = pcall(read, jid)
+  if selected and prev and prev > 0 and JournalWindowShown() then pcall(selectFn, prev) end
+  if ok then return result end
+  return nil
+end
+
 -- Encounter-journal IDs for each boss, by position (best effort; names are the fallback).
+-- Only a read that found bosses is cached: an empty one is tried again next time (#12).
 local ejCache = {}
 function BC:EncounterIDs(dk)
-  if ejCache[dk] ~= nil then return ejCache[dk] or nil end
-  local ids = false
+  if ejCache[dk] then return ejCache[dk] end
   local getEnc = rawget(_G, "EJ_GetEncounterInfoByIndex")
-  if getEnc then
-    local jid = self:JournalInstance(dk)
-    if jid then
-      ids = { byID = {}, byName = {} }
-      for n = 1, 12 do
-        local ok2, name, _, _, _, _, _, dungeonEncounterID = pcall(getEnc, n, jid)
-        if not ok2 or not name then break end
-        ids.byName[norm(name)] = n
-        if dungeonEncounterID then ids.byID[dungeonEncounterID] = n end
-      end
+  if not getEnc then return nil end
+  local jid = self:JournalInstance(dk)
+  if not jid then return nil end
+  local ids = self:WithJournalInstance(jid, function(j)
+    local out, count = { byID = {}, byName = {} }, 0
+    for n = 1, 12 do
+      local ok2, name, _, _, _, _, _, dungeonEncounterID = pcall(getEnc, n, j)
+      if not ok2 or not name then break end
+      count = count + 1
+      out.byName[norm(name)] = n
+      if dungeonEncounterID then out.byID[dungeonEncounterID] = n end
     end
-  end
-  if ids then ejCache[dk] = ids end   -- the journal may not be loaded yet: look again next time
-  return ids or nil
+    return count > 0 and out or nil
+  end)
+  if ids then ejCache[dk] = ids end
+  return ids
 end
 
 -- Boss ability names -> spell IDs from the game's encounter journal, for this dungeon's
 -- bosses (every ability section with a spell). Used to turn ability names on the cards
--- into links with icons and real tooltips. Cached per dungeon; empty if the journal
--- isn't available. Names are the client's, so on non-English clients few will match.
+-- into links with icons and real tooltips. Cached per dungeon once the journal gives at
+-- least one ability; an empty read isn't cached (#12), so it's tried again on the next draw.
+-- Names are the client's, so on non-English clients few will match.
 local spellCache = {}
 local NO_SPELLS = {}   -- shared "nothing found" table, so link-name lists built for it are reused
 function BC:JournalSpells(dk)
   if spellCache[dk] then return spellCache[dk] end
-  local out, found = {}, false
   local getEnc = rawget(_G, "EJ_GetEncounterInfoByIndex")
   local CEJ = rawget(_G, "C_EncounterJournal")
   local getSec = type(CEJ) == "table" and CEJ.GetSectionInfo
-  if getEnc and getSec then
-    local jid = self:JournalInstance(dk)
-    if jid then
-      found = true
-      for n = 1, 12 do
-        local ok2, name, _, _, rootSection = pcall(getEnc, n, jid)
-        if not ok2 or not name then break end
-        local stack, steps = { rootSection }, 0
-        while #stack > 0 and steps < 400 do
-          steps = steps + 1
-          local id = table.remove(stack)
-          if id and id > 0 then
-            local ok3, info = pcall(getSec, id)
-            if ok3 and type(info) == "table" then
-              local title, spell = info.title, info.spellID
-              if type(title) == "string" and title ~= "" and type(spell) == "number" and spell > 0 and not out[title] then
-                out[title] = { id = spell, side = "e", type = "boss" }
-              end
-              if info.siblingSectionID then stack[#stack + 1] = info.siblingSectionID end
-              if info.firstChildSectionID then stack[#stack + 1] = info.firstChildSectionID end
+  if not (getEnc and getSec) then return NO_SPELLS end
+  local jid = self:JournalInstance(dk)
+  if not jid then return NO_SPELLS end
+  local out = self:WithJournalInstance(jid, function(j)
+    local found = {}
+    for n = 1, 12 do
+      local ok2, name, _, _, rootSection = pcall(getEnc, n, j)
+      if not ok2 or not name then break end
+      local stack, steps = { rootSection }, 0
+      while #stack > 0 and steps < 400 do
+        steps = steps + 1
+        local id = table.remove(stack)
+        if id and id > 0 then
+          local ok3, info = pcall(getSec, id)
+          if ok3 and type(info) == "table" then
+            local title, spell = info.title, info.spellID
+            if type(title) == "string" and title ~= "" and type(spell) == "number" and spell > 0 and not found[title] then
+              found[title] = { id = spell, side = "e", type = "boss" }
             end
+            if info.siblingSectionID then stack[#stack + 1] = info.siblingSectionID end
+            if info.firstChildSectionID then stack[#stack + 1] = info.firstChildSectionID end
           end
         end
       end
     end
-  end
-  if not found then return NO_SPELLS end   -- journal not ready: try again on the next draw
+    return found
+  end)
+  if not (out and next(out)) then return NO_SPELLS end   -- nothing read yet: try again on the next draw
   spellCache[dk] = out
   return out
 end
