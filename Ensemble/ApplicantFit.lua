@@ -403,7 +403,10 @@ local function BringsLines(profile, settings)
           or e.conditional and (" (" .. e.conditional .. ")") or e.verify and " (unconfirmed)" or ""
         names[#names + 1] = ns.Links:Ability(e.name, key) .. tag
       end
-      lines[#lines + 1] = { cap = key, text = UD:CapLabel(key) .. ": " .. table.concat(names, ", ") }
+      -- An ability named like its need ("Bloodlust / Heroism") isn't preceded by the same words.
+      local label = UD:CapLabel(key)
+      local text = (#src == 1 and src[1].name == label) and names[1] or (label .. ": " .. table.concat(names, ", "))
+      lines[#lines + 1] = { cap = key, text = text }
     end
   end
   return lines

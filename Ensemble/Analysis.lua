@@ -723,7 +723,7 @@ function Analysis:SuggestClassesUncached(slotMembers, slotRoles, dungeonKey, set
         if gain > 0 then
           -- Reasons: dungeon requirements closed, then generic gaps, then synergy.
           local after = GapKeys(r)
-          local dFix, gFix, dLabels = {}, {}, {}
+          local dFix, gFix, dLabels, dGroup = {}, {}, {}, {}
           for k, item in pairs(baseGaps) do
             if not after[k] then
               if item.aggregate then
@@ -732,9 +732,21 @@ function Analysis:SuggestClassesUncached(slotMembers, slotRoles, dungeonKey, set
               elseif item.req then
                 local label = UD:CapLabel(item.req.need)
                 dLabels[label] = true
-                dFix[#dFix + 1] = { sev = SEV_RANK[item.req.severity] or 9,
-                  text = (item.status == "missing" and "covers " or "backs up ") .. label .. " for "
-                    .. Decorate(((item.req.source or ""):match("^([^,(]+)") or ""):gsub("%s+$", ""), item.req.need, item.req.dungeon) }
+                local verb = item.status == "missing" and "covers " or "backs up "
+                local src = Decorate(((item.req.source or ""):match("^([^,(]+)") or ""):gsub("%s+$", ""), item.req.need, item.req.dungeon)
+                -- One reason per need and verb, every cast listed ("covers Interrupt for A, B"),
+                -- rather than the same words once per cast.
+                local mk = verb .. label
+                local same = dGroup[mk]
+                if same then
+                  same.srcs[#same.srcs + 1] = { sev = SEV_RANK[item.req.severity] or 9, src = src }
+                  same.sev = math.min(same.sev, SEV_RANK[item.req.severity] or 9)
+                else
+                  same = { sev = SEV_RANK[item.req.severity] or 9, head = verb .. label .. " for ",
+                    srcs = { { sev = SEV_RANK[item.req.severity] or 9, src = src } } }
+                  dGroup[mk] = same
+                  dFix[#dFix + 1] = same
+                end
               else
                 local short = item.short or ""
                 local what = short:match("^no (.+)$")
@@ -746,6 +758,14 @@ function Analysis:SuggestClassesUncached(slotMembers, slotRoles, dungeonKey, set
           -- Drop generic lines the dungeon lines already say ("adds Poison dispel").
           for i = #gFix, 1, -1 do
             if gFix[i].label and dLabels[gFix[i].label] then table.remove(gFix, i) end
+          end
+          for _, f in ipairs(dFix) do
+            if f.srcs then
+              table.sort(f.srcs, function(a, b) if a.sev ~= b.sev then return a.sev < b.sev end return a.src < b.src end)
+              local names = {}
+              for i, x in ipairs(f.srcs) do names[i] = x.src end
+              f.text = f.head .. table.concat(names, ", ")
+            end
           end
           table.sort(dFix, function(a, b) if a.sev ~= b.sev then return a.sev < b.sev end return a.text < b.text end)
           table.sort(gFix, function(a, b) if a.sev ~= b.sev then return a.sev < b.sev end return a.text < b.text end)

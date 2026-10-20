@@ -10,7 +10,10 @@ local UI = ns.UI
 local BW = {}
 ns.BossWindow = BW
 
-local MIN_W, MIN_H, MAX_W, MAX_H = 240, 120, 760, 640
+-- 250 wide at least: the footer's left group (role button up to 92 + A- A+) and right group
+-- (Edit, Post, the grip) keep a gap at the smallest size (240 let Edit overlap A+ by 4px).
+local MIN_W, MIN_H, MAX_W, MAX_H = 250, 120, 760, 640
+BW.MIN_W, BW.MIN_H = MIN_W, MIN_H
 BW.FONT_MIN, BW.FONT_MAX = 9, 20
 
 local ROLE_TAG = {

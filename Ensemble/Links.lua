@@ -285,7 +285,7 @@ local function OnEnter(frame, link)
     GameTooltip:AddLine("Ensemble: " .. (side == "e" and t.enemy or t.ally), t.color[1], t.color[2], t.color[3])
   end
   if not shown and side ~= "i" then
-    GameTooltip:AddLine("Spell ID not on file yet - add it in DungeonData.lua / UtilityDatabase.lua.", 0.6, 0.6, 0.6, true)
+    GameTooltip:AddLine("No game tooltip for this ability: its spell isn't known to the addon yet.", 0.6, 0.6, 0.6, true)
   end
   GameTooltip:Show()
 end

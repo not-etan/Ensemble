@@ -802,8 +802,10 @@ do
   local ap = at:find("All gaps", 1, true)
   ok(ap and at:find("- |r", 1, true) and UIn:IsOpen("risks", UIn.readyMode == "all"), "expand all opens All gaps")
   local listed = 0
-  for _, row in ipairs(ready.risks) do if at:find(UIn.RiskText(row), ap, true) then listed = listed + 1 end end
+  for _, row in ipairs(ready.risks) do if at:find(UIn.RiskText(row, true), ap, true) then listed = listed + 1 end end
   ok(listed == #ready.risks, "every problem listed after Expand all")
+  -- R3: the status tag isn't repeated in words ("THIN  thin ...", "MISSING  no ...").
+  ok(not at:find("THIN|r  thin ", 1, true) and not at:find("MISSING|r  no ", 1, true), "All gaps: status said once")
   -- Folding it by hand after Expand all sticks; Expand all again reopens it
   UIn:SetOpen("risks", false); RunTimers()
   ok(not UIn:IsOpen("risks", true), "All gaps can be folded by hand")
@@ -4308,6 +4310,120 @@ do
   DUNGEON_MAPS[588][3] = stubInstance
   EJ_GetInstanceForMap, EJ_GetEncounterInfoByIndex, C_EncounterJournal, C_Map = nil, nil, nil, nil
   EJ_SelectInstance, EJ_GetCurrentInstance, EncounterJournal = nil, nil, nil
+end
+
+-- 66. Review fixes before 1.3.2 (R1-R11, October 19)
+do
+  local function dump(l) local t = {} for i = 1, l.used do t[#t + 1] = l.pool[i]:GetText() end return table.concat(t, "\n") end
+  EnsembleDB = nil
+  local ns66 = boot()
+  local UI66, V66 = ns66.UI, ns66.Verify
+  -- R1: no player name in /ens verify.
+  local NF = V66.IsNameField
+  ok(NF("name") and NF("leaderName") and NF("fullName") and not NF("specName") and not NF("className")
+    and not NF("classFilename") and not NF("activityName"), "R1: name fields recognized, spec and class names kept")
+  ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" },
+             party1 = { guid = "A", name = "Ann", class = "SHAMAN", role = "HEALER" } }
+  INSPECT_CACHE.A = 264
+  LISTING = "Temple of Sethraliss (Mythic Keystone)"
+  APPLICANTS = { [7] = { { name = "Secretname-Realm", class = "SHAMAN", role = "DAMAGER", spec = 262, score = 2900 } },
+                 [8] = { { name = "Other-Realm", class = "MAGE", role = "DAMAGER", spec = 63, score = 2500 } } }
+  UI66:Show("composition"); RunTimers(); RunTimers()
+  local vt = V66:Build()
+  ok(vt:find("first applicant returns: <name> | SHAMAN", 1, true) and not vt:find("Secretname", 1, true),
+    "R1: verify shows the applicant's data without their name")
+  -- R2: previewing an applicant leaves the real group as the last group checked.
+  ns66.db.settings.compMode = "auto"; ns66.db.settings.compApplicants = "panel"
+  UI66:SetTab("composition"); RunTimers()
+  local real = #(UI66.cp.lastMembers or {})
+  UI66.cp.preview = 7; UI66:Refresh(); RunTimers()
+  ok(UI66.previewWas ~= nil and #UI66.cp.lastMembers == real and UI66.cp.lastAnalysis.filled == real,
+    "R2: lastMembers / lastAnalysis stay the real group during a preview (" .. real .. ")")
+  local okR, rep = pcall(ns66.Report.Build, ns66.Report)
+  ok(okR and not tostring(rep):find("Elemental Shaman", 1, true), "R2: /ens report's group doesn't include the previewed applicant")
+  UI66.cp.preview = nil
+  -- R5: the NONE tag doesn't double the fold marker.
+  ok(UI66.READY_TAG.none == "|cff9499a8NONE|r", "R5: NONE tag without a dash")
+  ns66.db.settings.compMode = "planner"
+  for s, id in ipairs({ 73, 0, 0, 0, 0 }) do ns66.db.currentComp[s] = id end
+  ns66:SetManualDungeon("AltarOfFangs"); UI66:SetTab("composition"); RunTimers()
+  UI66:ExpandAll(); RunTimers()
+  local an = dump(UI66.cp.ready)
+  ok(an:find("NONE|r", 1, true) and not an:find("- |r|cff9499a8-  NONE", 1, true) and not an:find("+ |cff9499a8-  NONE", 1, true),
+    "R5: no \"- -  NONE\" or \"+ -  NONE\" rows")
+  -- R4: one reason per need: "covers Interrupt for A, B", never the same words twice.
+  local groups = ns66.Analysis:SuggestClasses({ [1] = { specID = 73 } }, ns66.SLOT_ROLES, "MurderRow", ns66.db.settings, 4)
+  local checked, repeated, merged = 0, 0, 0
+  for _, g in ipairs(groups) do for _, c in ipairs(g.classes) do
+    local heads = {}
+    for _, reason in ipairs(c.reasons) do
+      checked = checked + 1
+      local head = reason:match("^(covers [^|]- for )") or reason:match("^(backs up [^|]- for )")
+      if head then
+        if heads[head] then repeated = repeated + 1 end
+        heads[head] = true
+        if reason:find(", |H", 1, true) then merged = merged + 1 end
+      end
+      local _, n = reason:gsub("covers Interrupt for", "")
+      if n > 1 then repeated = repeated + 1 end
+    end
+  end end
+  ok(checked > 0 and repeated == 0 and merged > 0, string.format("R4: reasons merged by need (%d reasons, %d merged, %d repeats)", checked, merged, repeated))
+  -- R4: merging drops nothing: every cast a single-cast reason named is still named.
+  local function casts(list)
+    local n = 0
+    for _, reason in ipairs(list) do local _, k = reason:gsub("|Haddon:Ensemble:", ""); n = n + k end
+    return n
+  end
+  local anyClass = groups[1] and groups[1].classes[1]
+  ok(anyClass and casts(anyClass.reasons) > 0, "R4: merged reasons keep their cast links")
+  -- R6: an ability named like its need isn't preceded by the same words.
+  local _, evals = ns66.ApplicantFit:ForLiveGroup()
+  local slotR = ns66.Analysis:Analyze({ { specID = 262 }, { specID = 73 } }, "KingsRest", ns66.db.settings)
+  local _, tip = UI66:SlotBadges(slotR, 1)
+  ok(tip:find("Bloodlust / Heroism", 1, true) and not tip:find("Bloodlust / Heroism: Bloodlust", 1, true), "R6: slot tooltip says Bloodlust once")
+  ns66.db.settings.compMode = "auto"; UI66:SetTab("applicants"); RunTimers()
+  UI66.ap.selected = 7; UI66:Refresh(); RunTimers()
+  local det = dump(UI66.ap.detail)
+  ok(det:find("Bloodlust / Heroism", 1, true) and not det:find("Bloodlust / Heroism: |H", 1, true), "R6: applicant brings Bloodlust once")
+  -- R7: "GOOD FIT   51 / 100", not "fit 51 / 100".
+  ok(det:find(" / 100", 1, true) and not det:find("   fit %d+ / 100"), "R7: fit line says FIT once")
+  -- R8: the link tooltip for an unknown spell has no developer instructions.
+  local lines = {}
+  local oldAdd, oldSet = GameTooltip.AddLine, GameTooltip.SetText
+  GameTooltip.AddLine = function(_, t) lines[#lines + 1] = t end
+  GameTooltip.SetText = function(_, t) lines[#lines + 1] = t end
+  local content = UI66.ap.detail.content
+  content._scripts.OnHyperlinkEnter(content, "addon:Ensemble:a:0:utility:Mystery Spell")
+  GameTooltip.AddLine, GameTooltip.SetText = oldAdd, oldSet
+  local tipText = table.concat(lines, "\n")
+  ok(tipText:find("Mystery Spell", 1, true) and not tipText:find(".lua", 1, true), "R8: no file names in the link tooltip")
+  -- R9: tour text.
+  local steps = ns66.Tour.STEPS
+  ok(steps[2].text:find("the dungeon you're in", 1, true) and steps[5].text:find("may block addon chat", 1, true)
+    and steps[5].text:find("copy window", 1, true), "R9: tour says Auto's sources and that chat may be blocked")
+  -- R10: the Blizzard Options panel names every settings section.
+  Settings = { RegisterCanvasLayoutCategory = function() return {} end, RegisterAddOnCategory = function() end }
+  UI66.blizzCategory = nil
+  UI66:RegisterBlizzardOptions()
+  local body
+  for _, fr in ipairs(ALLFRAMES) do if type(fr._text) == "string" and fr._text:find("Every setting is in", 1, true) then body = fr._text end end
+  local allNamed = body ~= nil
+  for _, sec in ipairs(UI66.SETTINGS_SECTIONS) do if not (body and body:find(sec.label, 1, true)) then allNamed = false end end
+  ok(allNamed, "R10: Options panel lists every settings section")
+  Settings = nil
+  -- R11: boss window footer: a gap between the left and right buttons at the smallest width.
+  local BW = ns66.BossWindow
+  ns66.db.settings.bossWindow.showAll = false
+  BW.view = { dk = "KingsRest" }; BW:Show(); RunTimers()
+  local function w(b) return rawget(b, "_w") end
+  local leftEnd = 4 + w(BW.roleBtn) + 2 + w(BW.smaller) + w(BW.bigger)
+  local rightStart = (BW.MIN_W - 2) - 18 - w(BW.post) - 2 - w(BW.edit)
+  ok(w(BW.roleBtn) == 92 and rightStart - leftEnd >= 4, string.format("R11: footer gap at the minimum width (%d px)", rightStart - leftEnd))
+  BW:Hide(true)
+  UI66:Hide()
+  ROSTER, LISTING = {}, nil
+  APPLICANTS = { [7] = { { name = "Applicant-Realm", class = "SHAMAN", role = "HEALER", spec = 264, score = 2900 } } }
 end
 
 print(string.format("%d passed, %d failed", passes, fails))

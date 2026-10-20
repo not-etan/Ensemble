@@ -8,6 +8,14 @@ local _, ns = ...
 local Verify = {}
 ns.Verify = Verify
 
+-- A table field that may hold a player's name (search-result member info): verify output is
+-- pasted in public, so its value is never printed. Spec and class names are kept.
+function Verify.IsNameField(k)
+  local l = tostring(k):lower()
+  return l:find("name", 1, true) ~= nil and not (l:find("spec", 1, true) or l:find("class", 1, true)
+    or l:find("activity", 1, true) or l:find("map", 1, true) or l:find("zone", 1, true))
+end
+
 local lines, counts
 local function Util_Count(t) local n = 0 for _ in pairs(t) do n = n + 1 end return n end
 
@@ -394,8 +402,9 @@ local function CheckGroupFinder()
         local spec = res[17]
         if type(spec) == "number" and spec > 0 then withSpec = withSpec + 1 end
         if total == 1 then
-          local shown = {}
-          for i = 2, #res do shown[#shown + 1] = tostring(res[i]) end
+          -- The first return is the applicant's name: never in a report people paste in public.
+          local shown = { "<name>" }
+          for i = 3, #res do shown[#shown + 1] = tostring(res[i]) end
           Note("first applicant returns: " .. table.concat(shown, " | "))
         end
       end
@@ -507,7 +516,7 @@ local function CheckSearch()
       local okP, info = pcall(C_LFGList.GetSearchResultPlayerInfo, id, 1)
       if okP and type(info) == "table" then
         local keys = {}
-        for k, v in pairs(info) do keys[#keys + 1] = tostring(k) .. "=" .. tostring(v) end
+        for k, v in pairs(info) do keys[#keys + 1] = tostring(k) .. "=" .. (Verify.IsNameField(k) and "<name>" or tostring(v)) end
         table.sort(keys)
         Note("first member fields: " .. table.concat(keys, ", "))
         firstShown = true

@@ -1323,6 +1323,8 @@ function UI:RefreshComp()
   local panel = self:AppPanelOn(live)
   if not panel then cp.preview = nil end
   local pev = panel and self:PreviewApplicant()
+  -- The real group, kept for Best key and /ens report even while an applicant is previewed.
+  local realR, realMembers = r, members
   local previewSlots = {}
   self.previewWas = nil
   if pev and pev.after then
@@ -1445,8 +1447,8 @@ function UI:RefreshComp()
       end
     end
   end
-  self.cp.lastAnalysis = r
-  self.cp.lastMembers = members
+  self.cp.lastAnalysis = realR
+  self.cp.lastMembers = realMembers
   if self.bestKey and self.bestKey:IsShown() then self:RenderBestKey() end
   self:RenderSuggestions(side, slotMembers, slotRoles, dungeonKey, settings, live)
   if not live then self:RenderQuickSaved(side) end
@@ -2265,15 +2267,16 @@ local READY_TAG = {
   missing = TEX_NO .. " " .. HEX.bad .. "MISSING|r",
   thin    = TEX_WAIT .. " " .. HEX.warn .. "THIN|r",
   ok      = TEX_OK .. " " .. HEX.good .. "OK|r",
-  none    = HEX.muted .. "-  NONE|r",
+  none    = HEX.muted .. "NONE|r",   -- no dash: rows already start with a "+ " or "- " fold marker
 }
 UI.READY_TAG = READY_TAG
 local CHIP_ICON = { missing = TEX_NO, thin = TEX_WAIT, ok = TEX_OK, none = "" }
 local CHIP_COLOR = { missing = HEX.bad, thin = HEX.warn, ok = HEX.good, none = HEX.muted }
 local ITEM_ICON = { missing = TEX_NO, thin = TEX_WAIT, covered = TEX_OK }
 
-local function RiskText(row)
-  local t = (row.status == "missing" and "no " or "thin ") .. row.label
+-- noStatus: the line already shows the status tag ("All gaps"), so don't say it twice.
+local function RiskText(row, noStatus)
+  local t = (noStatus and "" or (row.status == "missing" and "no " or "thin ")) .. row.label
   local it = row.items[1]
   if it and it.status ~= "covered" then
     t = t .. " for " .. ((it.req.source or ""):match("^([^,(]+)") or ""):gsub("%s+$", "")
@@ -2385,7 +2388,8 @@ function UI:SlotBadges(r, idx)
     for _, p in ipairs(r.caps[c.key] or {}) do
       if p.index == idx then
         local sole = #r.caps[c.key] == 1
-        tip[#tip + 1] = c.label .. ": " .. p.entry.name .. (sole and "  (the group's only source)" or "")
+        tip[#tip + 1] = (p.entry.name == c.label and p.entry.name or (c.label .. ": " .. p.entry.name))
+          .. (sole and "  (the group's only source)" or "")
       end
     end
   end
@@ -2569,7 +2573,7 @@ function UI:RenderReadiness(list, r, ready, members, dungeonKey, compact)
     if open then
       for _, row in ipairs(ready.risks) do
         local cap = row.cap
-        list:Add(READY_TAG[row.status] .. "  " .. RiskText(row), { indent = 12, size = 11, gap = 1,
+        list:Add(READY_TAG[row.status] .. "  " .. RiskText(row, true), { indent = 12, size = 11, gap = 1,
           onClick = function() UI:JumpToNeed(cap) end, tooltip = "Jump to it" })
       end
       list:Space(4)
@@ -3202,7 +3206,7 @@ function UI:RenderApplicantDetail(list, ctx, ev, pinned)
     list:Add(HEX.muted .. ApplicantSub(m, ev.roles[i]) .. "|r", { size = 11, gap = 2 })
   end
   list:Space(2)
-  list:Add(self:RatingTag(ev, false) .. HEX.muted .. string.format("   fit %d / 100|r", ev.score), { size = 14, gap = 2 })
+  list:Add(self:RatingTag(ev, false) .. HEX.muted .. string.format("   %d / 100|r", ev.score), { size = 14, gap = 2 })
   if ev.experience then
     list:Add(HEX.muted .. string.format("Utility %d, experience %d (%s; counts %d%% at +%d).|r", ev.fitScore, ev.experience.points,
       ev.experience.text, math.floor(ev.experience.weight * 100 + 0.5), ctx.keyLevel), { size = 11, gap = 2 })
@@ -5005,7 +5009,7 @@ function UI:RegisterBlizzardOptions()
   sub:SetText(UI.SUBTITLE)
   local body = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); body:SetPoint("TOPLEFT", logo, "BOTTOMLEFT", 0, -16)
   body:SetWidth(540); body:SetJustifyH("LEFT")
-  body:SetText("Every setting is in the addon's own window: General, What to check, Group Finder, Party chat, Appearance and Data. Type /ens to open the addon, or use the button below.")
+  body:SetText("Every setting is in the addon's own window: General, What to check, Group Finder, Party chat, Boss cards, Appearance and Data. Type /ens to open the addon, or use the button below.")
   local b = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
   b:SetSize(260, 26); b:SetPoint("TOPLEFT", body, "BOTTOMLEFT", 0, -14)
   b:SetText("Open Ensemble settings")
