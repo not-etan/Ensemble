@@ -113,7 +113,9 @@ function BW:Build()
   local f = CreateFrame("Frame", "EnsembleBossFrame", UIParent, "BackdropTemplate")
   self.frame = f
   K.Skin(f, C.bg, C.border)
-  f:SetFrameStrata("MEDIUM")
+  -- Over the main window (it was MEDIUM, under it), e.g. when opened from the Dungeon tab.
+  f:SetFrameStrata(UI.OVER_WINDOW_STRATA or "HIGH")
+  f:SetFrameLevel(UI.OVER_WINDOW_LEVEL or 200)
   f:SetClampedToScreen(true)
   f:SetMovable(true); f:EnableMouse(true)
   f:SetResizable(true)

@@ -205,3 +205,9 @@ function Frame:SetPoint(...)
   rawset(self, "_points", pts)
 end
 function Frame:ClearAllPoints() rawset(self, "_point", nil); rawset(self, "_points", {}) end
+
+-- Strata and frame levels are remembered so tests can check how windows stack.
+function Frame:SetFrameStrata(v) rawset(self, "_strata", v) end
+function Frame:GetFrameStrata() return rawget(self, "_strata") or "MEDIUM" end
+function Frame:SetFrameLevel(v) rawset(self, "_level", v) end
+function Frame:GetFrameLevel() return rawget(self, "_level") or 1 end

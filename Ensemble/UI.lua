@@ -128,10 +128,42 @@ local function FontPx(size)
   local pct = (ns.db and ns.db.settings and tonumber(ns.db.settings.textSize)) or 100
   return math.floor((size or 12) * pct / 100 + 0.5)
 end
+-- Labels fitted to their box (issue #16): the player's text size when the label fits, else one
+-- pixel smaller at a time, never below the design size; still too long at the design size, it's
+-- cut as before. `fs.cmFit()` returns the room in pixels. Measured with the unbounded width
+-- (the bounded one reports an already-cut label). Refit on SetText, on the box's size change
+-- and on a text-size change; `cmFitKey` skips the work when nothing changed.
+local fitLabels = setmetatable({}, { __mode = "k" })
+local function FitLabel(fs)
+  if not (fs and fs.cmFit) then return end
+  local design = fs.cmSize or 12
+  local size = FontPx(design)
+  local avail = fs.cmFit()
+  local key = tostring(fs:GetText()) .. "\0" .. tostring(avail) .. "\0" .. size
+  if fs.cmFitKey == key then return end
+  fs.cmFitKey = key
+  fs:SetFont(FONT, size, "")
+  if type(avail) ~= "number" or avail <= 0 or size <= design then return end
+  while size > design do
+    local okW, w = pcall(fs.GetUnboundedStringWidth, fs)
+    if not okW or type(w) ~= "number" or w <= avail then break end
+    size = size - 1
+    fs:SetFont(FONT, size, "")
+  end
+end
+local function MakeFit(fs, room)
+  fs.cmFit = room
+  fitLabels[fs] = true
+  local orig = fs.SetText
+  fs.SetText = function(self, t) orig(self, t); FitLabel(self) end
+end
+UI.FitLabel, UI.MakeFit = FitLabel, MakeFit
+
 local function SetFontSize(obj, size)
   obj.cmSize = size or 12
   fontRegistry[obj] = true
   obj:SetFont(FONT, FontPx(obj.cmSize), "")
+  if obj.cmFit then obj.cmFitKey = nil; FitLabel(obj) end
 end
 UI.FontPx = FontPx
 
@@ -157,7 +189,10 @@ local function Button(parent, label, w, h, onClick)
   b.text = Text(b, 12, C.text, "CENTER")
   b.text:SetPoint("LEFT", 6, 0); b.text:SetPoint("RIGHT", -6, 0)
   b.text:SetWordWrap(false)
+  b.cmInset = 12   -- label room = width minus the side insets (a Dropdown changes it)
+  MakeFit(b.text, function() return (b:GetWidth() or 0) - b.cmInset end)
   b.text:SetText(label or "")
+  b:HookScript("OnSizeChanged", function() FitLabel(b.text) end)
   b:SetScript("OnEnter", function(self)
     self:SetBackdropColor(unpack(C.btnHot))
     if self.tooltip and GameTooltip then
@@ -209,7 +244,9 @@ local function FlatButton(parent, label, w, h, onClick)
   b:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 1 })
   b:SetBackdropColor(0, 0, 0, 0); b:SetBackdropBorderColor(0, 0, 0, 0)
   b.text = Text(b, 11, C.muted, "CENTER"); b.text:SetPoint("CENTER")
+  MakeFit(b.text, function() return (b:GetWidth() or 0) - 6 end)
   b.text:SetText(label or "")
+  b:HookScript("OnSizeChanged", function() FitLabel(b.text) end)
   b:SetScript("OnEnter", function(self)
     if self.IsEnabled and not self:IsEnabled() then return end
     self:SetBackdropColor(unpack(C.btn)); self:SetBackdropBorderColor(unpack(C.border))
@@ -238,6 +275,7 @@ local function Dropdown(parent, w, h, onClick)
   b.text:ClearAllPoints()
   b.text:SetPoint("LEFT", 10, 0); b.text:SetPoint("RIGHT", -34, 0)
   b.text:SetJustifyH("LEFT")
+  b.cmInset = 44
   local div = b:CreateTexture(nil, "ARTWORK")
   div:SetPoint("TOPRIGHT", -26, -5); div:SetPoint("BOTTOMRIGHT", -26, 5); div:SetWidth(1)
   div:SetColorTexture(unpack(C.border))
@@ -582,6 +620,10 @@ end
 ---------------------------------------------------------------------------
 -- Main window
 ---------------------------------------------------------------------------
+-- The boss window and the Group Finder applicant panel draw over the main window: same strata
+-- (HIGH), a frame level well above it and everything inside it (its highest child, the tour
+-- callout, sits about 50 above it). The addon's pop-ups (DIALOG) and menus stay on top of them.
+UI.OVER_WINDOW_STRATA, UI.OVER_WINDOW_LEVEL = "HIGH", 200
 UI.LOGO = "Interface\\AddOns\\Ensemble\\Media\\LogoMark"   -- emblem only (no tile), so it reads larger
 UI.LOGO_SIZE = 38
 UI.NAME = "Ensemble"
@@ -832,7 +874,7 @@ end
 function UI:LayoutSlots()
   local cp = self.cp
   if not (cp and cp.slotRows) then return end
-  local h = math.max(40, FontPx(13) + FontPx(11) + 12)
+  local h = math.max(40, FontPx(13) + FontPx(11) + 14)
   for i, row in ipairs(cp.slotRows) do
     row:SetHeight(h)
     row:ClearAllPoints()
@@ -848,6 +890,7 @@ function UI:ApplyTextSize()
   for obj in pairs(fontRegistry) do
     if obj.SetFont then obj:SetFont(FONT, FontPx(obj.cmSize), "") end
   end
+  for fs in pairs(fitLabels) do fs.cmFitKey = nil; FitLabel(fs) end
   self:QueueRefresh()
   self:QueueFinderRefresh()
 end
@@ -997,6 +1040,14 @@ function UI:BuildCompPage()
   cp.modeBtn:SetPoint("RIGHT", cp.bestKeyBtn, "LEFT", -6, 0)
   cp.dungeonNote = Text(bar, 11, C.muted); cp.dungeonNote:SetPoint("LEFT", cp.dungeonBtn, "RIGHT", 10, 0)
   cp.dungeonNote:SetPoint("RIGHT", cp.modeBtn, "LEFT", -8, 0); cp.dungeonNote:SetWordWrap(false)
+  MakeFit(cp.dungeonNote, function() return cp.dungeonNote:GetWidth() or 0 end)
+  -- Hover the short note for the full sentence (issue #16: the note has ~160px at the smallest window).
+  cp.noteBtn = CreateFrame("Button", nil, bar)
+  cp.noteBtn:SetPoint("TOPLEFT", cp.dungeonNote, "TOPLEFT", 0, 4); cp.noteBtn:SetPoint("BOTTOMRIGHT", cp.dungeonNote, "BOTTOMRIGHT", 0, -4)
+  cp.noteBtn:SetScript("OnEnter", function(btn)
+    if btn.tip and GameTooltip then GameTooltip:SetOwner(btn, "ANCHOR_BOTTOM"); GameTooltip:SetText(btn.tip, 1, 1, 1, 1, true); GameTooltip:Show() end
+  end)
+  cp.noteBtn:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
 
   -- Summary strip: dungeon + counts, one chip per key need (click to jump), biggest risks.
   local sum = Panel(page)
@@ -1043,10 +1094,14 @@ function UI:BuildCompPage()
     row:SetPoint("TOPLEFT", 8, -8 - (i - 1) * 44)
     Skin(row, C.btn, C.border)
     row.role = Text(row, 10, C.muted); row.role:SetPoint("LEFT", 8, 0); row.role:SetWidth(34)
+    row.role:SetWordWrap(false)
+    MakeFit(row.role, function() return 34 end)
     row.icon = row:CreateTexture(nil, "ARTWORK"); row.icon:SetSize(28, 28); row.icon:SetPoint("LEFT", 44, 0)
-    row.name = Text(row, 13); row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 8, -1)
+    -- The two lines sit at the row's top and bottom (not the 28px icon's), so they keep apart
+    -- as the row grows with the text size (issue #16: "Empty" drew over its second line).
+    row.name = Text(row, 13); row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 80, -5)
     row.name:SetPoint("RIGHT", -30, 0); row.name:SetWordWrap(false)
-    row.sub = Text(row, 11, C.muted); row.sub:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 8, 1)
+    row.sub = Text(row, 11, C.muted); row.sub:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 80, 5)
     row.sub:SetPoint("RIGHT", -30, 0); row.sub:SetWordWrap(false)
     row.clear = Button(row, "x", 20, 20, function()
       if ns.state.mode ~= "builder" then return end
@@ -1119,7 +1174,7 @@ function UI:BuildCompPage()
   cp.collapseBtn:SetPoint("TOPRIGHT", -6, -5)
   cp.collapseBtn.tooltip = "Fold every need and every expanded list"
   cp.expandBtn = FlatButton(mid, "Expand all", 74, 18, function() UI:ExpandAll() end)
-  cp.expandBtn:SetPoint("RIGHT", cp.collapseBtn, "LEFT", -2, 0)
+  cp.expandBtn:SetPoint("RIGHT", cp.collapseBtn, "LEFT", -6, 0)
   cp.expandBtn.tooltip = "Open every need"
   cp.checksGear = UI:GearButton(mid, "checks", "What to check: choose the needs that matter to you")
   cp.checksGear:SetPoint("RIGHT", cp.expandBtn, "LEFT", -4, 0)
@@ -1348,19 +1403,25 @@ function UI:RefreshComp()
   else
     cp.dungeonBtn.text:SetText(HEX.muted .. "No dungeon selected|r")
   end
-  local note = ""
+  -- Short note beside the picker; the full sentence on hover.
+  local note, full = "", nil
   local autoKey = ns:AutoDungeon()
   if source == "auto" then
-    note = ns.state.autoSource == "listing" and "Auto: from your Group Finder listing." or "Auto: the dungeon you're in."
+    if ns.state.autoSource == "listing" then note, full = "From your listing", "Auto: from your Group Finder listing."
+    else note, full = "You're in it", "Auto: the dungeon you're in." end
   elseif source == "keystone" then
     local _, lvl = ns:OwnKeystoneDungeon()
-    note = "Auto: your keystone" .. (lvl and (" (+" .. lvl .. ")") or "") .. "."
+    local lv = lvl and (" (+" .. lvl .. ")") or ""
+    note, full = "From your keystone" .. lv, "Auto: your keystone" .. lv .. "."
   elseif source == "manual" and autoKey and autoKey ~= dungeonKey then
-    note = "Your pick. Auto would be " .. DD.list[autoKey].name .. "."
+    note, full = "Your pick; Auto: " .. DD.list[autoKey].name, "Your pick. Auto would be " .. DD.list[autoKey].name .. "."
   elseif not dungeonKey and source == nil then
-    note = live and "No listing or dungeon detected; pick one." or "No keystone found; pick a dungeon."
+    if live then note, full = "Nothing detected; pick one", "No listing or dungeon detected; pick one."
+    else note, full = "No keystone; pick one", "No keystone found; pick a dungeon." end
   end
   cp.dungeonNote:SetText(note)
+  cp.noteBtn.tip = full
+  cp.noteBtn:SetShown(full ~= nil)
   cp.compactBtn.text:SetText(settings.compact and "Full view" or "Summary view")
   cp.compactBtn.tooltip = settings.compact and "Show every need, including covered ones"
     or "Summary view: the strip and the gaps only"
@@ -1382,10 +1443,12 @@ function UI:RefreshComp()
       local p = UD:GetSpec(m.specID)
       SetSpecIcon(row.icon, m.specID, p.class)
       row.icon:SetDesaturated(false)
-      row.name:SetText(m.label and (select(4, Util.ClassColor(p.class)) .. m.label .. "|r") or SpecLabel(m.specID))
+      -- Planner specs as players write them ("Veng Demon Hunter"); party members keep their names.
+      local full = UD:SpecName(m.specID) .. " " .. UD:ClassName(p.class)
+      row.name:SetText(select(4, Util.ClassColor(p.class)) .. (m.label or UI.ShortLabel(full)) .. "|r")
       local badges, tip = self:SlotBadges(r, memberIndex[s])
       row.sub:SetText(badges .. UI:BuffTag(p) .. (p.verify and "  (kit unconfirmed)" or ""))
-      row.tip = (m.label and (UD:SpecName(m.specID) .. " " .. UD:ClassName(p.class) .. "\n") or "")
+      row.tip = full .. "\n"
         .. (p.range and (p.range .. "\n") or "") .. tip
     elseif m and m.classFile then
       SetSpecIcon(row.icon, nil, m.classFile)
@@ -1401,7 +1464,7 @@ function UI:RefreshComp()
       SetSpecIcon(row.icon, p and m.specID or nil, m.classFile)
       row.icon:SetDesaturated(false)
       local _, _, _, hex = Util.ClassColor(m.classFile)
-      row.name:SetText(hex .. (p and (UD:SpecName(m.specID) .. " " .. UD:ClassName(p.class)) or UD:ClassName(m.classFile)) .. "|r")
+      row.name:SetText(hex .. (p and UI.ShortLabel(UD:SpecName(m.specID) .. " " .. UD:ClassName(p.class)) or UD:ClassName(m.classFile)) .. "|r")
       row.sub:SetText(HEX.accent .. "Preview: " .. tostring(m.name or "applicant") .. "|r")
       row.tip = "Previewing this applicant in your group. Click their row again (or another) to change."
     else
@@ -2320,6 +2383,7 @@ function UI:RenderSummaryStrip(r, ready, dungeonKey)
       local b = cp.chips[i]
       if not b then
         b = Button(cp.chipBar, "", 60, CHIP_H)
+        b.text.cmFit = nil   -- chips size themselves to their label instead
         SetFontSize(b.text, 11)
         cp.chips[i] = b
       end
@@ -3349,7 +3413,8 @@ function UI:BuildFinderPanel()
   if self.fp then return end
   local fp = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
   fp:SetSize(FP_COL_W, 120)
-  fp:SetFrameStrata("HIGH")
+  fp:SetFrameStrata(UI.OVER_WINDOW_STRATA)
+  fp:SetFrameLevel(UI.OVER_WINDOW_LEVEL)   -- over the main window ("Details" opens it beside the panel)
   fp:SetClampedToScreen(true)
   fp:SetMovable(true)
   fp:EnableMouse(true)
@@ -4652,7 +4717,7 @@ function UI:BuildSettings_checks(f)
 end
 
 function UI:BuildSettings_finder(f)
-  local x1, x2 = 8, 300
+  local x1, x2 = 8, 320   -- 320: room for the left column's longest label at 125% text (issue #16)
   SubHead(f, x1, -44, "Your listing's applicants")
   local y = -66
   AddCheck(self, f, x1, y, "Applicant panel by the Group Finder", function() return S().applicantPanel ~= false end,
@@ -4903,8 +4968,8 @@ function UI:BuildAppearance(page, topOffset, windowX)
   -- Window options
   local wx = windowX or 640
   local wt = Text(page, 11, C.muted); wt:SetPoint("TOPLEFT", wx, top - 36); wt:SetText("Window")
-  local lock = Check(page, "Lock window (no moving or resizing)", function() return ns.db.settings.window.locked end,
-    function(v) ns.db.settings.window.locked = v end)
+  local lock = Check(page, "Lock window", function() return ns.db.settings.window.locked end,
+    function(v) ns.db.settings.window.locked = v end, "No moving or resizing. The title bar's Unlocked / Locked button does the same.")
   lock:SetPoint("TOPLEFT", wx, top - 54)
   table.insert(self.checks, lock)
   local sl = Text(page, 11, C.muted); sl:SetPoint("TOPLEFT", wx, top - 88); sl:SetText("Text size")

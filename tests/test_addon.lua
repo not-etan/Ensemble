@@ -946,7 +946,8 @@ do
   nsD:SetManualDungeon("AltarOfFangs")
   ok(nsD:GetEffectiveDungeon() == "AltarOfFangs" and nsD.db.selectedDungeon == "AltarOfFangs", "manual builder pick")
   RunTimers()
-  ok(UId.cp.dungeonNote:GetText():find("Auto would be Kings' Rest", 1, true), "note points at the auto choice")
+  ok(UId.cp.dungeonNote:GetText():find("Auto: Kings' Rest", 1, true) and UId.cp.noteBtn.tip:find("Auto would be Kings' Rest", 1, true),
+    "note points at the auto choice (full sentence on hover)")
   -- New keystone (different dungeon) resets the builder to follow it
   nsD:CheckKeystoneChange()   -- records Kings' Rest as the current key
   OWNED_KEY = 588
@@ -972,7 +973,7 @@ do
   RunTimers()
   k, src = nsD:GetEffectiveDungeon()
   ok(k == "TempleOfSethraliss" and src == "auto" and nsD.state.autoSource == "zone", "live: dungeon you're in")
-  ok(UId.cp.dungeonNote:GetText():find("the dungeon you're in", 1, true), "zone note")
+  ok(UId.cp.dungeonNote:GetText() == "You're in it" and UId.cp.noteBtn.tip:find("the dungeon you're in", 1, true), "zone note")
   LISTING = "Murder Row (Mythic Keystone)"
   nsD.Tracker:RequestUpdate(); RunTimers()
   k = nsD:GetEffectiveDungeon()
@@ -4424,6 +4425,83 @@ do
   UI66:Hide()
   ROSTER, LISTING = {}, nil
   APPLICANTS = { [7] = { { name = "Applicant-Realm", class = "SHAMAN", role = "HEALER", spec = 264, score = 2900 } } }
+end
+
+-- 67. Issue #16: layout at 125% text in the smallest window (October 20)
+do
+  EnsembleDB = nil
+  local ns67 = boot()
+  local UI67 = ns67.UI
+  CURRENT_AFFIXES = { 10, 147 }
+  OWNED_KEY, OWNED_LEVEL = 588, 12
+  ns67.db.settings.compMode = "planner"
+  for s2, id in ipairs({ 581, 0, 0, 0, 0 }) do ns67.db.currentComp[s2] = id end
+  UI67:Show("composition"); RunTimers()
+  -- A stand-in for the client's text measuring: visible characters x font size x 0.6.
+  local function measure(self)
+    local t = tostring(rawget(self, "_text") or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", "  ")
+    return #t * (rawget(self, "_fontSize") or 12) * 0.6
+  end
+  local function installMeasure() for _, fr in ipairs(ALLFRAMES) do rawset(fr, "GetUnboundedStringWidth", measure) end end
+  UI67:SetTab("plan"); RunTimers()
+  UI67:SetTab("settings"); RunTimers()
+  UI67:SetTab("composition"); RunTimers()
+  installMeasure()
+  UI67:SetTextSize(125); RunTimers()
+  local FP = UI67.FontPx
+  local function size(fs) return rawget(fs, "_fontSize") end
+  local post = UI67.pl.postPlanBtn.text
+  ok(size(post) == 13 and measure(post) <= 128, "fit: \"Post assignments\" steps down to fit its 140px button at 125% (" .. tostring(size(post)) .. ")")
+  ok(size(UI67.cp.saveBtn.text) == FP(12), "fit: a short label keeps the player's text size")
+  local clear = UI67.cp.slotRows[1].clear.text
+  ok(size(clear) >= 12 and size(clear) < FP(12) and measure(clear) <= 8, "fit: the slot's x fits its 20px button")
+  ok(size(UI67.cp.copyLiveBtn.text) >= 12 and measure(UI67.cp.copyLiveBtn.text) <= 80, "fit: \"Copy party\" fits")
+  local note = UI67.cp.dungeonNote
+  ok(note:GetText() == "From your keystone (+12)" and size(note) == 11, "fit: dungeon note shrinks no further than its design size")
+  ok(UI67.cp.noteBtn.tip == "Auto: your keystone (+12)." and UI67.cp.noteBtn:IsShown(), "dungeon note: full sentence on hover")
+  local chip = UI67.cp.chips[1]
+  ok(chip and rawget(chip.text, "cmFit") == nil and size(chip.text) == FP(11), "chips aren't fitted (they size themselves to the label)")
+  UI67:SetTextSize(100); RunTimers()
+  ok(size(post) == 12 and size(UI67.cp.saveBtn.text) == 12, "fit: back at 100% every label is at its design size")
+  UI67:SetTextSize(80); RunTimers()
+  ok(size(post) == FP(12) and FP(12) < 12, "fit: at 80% labels follow the smaller text")
+  UI67:SetTextSize(125); RunTimers()
+  -- Slots: the two lines hang from the row, not the icon; the row fits both at 125%.
+  local row = UI67.cp.slotRows[1]
+  local np, sp = row.name._points[1], row.sub._points[1]
+  ok(np[1] == "TOPLEFT" and np[2] == row and sp[1] == "BOTTOMLEFT" and sp[2] == row, "slots: name and sub anchored to the row")
+  ok(row._h == FP(13) + FP(11) + 14, "slots: row height fits both lines (" .. tostring(row._h) .. ")")
+  ok(row.role.cmFit ~= nil, "slots: role label fitted")
+  ok(row.name:GetText():find("Veng Demon Hunter", 1, true) and row.tip:find("^Vengeance Demon Hunter\n"),
+    "slots: short spec name, full name in the tooltip")
+  -- Settings and the Needs header.
+  local gf, lockFull, lockShort
+  for _, fr in ipairs(ALLFRAMES) do
+    local t = rawget(fr, "_text")
+    if t == "Groups you could join" then gf = fr end
+    if type(t) == "string" and t:find("^Lock window %(") then lockFull = true end
+    if t == "Lock window" then lockShort = true end
+  end
+  ok(gf and gf._point[2] == 320, "Settings > Group Finder: right column at x 320")
+  ok(lockShort and not lockFull, "Settings > Appearance: \"Lock window\", details in the tooltip")
+  local ep = UI67.cp.expandBtn._point
+  ok(ep[1] == "RIGHT" and ep[2] == UI67.cp.collapseBtn and ep[4] == -6, "Needs header: gap between Expand all and Collapse all")
+  -- The boss window and the applicant panel draw over the main window, under the addon's pop-ups.
+  local BW67 = ns67.BossWindow
+  BW67:Open("AltarOfFangs"); RunTimers()
+  local main = UI67.frame
+  local function over(f)
+    return f:GetFrameStrata() == main:GetFrameStrata() and f:GetFrameLevel() >= main:GetFrameLevel() + 100
+  end
+  ok(main:GetFrameStrata() == "HIGH" and over(BW67.frame), "boss window draws over the main window")
+  UI67:BuildFinderPanel()
+  ok(over(UI67.fp), "applicant panel draws over the main window")
+  UI67:ShowSources()
+  ok(UI67.sources:GetFrameStrata() == "DIALOG", "the addon's pop-ups stay above both (DIALOG)")
+  BW67:Hide(true); UI67.sources:Hide()
+  UI67:SetTextSize(100); UI67:Hide()
+  OWNED_KEY, OWNED_LEVEL = nil, nil
+  CURRENT_AFFIXES = {}
 end
 
 print(string.format("%d passed, %d failed", passes, fails))
