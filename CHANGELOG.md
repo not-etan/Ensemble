@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.0
+- **Fill group:** a new band at the top of the Applicants tab finds a full group among your applicants (always one tank, one healer and three DPS, counting anyone you've already invited) that covers what the key needs, and invites it with one click. The button glows while a group passes, its players are tagged IN PLAN, and a dot shows on the Applicants tab when you're elsewhere. Click the band for the plan: each player, the group after they join, why this group, and who was skipped. When nothing passes, it says what it's waiting for and shows the closest group. The click plans again on the latest applicants and invites only the group you saw. Ensemble only invites when you click.
+- **How complete the group must be** (Settings > Fill group): Relaxed, Standard or Strict, or match the key level (Relaxed up to +6, Standard from +7, Strict from +12). Each dungeon also has its musts: Bloodlust plus the needs its boss cards list, which you can untick or add to, saved per dungeon. Only dependable sources count: pets, conditional and long-cooldown abilities don't, optional talents do. A Holy Paladin's Intercession counts as a thin battle rez.
+- **Who can be invited:** a minimum M+ rating and item level (suggested for the key, from your listing, or your own number), the game's leaver flag, and players with no data. Skipped applicants stay on the list, dimmed, with the reason.
+- **Auto-fill:** turn it on for a listing to be told when a full group is ready: a sound, the plan in the panel by the Group Finder, or a small pop-up when the window and the Group Finder are closed. It never invites by itself.
+- **One click or one per click:** the first fill sends every invite on one click; if the game takes only some, the button becomes "Invite next (2 of 4)" until the next game update. `/ens verify` shows how the last fill went.
+- **The Blinding Vale's Bloodlust:** the default first Bloodlust now goes on whichever boss you do first: Ikuzz "at 50%", or the Lightblossom Trinity "after the first garden". A plan you set yourself stays where you put it.
+- **Party posts:** "Nobody can remove ..." now names the defensives your group has for it, or says there are none.
+- **Smaller fixes:** the Addon Compartment tooltip matches the minimap button's (name and subtitle); "Your assignments" names each ability once after the casts it answers; Compare lines its numbers up in a column; a Bloodlust note and the Sign Up line are shortened at a word, never mid-letter; a possible conflict with other addons that inspect party members at the same moment is avoided.
+- **New logo and banner.**
+- **Data:** checked against Blizzard's hotfixes through October 23, 2026 (nothing changed for Mythic+ needs).
+
 ## 1.3.2
 - **Boss ability links work again:** the game's dungeon journal only answers for the dungeon it has selected, so the boss cards got no abilities from it, and boss kills were matched by name alone. Ensemble now selects the dungeon before reading (and puts the journal back on the dungeon you had open, if its window is showing), and an empty read is tried again later instead of being kept for the whole session.
 - **`/ens verify`:** a journal entry that's found but lists no bosses or no abilities is now a warning instead of a pass, and the report checks for the journal function the fix relies on. The "Re-run inside a Mythic+ key with a party" hint only shows when you're outside an instance.
