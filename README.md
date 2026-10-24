@@ -38,7 +38,7 @@ Ensemble is a Mythic+ companion that helps players of every skill level learn du
 - 🚦 **Fit rating:** every applicant rated Great, Good, Fair or Poor out of 100, by how well their spec fits your group and key and by their best run of this dungeon, with a point-by-point "Why?". Browsing for a group? Every Mythic+ listing shows how strong a pick you'd be.
 - ✅ **Group after:** a plain line saying whether the group is ready once they join (or once you do), or what's still missing.
 - ⚖️ **Compare and invite:** pin two applicants side by side, sort by fit, hide Poor fits, and invite from the card or the panel beside the Group Finder.
-- 🧩 **Fill group:** builds a full group from your applicants that covers the key: Bloodlust, the boss mechanics, and anything more your strictness setting asks for. Auto-fill alerts you the moment one is ready. Ensemble only invites when you click.
+- 🧩 **Fill group:** builds a full group from your applicants that covers the key: Bloodlust, abilities, and anything more your strictness setting asks for. Auto-fill alerts you the moment one is ready. Ensemble only invites when you click.
 - 📝 **Ready-to-copy lines:** "What we need" for your listing ("LF 2 DPS. Need: Poison dispel, Brez."), and a Sign Up note with your spec, rating, best run and what you'd bring.
 
 ### 🗝️ The plan
