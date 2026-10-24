@@ -450,14 +450,23 @@ end
 
 -- What nobody in the group can handle: { kicks = {cast}, dispels = {"Type (cast)"} }.
 function AS:Uncovered(plan)
-  local out = { kicks = {}, dispels = {}, defensives = false }
+  -- dispelGroups: the uncovered dispels grouped by the defensives the group has for them
+  -- (the same list the sheet's note names), in first-seen order; defs = {} means none.
+  local out = { kicks = {}, dispels = {}, defensives = false, dispelGroups = {} }
   for _, row in ipairs(plan.kicks) do
     if row.severity ~= "low" and #row.kickers == 0 and not row.stoppers then out.kicks[#out.kicks + 1] = row.cast end
   end
+  local byDefs = {}
   for _, row in ipairs(plan.dispels) do
     if row.severity ~= "low" and not row.primary and not row.stoppers then
-      out.dispels[#out.dispels + 1] = row.type .. " (" .. row.cast .. ")"
+      local what = row.type .. " (" .. row.cast .. ")"
+      out.dispels[#out.dispels + 1] = what
       if row.defensives then out.defensives = true end
+      local defs = row.defensives or {}
+      local k = table.concat(defs, ", ")
+      local g = byDefs[k]
+      if not g then g = { defs = defs, what = {} }; byDefs[k] = g; out.dispelGroups[#out.dispelGroups + 1] = g end
+      g.what[#g.what + 1] = what
     end
   end
   return out
@@ -534,8 +543,11 @@ function AS:ChatLines(plan, dungeonName, style)
   local pri = self:Priority(plan)
   if pri then Add(out, "Kick first if two cast at once: ", pri, "Kick first (cont.): ") end
   local un = self:Uncovered(plan)
-  if #un.dispels > 0 then
-    Add(out, "Nobody can remove ", table.concat(un.dispels, ", ") .. ": use defensives.", "Nobody can remove (cont.): ")
+  -- Name the defensives the group has (as the sheet's note does), or say there are none.
+  for _, g in ipairs(un.dispelGroups) do
+    local tail = #g.defs > 0 and (": use defensives (" .. table.concat(g.defs, ", ") .. ").")
+      or (", and nobody has a defensive for " .. (#g.what > 1 and "them." or "it."))
+    Add(out, "Nobody can remove ", table.concat(g.what, ", ") .. tail, "Nobody can remove (cont.): ")
   end
   if #un.kicks > 0 then
     Add(out, "Nobody can kick ", table.concat(un.kicks, ", ") .. ": CC or defensives.", "Nobody can kick (cont.): ")

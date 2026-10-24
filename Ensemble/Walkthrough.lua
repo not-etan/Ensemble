@@ -157,7 +157,7 @@ function WT:SetLustNote(dk, i, note)
   local uses = Own(dk)
   if not uses[i] then return end
   note = tostring(note or ""):gsub("^%s+", ""):gsub("%s+$", ""):gsub("|", "")
-  uses[i].note = note ~= "" and note:sub(1, 80) or nil
+  uses[i].note = note ~= "" and ns.Util.Clip(note, 80) or nil
   Changed()
 end
 

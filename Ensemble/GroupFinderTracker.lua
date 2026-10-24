@@ -160,6 +160,9 @@ local function UnitForGUID(guid)
   return nil
 end
 
+-- Counts our own NotifyInspect calls, so a deferred clear can tell a new inspect started.
+local inspectSerial = 0
+
 local function InspectFrameOpen()
   return InspectFrame and InspectFrame.IsShown and InspectFrame:IsShown()
 end
@@ -197,6 +200,7 @@ function Tracker:ProcessInspectQueue()
       -- NotifyInspect / GetInspectSpecialization: long-standing, not protected.
       -- Confirmed working in 12.1.0 (build 69933): party specs read via inspect.
       NotifyInspect(unit)
+      inspectSerial = inspectSerial + 1
       inspectPending = { guid = guid, unit = unit, started = Now() }
       break
     end
@@ -467,8 +471,17 @@ frame:SetScript("OnEvent", function(_, event, arg1)
     end
     if inspectPending and inspectPending.guid == guid then
       inspectPending = nil
-      -- Only clear the inspect target we set ourselves, never the user's own.
-      if ClearInspectPlayer and not InspectFrameOpen() then ClearInspectPlayer() end
+      -- Only clear the inspect target we set ourselves, never the user's own. Cleared on the
+      -- next frame, not here: another addon may have inspected the same player and its
+      -- INSPECT_READY handler can run after ours, so every handler gets to read first. Skipped
+      -- if we started a new inspect meanwhile (clearing would cancel it).
+      if ClearInspectPlayer then
+        local serial = inspectSerial
+        local function clear()
+          if inspectSerial == serial and not inspectPending and not InspectFrameOpen() then ClearInspectPlayer() end
+        end
+        if C_Timer and C_Timer.After then C_Timer.After(0, clear) else clear() end
+      end
     end
     Tracker:RequestUpdate()
   elseif event == "PLAYER_SPECIALIZATION_CHANGED" then

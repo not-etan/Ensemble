@@ -6,7 +6,7 @@
 -- second vararg of every file). The only intentional globals are the ones the client
 -- itself requires by name:
 --   EnsembleDB                          (SavedVariables, declared in the .toc)
---   SLASH_ENSEMBLE1 / SLASH_ENSEMBLE2 (slash command registration)
+--   SLASH_ENSEMBLE1                     (slash command registration: /ens)
 --   Ensemble_OnAddonCompartmentClick/Enter/Leave (referenced from the .toc)
 
 local ADDON_NAME, ns = ...
@@ -104,6 +104,19 @@ function Util.ChatWrap(first, text, cont, max)
   end
   if not (cur == cont and #lines > 0) then push() end
   return lines
+end
+
+-- Shorten `text` to at most `max` bytes with the same rules as ChatWrap: at the last space that
+-- fits, else inside a word but never inside a UTF-8 character. For boxes with a hard limit
+-- (the Sign Up note, a Bloodlust note), where the rest can't go on another line.
+function Util.Clip(text, max)
+  text = tostring(text or "")
+  if #text <= max then return text end
+  local cut = text:sub(1, max + 1):match("^.*()%s")
+  if cut and cut > 1 then return (text:sub(1, cut - 1):gsub("[%s,;]+$", "")) end
+  cut = max + 1
+  while cut > 2 and text:byte(cut) and text:byte(cut) >= 128 and text:byte(cut) < 192 do cut = cut - 1 end
+  return text:sub(1, cut - 1)
 end
 
 function Util.Contains(list, value)
@@ -675,7 +688,14 @@ end
 function Ensemble_OnAddonCompartmentEnter(_, menuButtonFrame)
   if not GameTooltip then return end
   GameTooltip:SetOwner(menuButtonFrame or UIParent, "ANCHOR_LEFT")
-  GameTooltip:AddLine("Ensemble")
+  -- Same header as the minimap tooltip: name in white, subtitle in the accent color.
+  local UI = ns.UI
+  GameTooltip:AddLine((UI and UI.NAME) or "Ensemble", 1, 1, 1)
+  local acc = UI and UI.Kit and UI.Kit.C and UI.Kit.C.accent
+  if UI and UI.SUBTITLE then
+    if acc then GameTooltip:AddLine(UI.SUBTITLE, acc[1], acc[2], acc[3])
+    else GameTooltip:AddLine(UI.SUBTITLE, 0.49, 0.72, 1) end
+  end
   GameTooltip:AddLine("Left-click: toggle window", 1, 1, 1)
   GameTooltip:AddLine("Right-click: settings", 1, 1, 1)
   GameTooltip:Show()

@@ -1,6 +1,6 @@
 -- Ensemble / UI.lua
--- All frames: main window (Builder / Live / Applicants / Saved / Settings), Group Finder
--- applicant panel, menus, minimap button.
+-- All frames: main window (Composition / Applicants / Dungeon / Plan / History / Settings),
+-- Group Finder applicant panel, menus, minimap button.
 -- Everything is a plain, non-secure frame; no secure templates, no protected calls, so the
 -- window works during combat lockdown. Art is Blizzard's own textures only.
 
@@ -1011,7 +1011,7 @@ function UI:Refresh()
 end
 
 ---------------------------------------------------------------------------
--- Composition page (Builder + Live share it)
+-- Composition page (planner and party modes share it)
 ---------------------------------------------------------------------------
 function UI:BuildCompPage()
   local page = PageFrame(self.frame)
@@ -1548,8 +1548,8 @@ function UI:OpenModeMenu(anchor)
 end
 
 ---------------------------------------------------------------------------
--- Plan tab: who handles what. Left: your assignments, Bloodlust timing and your route pull
--- by pull. Right: every cast's assignments, the kick order and posting.
+-- Plan tab: who handles what. Left: your assignments and the Bloodlust timing. Right: every
+-- cast's assignments, the kick order and posting.
 ---------------------------------------------------------------------------
 function UI:BuildPlanPage()
   local page = PageFrame(self.frame)
@@ -1731,22 +1731,36 @@ function UI:RenderYourJob(list, r, plan, live)
   for _, j in ipairs(ns.Assignments:PlayerJobs(plan, true)) do if j.index == me then job = j end end
   list:Header("Your assignments")
   list:Add(HEX.muted .. "As " .. m.label .. ". Kick your own casts first, help when free.|r", { size = 10, gap = 2 })
+  -- Items are { text, ability }: casts answered with the same ability share one " - Pummel"
+  -- at the end of their run instead of repeating it after every cast (first-seen order kept).
   local function block(label, items, color)
     if #items == 0 then return end
-    list:Add((color or HEX.text) .. label .. "|r " .. table.concat(items, HEX.muted .. ";|r "), { indent = 6, size = 11, gap = 2 })
+    local groups, byAb = {}, {}
+    for _, it in ipairs(items) do
+      if type(it) == "string" then groups[#groups + 1] = { texts = { it } }
+      else
+        local g = it.ability and byAb[it.ability]
+        if not g then g = { texts = {}, ability = it.ability }; groups[#groups + 1] = g; if it.ability then byAb[it.ability] = g end end
+        g.texts[#g.texts + 1] = it.text
+      end
+    end
+    local parts = {}
+    for _, g in ipairs(groups) do
+      parts[#parts + 1] = table.concat(g.texts, HEX.muted .. ";|r ") .. (g.ability and (HEX.muted .. " - " .. g.ability .. "|r") or "")
+    end
+    list:Add((color or HEX.text) .. label .. "|r " .. table.concat(parts, HEX.muted .. ";|r "), { indent = 6, size = 11, gap = 2 })
   end
   local kicks, stops, dispels, backups = {}, {}, {}, {}
   if job then
     for _, k in ipairs(job.kicks) do
-      kicks[#kicks + 1] = k.cast .. (k.mob and (HEX.muted .. " [" .. k.mob .. "]|r") or "")
-        .. (k.pos and (" " .. HEX.accent .. ns.Assignments.Ord(k.pos) .. " of " .. k.of .. "|r") or "")
-        .. HEX.muted .. " - " .. k.ability .. "|r"
+      kicks[#kicks + 1] = { text = k.cast .. (k.mob and (HEX.muted .. " [" .. k.mob .. "]|r") or "")
+        .. (k.pos and (" " .. HEX.accent .. ns.Assignments.Ord(k.pos) .. " of " .. k.of .. "|r") or ""), ability = k.ability }
     end
     for _, st in ipairs(job.stops) do
-      stops[#stops + 1] = st.cast .. (st.instead and (HEX.muted .. " (" .. st.instead .. ")|r") or "") .. HEX.muted .. " - " .. st.ability .. "|r"
+      stops[#stops + 1] = { text = st.cast .. (st.instead and (HEX.muted .. " (" .. st.instead .. ")|r") or ""), ability = st.ability }
     end
     for _, d in ipairs(job.dispels) do
-      dispels[#dispels + 1] = d.cast .. HEX.muted .. " (" .. d.type .. ") - " .. d.ability .. "|r"
+      dispels[#dispels + 1] = { text = d.cast .. HEX.muted .. " (" .. d.type .. ")|r", ability = d.ability }
     end
     for _, bk in ipairs(job.backups) do backups[#backups + 1] = bk.cast .. (bk.type and (" (" .. bk.type .. ")") or "") end
   end
@@ -3182,10 +3196,18 @@ function UI:RenderApplicantCompare(list, ctx, a, b)
   list:Add((who and (TEX_OK .. " " .. who .. ": ") or (TEX_WAIT .. " ")) .. cmp.verdict, { size = 13, gap = 4 })
 
   list:Header("Side by side")
+  -- Labels in their own column (space padding can't line up in a proportional font): the
+  -- values start at a fixed x that grows with the text size.
+  local labelW = math.floor(FontPx(12) * 6.5 + 0.5)
   for _, st in ipairs(cmp.stats) do
     local va = st.better == "a" and (HEX.good .. st.a .. "|r") or st.a
     local vb = st.better == "b" and (HEX.good .. st.b .. "|r") or st.b
-    list:Add(string.format("%s%-10s|r  A %s   B %s", HEX.muted, st.label, va, vb), { indent = 4, size = 12, gap = 2 })
+    local y0 = list.y
+    list:Add(HEX.muted .. st.label .. "|r", { indent = 4, size = 12, gap = 2 })
+    local y1 = list.y
+    list.y = y0
+    list:Add("A " .. va .. "   B " .. vb, { indent = 4 + labelW, size = 12, gap = 2 })
+    list.y = math.max(list.y, y1)
   end
 
   list:Header("New utility for your group")
@@ -4466,7 +4488,7 @@ end
 
 ---------------------------------------------------------------------------
 -- Settings: one window with a section list on the left.
---   General · What to check · Group Finder · Party chat · Appearance · Data
+--   General · What to check · Group Finder · Party chat · Boss cards · Appearance · Data
 -- Every option has hover help; each section has its own Reset. UI:OpenSettings(key) jumps
 -- straight to a section (used by the gear buttons next to the features they affect).
 ---------------------------------------------------------------------------
@@ -5024,7 +5046,7 @@ function UI:CreateMinimapButton()
   b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   b:RegisterForDrag("LeftButton")
   local icon = b:CreateTexture(nil, "BACKGROUND")
-  icon:SetTexture(UI.LOGO)   -- the addon's hexagon emblem (Media/LogoMark)
+  icon:SetTexture(UI.LOGO)   -- the addon's emblem (Media/LogoMark)
   icon:SetSize(22, 22); icon:SetPoint("TOPLEFT", 6, -5)
   local border = b:CreateTexture(nil, "OVERLAY")
   border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")

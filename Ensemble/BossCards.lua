@@ -221,7 +221,7 @@ end
 local LINE_MAX = 250
 
 -- One chat line per role (ALL first), "[Ensemble] Boss -" on the first. Your personal jobs are
--- not included: "Post kick & dispel plan" covers everyone's jobs.
+-- not included: the Plan tab's "Post assignments" covers everyone's jobs.
 function BC:ChatLines(dk, i)
   local b = self:Boss(dk, i)
   if not b then return {} end

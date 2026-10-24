@@ -61,13 +61,10 @@ CALLOUTS = {
     "Groups You Could Join": [("A line for your Sign Up note", "TIP", "Click the box, press Ctrl+C, then paste it into Blizzard's Sign Up note.")],
     "Plan": [("Changing an assignment", "NOTE", "Your changes last for this session only, and stop applying when that player changes spec or leaves.")],
     "Settings and More": [("Settings", "WARNING", "Resetting everything can't be undone.")],
-    "Boss Cards": [("Your route, pull by pull", "IMPORTANT", "Ensemble isn't affiliated with or supported by Mythic Dungeon Tools, so an MDT update may break route features until Ensemble catches up.")],
     "Reporting a Problem": [(None, "NOTE", "Nothing is sent anywhere. You copy the report and paste it yourself.")],
 }
 # sentences removed from a section's text because its callout says them
-MOVE = [
-    " Ensemble isn't affiliated with or supported by Mythic Dungeon Tools, so an MDT update may break route features until Ensemble catches up.",
-]
+MOVE = []
 
 
 def title_for(heading):

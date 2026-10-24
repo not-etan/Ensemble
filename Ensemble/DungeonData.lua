@@ -48,6 +48,14 @@
 -- numbers that no note or boss card quotes. Murder Row's Murder in a Row safe-spot fix is a
 -- bug fix. Class changes in 12.1.5 touch no tracked utility (Marksmanship's Unload removal
 -- and Merithra's Blessing's shorter duration aren't tracked).
+--
+-- Hotfix cross-check (October 24, 2026): Blizzard's hotfix post for October 13-23 (entries on
+-- October 14, 15, 16, 20, 21 and 23). Nothing touches this file: Den of Nalorakk's Echoing
+-- Maul sometimes showing in the wrong place and Murder Row's Fel Spray hitting outside its
+-- area (October 23) are bug fixes that leave the boss cards' handling as written; Murder in a
+-- Row's barrel radius visual (October 16) is a visual; Guardian Druid's Rebirth mana cost in
+-- Bear Form (October 14) doesn't change who can battle-rez. The rest is Labyrinth, Delves,
+-- items, quests and PvP.
 
 local _, ns = ...
 
@@ -57,7 +65,7 @@ ns.Dungeons = DD
 -- How current the game data is: shown in the Dungeons tab, Settings > Data, /ens report and
 -- /ens verify. Update both with every data pass.
 DD.DATA_PATCH = "12.1.5"
-DD.DATA_CHECKED = "October 13, 2026"   -- newest hotfix post the data was checked against
+DD.DATA_CHECKED = "October 23, 2026"   -- newest hotfix post the data was checked against
 function DD:FreshnessText()
   return "Data for patch " .. self.DATA_PATCH .. ", checked against Blizzard's hotfixes through " .. self.DATA_CHECKED .. "."
 end

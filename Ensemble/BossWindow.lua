@@ -2,8 +2,8 @@
 -- The boss-card pop-up: a small, movable, resizable window with its own text size that
 -- opens when you enter a Season dungeon and turns to the next boss when one dies. Shows
 -- your role's lines first (or every role), your kick / dispel jobs from the plan in a
--- highlighted block, page arrows, an editor and "post to chat". Also draws the boss cards
--- in the Dungeons tab (UI:RenderBossCards) and the shared editor (UI:OpenBossEditor).
+-- highlighted block, page arrows, an editor and "post to chat". Also holds the shared boss
+-- card editor (UI:OpenBossEditor).
 local _, ns = ...
 
 local UI = ns.UI
@@ -411,40 +411,4 @@ function UI:OpenBossEditor(dk, i)
   e.edit:SetText(BC:EditText(dk, i))
   e:Show()
   e.edit:SetFocus()
-end
-
----------------------------------------------------------------------------
--- Dungeons tab: boss cards under the dungeon picker
----------------------------------------------------------------------------
-function UI:RenderBossCards(L, dk)
-  local BC = ns.BossCards
-  local bosses = BC:Bosses(dk)
-  if #bosses == 0 then return end
-  local HEX = self.Kit.HEX
-  L:Header("Bosses")
-  L:Add(HEX.muted .. "Role notes for each boss. Click a boss to fold it. Edits are yours and survive updates.|r", { size = 10, gap = 3 })
-  local role = BC:MyRole()
-  for i, boss in ipairs(bosses) do
-    local key = "boss:" .. dk .. ":" .. i
-    local open = self:IsOpen(key, true)
-    local lines, edited, changed = BC:Lines(dk, i)
-    L:Add((open and "- " or "+ ") .. HEX.accent .. i .. ". " .. boss.name .. "|r"
-      .. (edited and (HEX.muted .. "  (edited)|r") or "") .. (changed and (HEX.warn .. "  default updated|r") or ""), {
-      size = 12, gap = 2, onClick = function() UI:SetOpen(key, not open) end,
-      tooltip = open and "Click to fold" or "Click to show this boss",
-    })
-    if open then
-      for _, l in ipairs(BC:Ordered(lines, role, true)) do
-        L:Add((ROLE_TAG[l.role] or l.role) .. "  " .. BC:Decorate(dk, l.text) .. (l.nv and (HEX.warn .. " [unconfirmed]|r") or ""),
-          { indent = 10, size = 11, gap = 1 })
-      end
-      L:Add(HEX.accent .. "> Edit|r", { indent = 10, size = 10, gap = 1,
-        onClick = function() UI:OpenBossEditor(dk, i) end, tooltip = "Change this card. Reset to default any time." })
-      L:Add(HEX.accent .. "> Post to chat|r", { indent = 10, size = 10, gap = 1,
-        onClick = function() UI:SendLines(BC:ChatLines(dk, i), "Boss card") end,
-        tooltip = "Sends:\n" .. table.concat(BC:ChatLines(dk, i), "\n") })
-      L:Add(HEX.accent .. "> Open in the boss window|r", { indent = 10, size = 10, gap = 4,
-        onClick = function() BW.view = { dk = dk, index = i }; BW:Show() end })
-    end
-  end
 end

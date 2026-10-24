@@ -280,7 +280,7 @@ function FS:ApplyLineText(resultID)
     end
     text = line
   end
-  return text:sub(1, FS.APPLY_MAX)
+  return ns.Util.Clip(text, FS.APPLY_MAX)
 end
 
 function FS:BuildApplyBox(dialog)

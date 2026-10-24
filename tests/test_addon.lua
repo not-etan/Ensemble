@@ -2197,7 +2197,28 @@ do
   -- Defensive alternatives are a group note, not one player's job
   local mr = nsF.Assignments:Build(Af:Analyze({ { specID = 73 }, { specID = 257 }, { specID = 253 }, { specID = 265 }, { specID = 258 } }, "MurderRow", nsF.db.settings))
   local mrl = table.concat(nsF.Assignments:ChatLines(mr, "Murder Row", "full"), "\n")
-  ok(mrl:find("Nobody can remove", 1, true) and mrl:find("Bleed", 1, true) and not mrl:find("Guardian Spirit", 1, true), "no-dispel needs become a group line")
+  ok(mrl:find("Nobody can remove", 1, true) and mrl:find("Bleed", 1, true), "no-dispel needs become a group line")
+  -- The group line names the defensives the group has (as the sheet's note does); they're
+  -- still not one player's job.
+  local defLine, curseLine, playerHasDef
+  for _, l in ipairs(nsF.Assignments:ChatLines(mr, "Murder Row", "full")) do
+    if l:find("^Nobody can remove") then
+      if l:find("Guardian Spirit", 1, true) then defLine = l else curseLine = l end
+    elseif l:find("Guardian Spirit", 1, true) then playerHasDef = true end
+  end
+  ok(defLine and defLine:find("Bleed (Cutpurse)", 1, true) and defLine:find(": use defensives (", 1, true) and not playerHasDef,
+    "defensives named in the group line, not as a job: " .. tostring(defLine))
+  ok(curseLine == "Nobody can remove Curse (Curse of Doom), and nobody has a defensive for it.",
+    "a cast with no defensive gets its own line: " .. tostring(curseLine))
+  -- With no defensive for it, the line says so instead of "use defensives".
+  local saved = {}
+  for i, row in ipairs(mr.dispels) do saved[i] = row.defensives; row.defensives = nil end
+  local noDef
+  for _, l in ipairs(nsF.Assignments:ChatLines(mr, "Murder Row", "full")) do if l:find("^Nobody can remove") then noDef = l end end
+  ok(noDef and not noDef:find("use defensives", 1, true) and noDef:find("Bleed (Cutpurse), Curse (Curse of Doom)", 1, true)
+    and noDef:find("nobody has a defensive for them.", 1, true),
+    "no defensive in the group: said plainly: " .. tostring(noDef))
+  for i, row in ipairs(mr.dispels) do row.defensives = saved[i] end
   ok(nsF.Assignments:Priority(mr) ~= nil and mrl:find("Kick first if two cast at once:", 1, true), "priority line")
   ok(nsF.Assignments.MobName({ source = "Lightning Bolt (Storm Adept, Imbued Stormcaller)" }) == "Storm Adept"
     and nsF.Assignments.MobName({ source = "Mirror Images (boss; five spawn)" }) == nil
@@ -3053,7 +3074,7 @@ do
   EnsembleDB = nil
   local nsP = boot()
   local DDp = nsP.Dungeons
-  ok(DDp.DATA_PATCH == "12.1.5" and DDp.DATA_CHECKED == "October 13, 2026"
+  ok(DDp.DATA_PATCH == "12.1.5" and DDp.DATA_CHECKED == "October 23, 2026"
     and DDp:FreshnessText():find("patch 12.1.5", 1, true), "data dated to patch 12.1.5")
   local lb
   for _, q in ipairs(DDp.list.RubyLifePools.requirements) do if q.id == "RLP_LIVING_BOMB" then lb = q end end
@@ -4502,6 +4523,132 @@ do
   UI67:SetTextSize(100); UI67:Hide()
   OWNED_KEY, OWNED_LEVEL = nil, nil
   CURRENT_AFFIXES = {}
+end
+
+-- 68. Small cleanups (October 24): Addon Compartment tooltip, R15 deferred inspect clear,
+-- clipping at a word, "Your assignments" naming each ability once, the compare column, the
+-- dead boss-card renderer and wiki callout gone.
+do
+  EnsembleDB = nil
+  ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 71, role = "DAMAGER" } }
+  local ns68 = boot()
+  local UI68 = ns68.UI
+  -- Addon Compartment tooltip: same header as the minimap tooltip, then its own actions.
+  local lines = {}
+  local oldAdd, oldOwner, oldShow = GameTooltip.AddLine, GameTooltip.SetOwner, GameTooltip.Show
+  GameTooltip.AddLine = function(_, t, r, g, b) lines[#lines + 1] = { t = t, r = r, g = g, b = b } end
+  GameTooltip.SetOwner = function() end
+  GameTooltip.Show = function() end
+  Ensemble_OnAddonCompartmentEnter(nil, UIParent)
+  GameTooltip.AddLine, GameTooltip.SetOwner, GameTooltip.Show = oldAdd, oldOwner, oldShow
+  local acc = UI68.Kit.C.accent
+  ok(lines[1] and lines[1].t == "Ensemble" and lines[1].r == 1 and lines[1].g == 1 and lines[1].b == 1, "compartment tooltip: Ensemble in white")
+  ok(lines[2] and lines[2].t == "A Mythic+ Companion" and lines[2].r == acc[1] and lines[2].g == acc[2] and lines[2].b == acc[3],
+    "compartment tooltip: subtitle in the accent color")
+  ok(lines[3] and lines[3].t == "Left-click: toggle window" and lines[4] and lines[4].t == "Right-click: settings" and #lines == 4,
+    "compartment tooltip: actions unchanged")
+  -- R15: our own inspect is cleared on the next frame, after every INSPECT_READY handler read it.
+  ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 71, role = "DAMAGER" },
+             party1 = { guid = "Q1", name = "Quin", class = "MAGE", role = "DAMAGER" } }
+  INSPECT_CACHE = {}
+  NOTIFIED = {}
+  UI68:Show("composition"); RunTimers()
+  local trk
+  for _, fr in ipairs(ALLFRAMES) do if fr._events.INSPECT_READY then trk = fr end end
+  local cleared = 0
+  local oldClear = ClearInspectPlayer
+  ClearInspectPlayer = function() cleared = cleared + 1 end
+  ok(#NOTIFIED >= 1, "R15: an inspect was requested")
+  INSPECT_CACHE.Q1 = 62
+  trk._scripts.OnEvent(trk, "INSPECT_READY", "Q1")
+  ok(cleared == 0, "R15: not cleared inside the INSPECT_READY handler")
+  local secondRead = GetInspectSpecialization("party1")
+  ok(secondRead == 62, "R15: a second addon's handler after ours can still read")
+  RunTimers()
+  ok(cleared == 1, "R15: cleared on the next frame")
+  -- A new inspect of ours started before the next frame: the clear is skipped.
+  ROSTER.party2 = { guid = "Q2", name = "Ria", class = "PRIEST", role = "HEALER" }
+  ROSTER.party3 = { guid = "Q3", name = "Sol", class = "ROGUE", role = "DAMAGER" }
+  for _ = 1, 3 do trk._scripts.OnEvent(trk, "GROUP_ROSTER_UPDATE") end
+  RunTimers()
+  cleared = 0
+  local pendingGuid = ROSTER[NOTIFIED[#NOTIFIED]] and ROSTER[NOTIFIED[#NOTIFIED]].guid
+  INSPECT_CACHE[pendingGuid or "Q2"] = 256
+  trk._scripts.OnEvent(trk, "INSPECT_READY", pendingGuid or "Q2")
+  local nb = #NOTIFIED
+  ns68.Tracker:ProcessInspectQueue()   -- the next inspect starts before the deferred clear runs
+  local started = #NOTIFIED > nb
+  RunTimers()
+  ok(started and cleared == 0, "R15: a new inspect isn't cancelled by the deferred clear")
+  ClearInspectPlayer = oldClear
+  UI68:Hide()
+  -- Util.Clip: at the last space that fits, never inside a UTF-8 character.
+  local Clip = ns68.Util.Clip
+  ok(Clip("short", 10) == "short", "Clip: short text unchanged")
+  ok(Clip("Ikuzz at 50% if you go there first", 20) == "Ikuzz at 50% if you", "Clip: at a word")
+  local accented = string.rep("a", 9) .. "\195\169" .. "tude"   -- 9 a's, then e-acute (2 bytes)
+  local c = Clip(accented, 10)
+  ok(c == string.rep("a", 9), "Clip: never splits a UTF-8 character (" .. #c .. " bytes)")
+  local WT = ns68.Walkthrough
+  ns68.db.lust = { MurderRow = { { at = "b1" } } }
+  WT:SetLustNote("MurderRow", 1, string.rep("word ", 30))
+  local note = ns68.db.lust.MurderRow[1].note
+  ok(note and #note <= 80 and not note:find(" $") and note:sub(-4) == "word", "Bloodlust note cut at a word: " .. tostring(note and #note))
+  -- "Your assignments": an ability is named once after the casts it answers.
+  EnsembleDB = nil
+  ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 71, role = "DAMAGER" } }
+  CURRENT_AFFIXES = { 158, 10, 9, 147 }
+  ns68 = boot()
+  UI68 = ns68.UI
+  ns68.Affixes:Refresh()
+  ns68.state.keyLevelOverride = 17
+  ns68.db.currentComp = { 581, 264, 266, 62, 71 }
+  ns68:SetManualDungeon("DenOfNalorakk")
+  UI68:Show("plan"); RunTimers()
+  local kickLine
+  for i = 1, UI68.pl.mine.used do
+    local t = UI68.pl.mine.pool[i]:GetText() or ""
+    if t:find("Kick:", 1, true) then kickLine = t end
+  end
+  local _, pummels = (kickLine or ""):gsub("Pummel", "")
+  local _, casts = (kickLine or ""):gsub(";", "")
+  ok(kickLine and pummels == 1 and casts >= 1, "Your assignments: Pummel named once after " .. (casts + 1) .. " casts")
+  UI68:Hide()
+  CURRENT_AFFIXES = {}
+  ns68.state.keyLevelOverride = nil
+  -- The compare view's labels sit in their own column (no space padding).
+  ROSTER = {
+    player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" },
+    party1 = { guid = "H", name = "Hal", class = "PRIEST", role = "HEALER" },
+  }
+  INSPECT_CACHE = { H = 256 }
+  LISTING = "Temple of Sethraliss (Mythic Keystone)"
+  APPLICANTS = {
+    [1] = { { name = "Shamy", class = "SHAMAN", role = "DAMAGER", spec = 263, score = 2700, ilvl = 640 } },
+    [2] = { { name = "Stabby", class = "ROGUE", role = "DAMAGER", spec = 259, score = 3100, ilvl = 650 } },
+  }
+  UI68:Show("applicants"); RunTimers()
+  UI68:TogglePin(1); UI68:TogglePin(2); RunTimers()
+  local det = UI68.ap.detail
+  local label, value
+  for i = 1, det.used do
+    local fs = det.pool[i]
+    local t = fs:GetText() or ""
+    if t:find("M+ rating", 1, true) then label = fs end
+    if t:find("^A 2700") then value = fs end
+  end
+  ok(label and value and not label:GetText():find("  ", 1, true), "compare: label and values are separate lines")
+  ok(label and value and label._point[5] == value._point[5] and value._point[4] > label._point[4] + 50,
+    "compare: values start at a fixed column on the label's row")
+  UI68:Hide()
+  ROSTER, LISTING, APPLICANTS = {}, nil, {}
+  -- Dead code and the dead wiki callout are gone.
+  ok(UI68.RenderBossCards == nil, "the old boss-card renderer is gone")
+  local wf = io.open(ADDON_DIR .. "/../tools/make_wiki.py", "r")
+  local wiki = wf and wf:read("*a") or ""
+  if wf then wf:close() end
+  ok(wiki ~= "" and not wiki:find("Your route, pull by pull", 1, true) and not wiki:find("Mythic Dungeon Tools", 1, true),
+    "wiki: the Mythic Dungeon Tools route callout is gone")
 end
 
 print(string.format("%d passed, %d failed", passes, fails))
