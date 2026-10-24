@@ -1,27 +1,16 @@
 # Changelog
 
 ## 1.4.1
-- **Group ready chime:** Auto-fill now plays Ensemble's own chime when a full group is ready. Settings > Fill group can switch it back to the game's ready-check sound, play it to hear it, or turn the sound off. If the chime can't play, the ready-check sound plays instead. After updating, restart the game to hear it (a /reload isn't enough for a new sound file).
-- **Fill group finds every group that passes:** it no longer misses a full group when the player a need depends on is rated lower than the rest of the applicants, or when a critical need is covered by one dependable player plus a conditional source (such as a pet's ability). At Strict, when Intercession is the only battle rez, the band now says what you're waiting for ("Waiting for Battle resurrection: Death Knight, Druid or Warlock"), and planning is quicker.
-- **Thin musts are shown as thin:** a must that passes but is thin (one interrupter where two are wanted) is now listed with the thin needs, and the plan marks it "(thin)" instead of a plain check mark.
-- **Spec changes after joining:** a player who joins from your listing and then changes spec is now read again. Before, Ensemble kept the spec they applied with until a /reload.
-- **Settings > Fill group, minimum rating and item level:** "+" and "-" now start from the number shown. They started from an older number, so "+" could lower the minimum.
-- **Smaller fixes:** "Hide Poor" no longer hides a player in the Fill plan; the pop-up's Fill group button says why it's off; Settings > Fill group says where the musts' dungeon comes from (your listing, the dungeon you're in, or your pick on the Applicants tab).
-- **Settings > Fill group at larger text sizes:** the strictness levels no longer run into each other or into "Always require" when their descriptions wrap. "+ Add a need" and the renamed "Reset needs" (was "Back to boss needs") now sit right under the dungeon's list of musts instead of at the bottom of the panel.
-- **Applicants on the Composition tab at larger text sizes:** the panel no longer overlaps the last party slot, its title no longer runs under "Open tab", and each applicant's text stops before the rating and "missing" status instead of running under it.
-- **`/ens verify`:** says when the game gives no end-of-run item level (the suggested minimum item level then stays off) instead of passing it, and shows which group-ready sound played last (or that the game wasn't playing sounds). After a fill that sent every invite on one click, it keeps saying so after a /reload, until the next game update.
+Includes everything from the 1.4.0 beta.
 
-## 1.4.0
-- **Fill group:** a new band at the top of the Applicants tab finds a full group among your applicants (always one tank, one healer and three DPS, counting anyone you've already invited) that covers what the key needs, and invites it with one click. The button glows while a group passes, its players are tagged IN PLAN, and a dot shows on the Applicants tab when you're elsewhere. Click the band for the plan: each player, the group after they join, why this group, and who was skipped. When nothing passes, it says what it's waiting for and shows the closest group. The click plans again on the latest applicants and invites only the group you saw. Ensemble only invites when you click.
-- **How complete the group must be** (Settings > Fill group): Relaxed, Standard or Strict, or match the key level (Relaxed up to +6, Standard from +7, Strict from +12). Each dungeon also has its musts: Bloodlust plus the needs its boss cards list, which you can untick or add to, saved per dungeon. Only dependable sources count: pets, conditional and long-cooldown abilities don't, optional talents do. A Holy Paladin's Intercession counts as a thin battle rez.
-- **Who can be invited:** a minimum M+ rating and item level (suggested for the key, from your listing, or your own number), the game's leaver flag, and players with no data. Skipped applicants stay on the list, dimmed, with the reason.
-- **Auto-fill:** turn it on for a listing to be told when a full group is ready: a sound, the plan in the panel by the Group Finder, or a small pop-up when the window and the Group Finder are closed. It never invites by itself.
-- **One click or one per click:** the first fill sends every invite on one click; if the game takes only some, the button becomes "Invite next (2 of 4)" until the next game update. `/ens verify` shows how the last fill went.
-- **The Blinding Vale's Bloodlust:** the default first Bloodlust now goes on whichever boss you do first: Ikuzz "at 50%", or the Lightblossom Trinity "after the first garden". A plan you set yourself stays where you put it.
-- **Party posts:** "Nobody can remove ..." now names the defensives your group has for it, or says there are none.
-- **Smaller fixes:** the Addon Compartment tooltip matches the minimap button's (name and subtitle); "Your assignments" names each ability once after the casts it answers; Compare lines its numbers up in a column; a Bloodlust note and the Sign Up line are shortened at a word, never mid-letter; a possible conflict with other addons that inspect party members at the same moment is avoided.
-- **New logo and banner.**
-- **Data:** checked against Blizzard's hotfixes through October 23, 2026 (nothing changed for Mythic+ needs).
+- **Fill group:** a band on the Applicants tab finds a full group among your applicants (one tank, one healer, three DPS, counting anyone already invited) that covers what the key needs, and invites it when you click. Click the band for the plan; when nothing passes, it says what it's waiting for.
+- **Your rules** (Settings > Fill group): how complete the group must be (Relaxed, Standard, Strict, or by key level), musts per dungeon (Bloodlust and the boss needs), and who can be invited (minimum M+ rating and item level, the leaver flag). Only dependable sources count. Skipped applicants stay listed with the reason.
+- **Auto-fill:** tells you when a full group is ready with Ensemble's new chime (or the game's ready-check sound) and the plan by the Group Finder, or a pop-up when everything's closed. It never invites by itself. Restart the game after updating to hear the chime.
+- **Invites:** one click sends every invite; if the game takes only some, the button becomes "Invite next" until the next game update.
+- **The Blinding Vale:** the default first Bloodlust follows whichever boss you do first.
+- **Party posts:** "Nobody can remove ..." names your group's defensives, or says there are none.
+- **Fixes:** layout at larger text sizes; a party member's new spec is read after they change it; Compare lines up its numbers; long notes are shortened at a word; and smaller fixes.
+- **New logo and banner.** Data checked against Blizzard's hotfixes through October 23, 2026.
 
 ## 1.3.2
 - **Boss ability links work again:** the game's dungeon journal only answers for the dungeon it has selected, so the boss cards got no abilities from it, and boss kills were matched by name alone. Ensemble now selects the dungeon before reading (and puts the journal back on the dungeon you had open, if its window is showing), and an empty read is tried again later instead of being kept for the whole session.
