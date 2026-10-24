@@ -42,6 +42,12 @@ function Frame:GetPoint() return "CENTER", nil, "CENTER", 0, 0 end
 function Frame:GetCenter() return 0, 0 end
 function Frame:GetEffectiveScale() return 1 end
 function Frame:Click(btn) if self._scripts.OnClick then self._scripts.OnClick(self, btn or "LeftButton") end end
+-- Animation groups: built like frames; Play records it and finishes at once (IsPlaying false).
+function Frame:CreateAnimationGroup() return newFrame() end
+function Frame:CreateAnimation() return newFrame() end
+function Frame:Play() rawset(self, "_played", (rawget(self, "_played") or 0) + 1) end
+function Frame:Stop() rawset(self, "_stopped", true) end
+function Frame:IsPlaying() return false end
 
 function CreateFrame(_, name) local f = newFrame(name); f._shown = true; return f end
 UIParent = newFrame("UIParent")

@@ -4958,7 +4958,8 @@ do
   local plan = ap.plan
   ok(plan and plan.status == "ready" and ap.band:IsShown(), "hosting: the Fill group band shows, a group passes")
   ok(ap.band.title:GetText():find("Full group ready", 1, true) and ap.band.fill.text:GetText() == "Fill group (4)", "band: ready, Fill group (4)")
-  ok(ap.band.fill.glowOn == true, "the button glows while a plan passes")
+  ok(ap.band.fill.glowOn == true and ap.band.fill.glow:IsShown() and (rawget(ap.band.fill.glowAnim, "_played") or 0) >= 1,
+    "the button's glow breathes while a plan passes")
   ok(not ap.band.fill:IsEnabled(), "the button waits a moment after the plan changes")
   NOW = NOW + 2
   RunTimers(); UI71:Refresh()
@@ -5084,6 +5085,11 @@ do
   ok(fp and fp.planView:IsShown() and fp.planView.title:GetText():find("Full group ready", 1, true)
     and fp.planView.fill.text:GetText() == "Fill group (4)" and not fp.rows[1]:IsShown(), "the docked panel shows the plan")
   ok(fp.planView.side:GetText():find("Musts: Bloodlust", 1, true), "with the musts and the level")
+  local pts = rawget(fp.planView, "_points") or {}
+  local lastTop
+  for _, pt in ipairs(pts) do if pt[1] == "TOPLEFT" then lastTop = pt end end
+  ok(lastTop and lastTop[2] == 0 and lastTop[3] == 0 and fp.planView.enter and (rawget(fp.planView.enter, "_played") or 0) >= 1,
+    "the plan slides in (the animation plays) and ends in place")
   fp.planView.back:Click(); RunTimers()
   ok(not fp.planView:IsShown(), "Back to list shows the applicants again")
   UI71.fpListFor = nil

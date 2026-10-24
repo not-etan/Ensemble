@@ -3903,7 +3903,11 @@ function UI:BuildFinderPlanView()
   edge:SetFrameLevel(math.max(0, (fp:GetFrameLevel() or 1) - 1))
   Glow(edge, 0)
   v.edge = edge
-  -- Entrance: fade in and slide up 12px over 0.25 s.
+  -- Entrance: fade in and slide up 12px over 0.25 s. A Translation moves the frame from its
+  -- anchor and snaps back when it ends, so the plan starts anchored 12px low, slides up into
+  -- place, and is re-anchored there when the animation finishes.
+  local function Settle() v:ClearAllPoints(); v:SetPoint("TOPLEFT", 0, 0); v:SetPoint("BOTTOMRIGHT", 0, 0) end
+  v.settle = Settle
   local ag = v.CreateAnimationGroup and v:CreateAnimationGroup()
   if ag then
     local a = ag.CreateAnimation and ag:CreateAnimation("Alpha")
@@ -3918,6 +3922,7 @@ function UI:BuildFinderPlanView()
       if t.SetDuration then t:SetDuration(0.25) end
       if t.SetSmoothing then t:SetSmoothing("OUT") end
     end
+    if ag.SetScript then ag:SetScript("OnFinished", Settle) end
   end
   v.enter = ag
   fp.planView = v
@@ -3993,7 +3998,13 @@ function UI:RenderFinderPlanView(ctx)
     if C_Timer and C_Timer.After then
       C_Timer.After(0.3, function() if UI.fp then UI.fp:SetBackdropBorderColor(unpack(C.border)) end end)
     end
-    if v.enter then v.enter:Stop(); v.enter:Play() end
+    if v.enter then
+      v.enter:Stop()
+      v:ClearAllPoints(); v:SetPoint("TOPLEFT", 0, -12); v:SetPoint("BOTTOMRIGHT", 0, -12)
+      v.enter:Play()
+      -- Without the animation finishing (no animation support), never leave it 12px low.
+      if not (v.enter.IsPlaying and v.enter:IsPlaying()) then v.settle() end
+    end
   end
   return true
 end
