@@ -278,8 +278,10 @@ local function ReadApplicants()
       local status = info.applicationStatus
       if status == nil or status == "applied" or status == "invited" then
         for m = 1, (info.numMembers or 1) do
+          -- 17th return: isLeaver (Blizzard's own name for it in LFGList.lua, 12.1.5); Fill group
+          -- can skip applicants with that flag. Anything but a boolean means "unknown".
           local okM, name, classFile, _, level, itemLevel, _, tank, healer, damage, assignedRole, _, score,
-                _, _, _, specID = pcall(C_LFGList.GetApplicantMemberInfo, applicantID, m)
+                _, _, _, specID, isLeaver = pcall(C_LFGList.GetApplicantMemberInfo, applicantID, m)
           if okM and name then
             if type(specID) ~= "number" or specID == 0 or not ns.UD:GetSpec(specID) then specID = nil end
             if specID then specByName[NormalizeName(name)] = specID end
@@ -288,6 +290,7 @@ local function ReadApplicants()
               role = assignedRole, score = score, status = status, itemLevel = itemLevel, level = level,
               memberIndex = m, numMembers = info.numMembers or 1,
               canTank = tank, canHeal = healer, canDps = damage,
+              isLeaver = Readable(isLeaver) == true, leaverKnown = type(Readable(isLeaver)) == "boolean",
               bestHere = BestHere(applicantID, m, activityID),
             })
           end
@@ -423,6 +426,7 @@ function Tracker:Signature()
     t[#t + 1] = table.concat({ tostring(a.applicantID), tostring(a.memberIndex), tostring(a.numMembers), tostring(a.name),
       tostring(a.classFile), tostring(a.specID), tostring(a.role), tostring(a.score), tostring(a.status),
       tostring(a.itemLevel), tostring(a.level), a.canTank and "t" or "", a.canHeal and "h" or "", a.canDps and "d" or "",
+      a.isLeaver and "L" or "",
       a.bestHere and (a.bestHere.level .. (a.bestHere.timed and "T" or "")) or "" }, ":")
   end
   return table.concat(t, ";")

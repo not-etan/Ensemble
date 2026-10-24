@@ -30,6 +30,7 @@ BossCards.lua
 Walkthrough.lua
 ApplicantFit.lua
 ListingFit.lua
+FillGroup.lua
 History.lua
 UI.lua
 BossWindow.lua

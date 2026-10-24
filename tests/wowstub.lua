@@ -106,14 +106,18 @@ C_LFGList = {
     ACTIVITY_NAMES = ACTIVITY_NAMES or {}
     local id = ACTIVITY_BY_NAME[LISTING]
     if not id then id = 5000 + #ACTIVITY_NAMES + 1; ACTIVITY_NAMES[#ACTIVITY_NAMES + 1] = LISTING; ACTIVITY_BY_NAME[LISTING] = id end
-    return { activityIDs = { id } }
+    return { activityIDs = { id }, requiredDungeonScore = LISTING_MIN_RATING, requiredItemLevel = LISTING_MIN_ILVL }
   end,
   GetActivityInfoTable = function(id) return { fullName = ACTIVITY_NAMES[id - 5000] } end,
   GetApplicants = function() local ids = {} for id in pairs(APPLICANTS) do ids[#ids+1] = id end table.sort(ids) return ids end,
   GetApplicantInfo = function(id) local a = APPLICANTS[id]; return a and { numMembers = #a, applicationStatus = (APPLICANT_STATUS and APPLICANT_STATUS[id]) or "applied" } end,
   GetApplicantMemberInfo = function(id, m)
     local x = APPLICANTS[id][m]
-    return x.name, x.class, x.class, 90, x.ilvl or 600, 0, x.role == "TANK", x.role == "HEALER", x.role == "DAMAGER", x.role, nil, x.score or 2500, 0, 0, 0, x.spec
+    local score = x.score or 2500
+    if x.noScore then score = nil end
+    local ilvl = x.ilvl or 600
+    if x.noIlvl then ilvl = nil end
+    return x.name, x.class, x.class, 90, ilvl, 0, x.role == "TANK", x.role == "HEALER", x.role == "DAMAGER", x.role, nil, score, 0, 0, 0, x.spec, x.leaver and true or false
   end,
 }
 APPLICANTS = { [7] = { { name = "Applicant-Realm", class = "SHAMAN", role = "HEALER", spec = 264, score = 2900 } } }
@@ -176,6 +180,8 @@ AFFIX_INFO = { [9] = "Tyrannical", [10] = "Fortified", [147] = "Xal'atath's Guil
   [148] = "Xal'atath's Bargain: Ascendant", [162] = "Xal'atath's Bargain: Devour", [999] = "Mystery Affix", [777] = "Xal'atath's Bargain: Pulsar" }
 C_MythicPlus.GetCurrentAffixes = function() local t = {} for _, id in ipairs(CURRENT_AFFIXES) do t[#t + 1] = { id = id, seasonID = 17 } end return t end
 C_MythicPlus.RequestCurrentAffixes = function() end
+-- End-of-run reward item level for a key level (fake numbers: weekly 300 + L, end of run 290 + L).
+C_MythicPlus.GetRewardLevelForDifficultyLevel = function(l) return 300 + l, 290 + l end
 C_ChallengeMode.GetAffixInfo = function(id) return AFFIX_INFO[id], "desc", 4000 + id end
 -- Keystone run
 ACTIVE_KEY_LEVEL, ACTIVE_KEY_AFFIXES = nil, {}

@@ -276,6 +276,21 @@ ns.DEFAULTS = {
     walkRole = "ALL",
     -- Accent color of the window. `classColor` follows the player's class color.
     theme = { hex = "7EB7FF", classColor = false },
+    -- Fill group (Applicants tab): how complete the group must be ("auto" = match the key
+    -- level, or "relaxed" / "standard" / "strict"), who can be invited (each filter's source:
+    -- "suggested" for the key, "listing" = your listing's minimum, "custom" = `value`), and
+    -- Auto-fill (armed per listing; it only finds a group and tells you).
+    fill = {
+      level = "auto",
+      rating = { on = true, source = "suggested", value = 2500 },
+      ilvl = { on = true, source = "suggested", value = 300 },
+      skipLeavers = true,
+      skipNoData = true,
+      autoArm = false,
+      sound = true,
+      popup = true,
+      wait = 15,
+    },
   },
   -- Builder tab dungeon pick: "AUTO" follows your own keystone, "NONE" = generic only,
   -- or a dungeon key. Resets to "AUTO" when you get a keystone for a different dungeon.
@@ -289,6 +304,9 @@ ns.DEFAULTS = {
   -- Boss order per dungeon key, where the dungeon data allows a choice (DungeonData.BOSS_ORDER):
   -- boss indexes first to last. Missing = the guides' order.
   bossOrder = {},
+  -- Fill group musts per dungeon key, only what differs from the boss-card defaults:
+  -- { lust = false|nil, on = { [requirement id] = true|false } }.
+  fillMusts = {},
   history = {},                 -- recorded runs, newest first (History.lua)
 }
 
@@ -338,6 +356,31 @@ local function SanitizeDB(db)
   for dk, order in pairs(db.bossOrder) do
     if not (ns.Dungeons and ns.Dungeons.ValidBossOrder and ns.Dungeons:ValidBossOrder(dk, order)) then db.bossOrder[dk] = nil end
   end
+  -- Fill group musts: requirement IDs as keys, booleans as values; dungeons that left the data go.
+  if type(db.fillMusts) ~= "table" then db.fillMusts = {} end
+  for dk, m in pairs(db.fillMusts) do
+    if type(m) ~= "table" or not (ns.Dungeons and ns.Dungeons.list[dk]) then db.fillMusts[dk] = nil
+    else
+      if m.lust ~= nil and type(m.lust) ~= "boolean" then m.lust = nil end
+      if type(m.on) ~= "table" then m.on = {} end
+      for id, v in pairs(m.on) do if type(id) ~= "string" or type(v) ~= "boolean" then m.on[id] = nil end end
+    end
+  end
+  -- How the last fills went on this game build ("one invite per click" once it's seen that the
+  -- game takes only one per click).
+  if db.fillInvite ~= nil and (type(db.fillInvite) ~= "table" or type(db.fillInvite.build) ~= "string") then db.fillInvite = nil end
+  if type(db.settings) == "table" and type(db.settings.fill) == "table" then
+    local f, d = db.settings.fill, ns.DEFAULTS.settings.fill
+    if f.level ~= "auto" and f.level ~= "relaxed" and f.level ~= "standard" and f.level ~= "strict" then f.level = d.level end
+    for _, k in ipairs({ "rating", "ilvl" }) do
+      if type(f[k]) ~= "table" then f[k] = Util.DeepCopy(d[k]) end
+      local c = f[k]
+      if c.source ~= "suggested" and c.source ~= "listing" and c.source ~= "custom" then c.source = d[k].source end
+      c.value = tonumber(c.value) or d[k].value
+      if c.on ~= false then c.on = true end
+    end
+    f.wait = math.max(0, math.min(120, tonumber(f.wait) or d.wait))
+  end
   -- Settings that no longer exist (1.3.0: the Mythic Dungeon Tools route switch).
   if type(db.settings) == "table" then db.settings.routePlan = nil end
 end
@@ -365,7 +408,7 @@ function ns:InitDB()
 end
 
 -- What a full reset wipes, in plain words (the /ens reset prompt and Settings > Data say it).
-ns.RESET_WIPES = "saved comps, the planner comp, every setting, run history, boss-card edits, Bloodlust timing, boss order and the error log"
+ns.RESET_WIPES = "saved comps, the planner comp, every setting, run history, boss-card edits, Bloodlust timing, boss order, Fill group musts and the error log"
 
 function ns:ResetDB()
   EnsembleDB = Util.DeepCopy(ns.DEFAULTS)

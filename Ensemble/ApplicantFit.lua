@@ -1011,7 +1011,7 @@ local function RowSig(g)
   local parts = {}
   for _, a in ipairs(g.members) do
     parts[#parts + 1] = tostring(a.status) .. ":" .. tostring(a.score) .. ":" .. tostring(a.itemLevel) .. ":" ..
-      tostring(a.level) .. ":" .. tostring(a.firstSeen)
+      tostring(a.level) .. ":" .. tostring(a.firstSeen) .. ":" .. tostring(a.isLeaver)
   end
   return table.concat(parts, ",")
 end

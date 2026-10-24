@@ -3414,6 +3414,8 @@ function UI:OnListingUpdate(event)
   local has = HasListing()
   local was = self.wasListed
   self.wasListed = has
+  -- Auto-fill is armed per listing (Settings > Fill group decides whether a new one arms it).
+  if ns.db and ns.FillGroup and has ~= (was == true) then ns.FillGroup:OnListingChanged(has, was == true) end
   if event == "PLAYER_ENTERING_WORLD" or was == nil then return end   -- baseline only
   if not has or was then return end
   if not ns.db or ns.db.settings.autoOpenOnListing == false then return end

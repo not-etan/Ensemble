@@ -4712,5 +4712,216 @@ do
   ns69.db.bossOrder = {}
 end
 
+-- 70. Fill group, the planner (1.4.0): rating model, levels, filters, musts, the solid-source
+-- rule, choosing the group, pending invites, the pool gap line, timing at 4 open slots.
+do
+  EnsembleDB = nil
+  ROSTER = { player = { guid = "P", name = "Faelan", class = "WARRIOR", spec = 73, role = "TANK" } }
+  LISTING = "Den of Nalorakk (Mythic Keystone)"
+  APPLICANT_STATUS = {}
+  local ns70 = boot()
+  local FG, H70 = ns70.FillGroup, ns70.Dungeons.HEURISTICS
+  local function plan(apps, level)
+    APPLICANTS = apps
+    ns70.state.keyLevelOverride = level
+    ns70.Tracker:Rescan()
+    ns70.ApplicantFit.ClearCache(); FG.ClearCache()
+    return FG:Current()
+  end
+  local function names(list) local t = {} for _, ev in ipairs(list or {}) do t[#t + 1] = ev.members[1].name end return table.concat(t, ",") end
+  local BASE = {
+    [1] = { { name = "Bralia", class = "PALADIN", role = "HEALER", spec = 65, score = 3464, ilvl = 328 } },
+    [2] = { { name = "Bramok", class = "SHAMAN", role = "DAMAGER", spec = 262, score = 3390, ilvl = 324 } },
+    [3] = { { name = "Kelor", class = "MONK", role = "DAMAGER", spec = 269, score = 3429, ilvl = 326 } },
+    [4] = { { name = "Doriah", class = "PRIEST", role = "DAMAGER", spec = 258, score = 3453, ilvl = 325 } },
+    [5] = { { name = "Faren", class = "DEMONHUNTER", role = "DAMAGER", spec = 577, score = 3461, ilvl = 325 } },
+    [6] = { { name = "Lumira", class = "PRIEST", role = "HEALER", spec = 257, score = 2950, ilvl = 320 } },
+    [7] = { { name = "Darik", class = "MAGE", role = "DAMAGER", spec = 63, score = 3500, ilvl = 300 } },
+  }
+  local function with(extra)
+    local t = {}
+    for k, v in pairs(BASE) do t[k] = v end
+    for k, v in pairs(extra or {}) do t[k] = v ~= false and v or nil end
+    return t
+  end
+
+  -- Rating model (Midnight Season 2 calculators) and "Suggested for the key" (two levels below).
+  ok(FG.RatingForLevel(5) == 1720 and FG.RatingForLevel(7) == 2080 and FG.RatingForLevel(12) == 2920
+    and FG.RatingForLevel(16) == 3400 and FG.RatingForLevel(18) == 3640 and FG.RatingForLevel(20) == 3880,
+    "rating model reproduces the published anchors")
+  local want = { [7] = 1700, [8] = 1800, [9] = 2050, [10] = 2200, [11] = 2300, [12] = 2550, [13] = 2650, [14] = 2900,
+    [15] = 3000, [16] = 3150, [17] = 3250, [18] = 3400, [20] = 3600 }
+  local bad = {}
+  for L, v in pairs(want) do if FG:SuggestedRating(L) ~= v then bad[#bad + 1] = L .. "=" .. tostring(FG:SuggestedRating(L)) end end
+  ok(#bad == 0 and FG:SuggestedRating(6) == nil and FG:SuggestedRating(nil) == nil, "suggested rating: the agreed table, off up to +6 " .. table.concat(bad, " "))
+  ok(FG:SuggestedItemLevel(12) == 300 and FG:SuggestedItemLevel(6) == nil, "suggested item level: end-of-run reward two levels below, from the game")
+  local oldReward = C_MythicPlus.GetRewardLevelForDifficultyLevel
+  C_MythicPlus.GetRewardLevelForDifficultyLevel = nil
+  local v, why = FG:SuggestedItemLevel(12)
+  ok(v == nil and why == "api", "no reward API: no suggested item level")
+  C_MythicPlus.GetRewardLevelForDifficultyLevel = function() error("boom") end
+  ok(FG:SuggestedItemLevel(12) == nil, "reward API error: no value, no Lua error")
+  C_MythicPlus.GetRewardLevelForDifficultyLevel = oldReward
+
+  -- Levels.
+  local s = ns70.db.settings
+  ok(FG:Level(s, 2) == "relaxed" and FG:Level(s, 6) == "relaxed" and FG:Level(s, 7) == "standard" and FG:Level(s, 11) == "standard"
+    and FG:Level(s, 12) == "strict" and FG:Level(s, 20) == "strict", "Match the key level: Relaxed to +6, Standard +7 to +11, Strict from +12")
+  local lv, auto, unknown = FG:Level(s, nil)
+  ok(lv == "standard" and auto and unknown, "no key level: Standard, said so")
+  s.fill.level = "relaxed"; ok(FG:Level(s, 20) == "relaxed", "a fixed level ignores the key"); s.fill.level = "auto"
+  local LF = FG.LevelFails
+  ok(LF("relaxed", "missing", "critical") and not LF("relaxed", "missing", "high")
+    and LF("standard", "missing", "high") and not LF("standard", "missing", "medium") and not LF("standard", "thin", "critical")
+    and LF("strict", "missing", "medium") and not LF("strict", "missing", "low") and LF("strict", "thin", "high")
+    and not LF("strict", "thin", "medium"), "level thresholds as agreed")
+
+  -- Filters and their sources.
+  local f = FG:Filters(s, 17)
+  ok(f.rating.on and f.rating.value == 3250 and f.ilvl.on and f.ilvl.value == 305 and f.leaver and f.noData, "filters: suggested for +17")
+  f = FG:Filters(s, 5)
+  ok(not f.rating.on and f.rating.why == "off up to +6" and not f.ilvl.on, "filters: off up to +6")
+  ok(not FG:Filters(s, nil).rating.on and FG:Filters(s, nil).rating.why == "key level unknown", "filters: key level unknown")
+  s.fill.rating.source, s.fill.ilvl.source = "listing", "listing"
+  LISTING_MIN_RATING, LISTING_MIN_ILVL = 2800, nil
+  f = FG:Filters(s, 17)
+  ok(f.rating.on and f.rating.value == 2800 and not f.ilvl.on and f.ilvl.why == "your listing sets none", "filters: from my listing")
+  s.fill.rating.source, s.fill.rating.value = "custom", 3100
+  ok(FG:Filters(s, 17).rating.value == 3100, "filters: custom value")
+  s.fill.rating.on = false
+  ok(not FG:Filters(s, 17).rating.on, "filters: a filter can be turned off")
+  s.fill.rating = { on = true, source = "suggested", value = 2500 }; s.fill.ilvl.source = "suggested"
+  LISTING_MIN_RATING = nil
+  f = FG:Filters(s, 17)
+  local FM = FG.FilterMember
+  ok(FM({ score = 3300, itemLevel = 320 }, f) == nil, "a player above both minimums passes")
+  ok(FM({ score = 2950, itemLevel = 320 }, f) == "M+ rating 2950 (needs 3250)", "rating below: skipped with the reason")
+  ok(FM({ score = 3300, itemLevel = 300 }, f) == "item level 300 (needs 305)", "item level below: skipped")
+  ok(FM({ score = 3300, itemLevel = 320, isLeaver = true }, f) == "has the game's leaver flag", "leaver flag: skipped")
+  ok(FM({ score = nil, itemLevel = 320 }, f) == "no M+ rating from the game", "missing data fails a filter")
+  s.fill.skipNoData = false
+  ok(FM({ score = nil, itemLevel = 320 }, FG:Filters(s, 17)) == nil, "missing data allowed when that switch is off")
+  s.fill.skipNoData = true
+  s.fill.skipLeavers = false
+  ok(FM({ score = 3300, itemLevel = 320, isLeaver = true }, FG:Filters(s, 17)) == nil, "leavers allowed when that switch is off")
+  s.fill.skipLeavers = true
+  ok(FG.FilterApplication({ members = { { name = "A", score = 3300, itemLevel = 320 }, { name = "B", score = 3000, itemLevel = 320 } } }, f)
+    == "B: M+ rating 3000 (needs 3250)", "a premade is all-or-nothing, the failing member named")
+
+  -- Solid sources: optional talents count (the author's call), pets, conditional, long cooldowns,
+  -- unconfirmed and fallbacks don't.
+  local SS = FG.SolidSource
+  ok(SS({ name = "x" }) and SS({ talent = true }) and SS({ talent = true, core = true }) and not SS({ long = true })
+    and not SS({ pet = true }) and not SS({ conditional = "x" }) and not SS({ verify = true }) and not SS({ fallback = true }),
+    "solid sources: talents yes; pets, conditional, long CD, unconfirmed, fallback no")
+
+  -- Musts: Bloodlust plus the boss cards' needs; low severity unticked.
+  local bn = FG:BossNeeds("DenOfNalorakk")
+  local ids = {}
+  for _, e in ipairs(bn) do ids[#ids + 1] = e.req.id .. (e.default and "" or "-") end
+  ok(table.concat(ids, ",") == "DN_TOXIC_SPORES,DN_WINTERS_SHROUD,DN_GLACIAL_TORMENT,DN_FREEDOM", "Den of Nalorakk: 4 boss needs " .. table.concat(ids, ","))
+  local va = FG:BossNeeds("VoidscarArena")
+  ok(#va == 1 and va[1].req.severity == "low" and not va[1].default, "Voidscar Arena's low freedom need starts unticked")
+  local m = FG:Musts("DenOfNalorakk")
+  ok(m.lust and #m.reqs == 4 and not m.custom, "musts default: Bloodlust and the 4 boss needs")
+  local lbl, where
+  for _, row in ipairs(m.rows) do if row.req.id == "DN_FREEDOM" then lbl, where = FG:MustLabel(row) end end
+  ok(lbl == "Freedom (root/snare removal)" and where == "Rimeshatter, Sentinel of Winter", "a must names the boss's own cast: " .. tostring(where))
+  local other = FG:OtherNeeds("DenOfNalorakk")
+  local curse
+  for _, q in ipairs(other) do if q.need == "dispel_curse" then curse = q end end
+  ok(curse and #other > 0, "the dungeon's other needs can be added")
+  FG:SetMust("DenOfNalorakk", "DN_FREEDOM", false)
+  FG:SetMust("DenOfNalorakk", curse.id, true)
+  FG:SetMust("DenOfNalorakk", "lust", false)
+  m = FG:Musts("DenOfNalorakk")
+  local has = {}
+  for _, q in ipairs(m.reqs) do has[q.id] = true end
+  ok(not m.lust and not has.DN_FREEDOM and has[curse.id] and m.custom and #m.reqs == 4, "musts: untick, add and Bloodlust saved")
+  ok(ns70.db.fillMusts.DenOfNalorakk.on.DN_FREEDOM == false and ns70.db.fillMusts.DenOfNalorakk.lust == false, "saved per dungeon, only the differences")
+  ok(FG:Musts("MurderRow").lust and not FG:Musts("MurderRow").custom, "other dungeons keep their defaults")
+  FG:ResetMusts("DenOfNalorakk")
+  ok(FG:Musts("DenOfNalorakk").lust and #FG:Musts("DenOfNalorakk").reqs == 4 and ns70.db.fillMusts.DenOfNalorakk == nil, "Back to boss needs")
+
+  -- A group passes at Standard (+10): the highest total of the groups that pass, never a partial.
+  local p = plan(with({ [8] = { { name = "Oakra", class = "DRUID", role = "HEALER", spec = 105, score = 3300, ilvl = 320 } } }), 10)
+  ok(p and p.status == "ready" and p.level == "standard" and #p.picks == 4, "Standard at +10: a full group passes")
+  local roles = {}
+  for _, ev in ipairs(p.picks) do roles[#roles + 1] = ev.roles[1] end
+  ok(table.concat(roles, ",") == "HEALER,DAMAGER,DAMAGER,DAMAGER", "the plan fills the open slots exactly (tank is you)")
+  ok(p.judge.pass and #p.judge.mustRows == 5 and p.sig:find("^DenOfNalorakk:"), "judged with every must; a signature for the click")
+  ok(FG:ButtonText(p) == "Fill group (4)", "button: Fill group (4)")
+  ok(p.runnerUp and p.runnerUp.out and p.runnerUp.inn and p.runnerUp.diff >= 0, "the next best group is named")
+  local best = 0
+  for _, ev in ipairs(p.picks) do best = best + ev.score end
+  ok(best == p.total, "the plan's total is the sum of its pick ratings")
+  ok(names(p.skipped):find("Lumira") == nil, "+10: Lumira's 2950 passes the 2200 minimum")
+
+  -- Strict at +17: the filters skip, the fallback battle rez is thin, nothing is invited.
+  p = plan(BASE, 17)
+  ok(p.status == "none" and p.level == "strict" and #p.picks == 0, "Strict at +17: no group passes, no partial plan")
+  local sk = {}
+  for _, x in ipairs(p.skipped) do sk[x.ev.members[1].name] = x.reason end
+  ok(sk.Lumira == "M+ rating 2950 (needs 3250)" and sk.Darik == "item level 300 (needs 305)", "skipped with their reasons")
+  ok(p.closest and p.closest.judge.fails[1] and p.closest.judge.fails[1].label == "Battle resurrection (only a fallback)",
+    "closest group: only Intercession, which Strict doesn't take")
+  ok(p.blocking == "Closest group: thin Battle resurrection (only a fallback)", "what's stopping it: " .. tostring(p.blocking))
+  -- Intercession passes Standard as a thin battle rez (no DK, Druid or Warlock in the group).
+  p = plan(BASE, 10)
+  local thinBrez
+  for _, t in ipairs(p.judge and p.judge.thin or {}) do if t:find("Battle resurrection", 1, true) then thinBrez = true end end
+  ok(p.status == "ready" and thinBrez and names(p.picks):find("Bralia"), "Standard: Intercession counts as a thin battle rez")
+
+  -- The pool gap line: nobody applying brings Bloodlust.
+  p = plan({ [1] = BASE[1], [3] = BASE[3], [4] = BASE[4], [5] = BASE[5] }, 10)
+  ok(p.status == "none" and p.poolGaps[1] and p.poolGaps[1].label == "Bloodlust" and p.poolGaps[1].must, "pool gap: Bloodlust, a must")
+  local cov = table.concat(p.poolGaps[1].coverers, ",")
+  ok(cov:find("Shaman") and cov:find("Mage") and cov:find("Evoker") and cov:find("Hunter"), "who could bring it: " .. cov)
+  ok(p.blocking:find("^Waiting for Bloodlust: "), "the band says what it's waiting for")
+  -- Not enough applicants.
+  p = plan({ [1] = BASE[1], [2] = BASE[2] }, 10)
+  ok(p.status == "short" and p.blocking == "Waiting for applicants: 2 DPS", "too few applicants: " .. tostring(p.blocking))
+  -- Pending invites count toward the group.
+  APPLICANT_STATUS = { [2] = "invited" }
+  p = plan(with({ [8] = { { name = "Oakra", class = "DRUID", role = "HEALER", spec = 105, score = 3300, ilvl = 320 } } }), 10)
+  ok(#p.pending == 1 and p.pending[1].applicantID == 2 and p.slots == 3 and #p.picks == 3 and not names(p.picks):find("Bramok"),
+    "a pending invite holds its slot and counts toward the group")
+  APPLICANT_STATUS = {}
+  -- The leaver flag (the 17th applicant return).
+  local lv8 = { [8] = { { name = "Oakra", class = "DRUID", role = "HEALER", spec = 105, score = 3300, ilvl = 320, leaver = true } } }
+  p = plan(with(lv8), 10)
+  local leaverSkipped
+  for _, x in ipairs(p.skipped) do if x.ev.members[1].name == "Oakra" then leaverSkipped = x.reason end end
+  ok(ns70.Tracker.applicants[#ns70.Tracker.applicants].isLeaver ~= nil and leaverSkipped == "has the game's leaver flag",
+    "leaver flag read and skipped")
+
+  -- Timing: 4 open slots, a full pool (10 healers, 20 DPS) with you as DPS: tank, healer and
+  -- 2 DPS open, the worst case.
+  ROSTER = { player = { guid = "P", name = "Faelan", class = "MAGE", spec = 63, role = "DAMAGER" } }
+  local big, id = {}, 100
+  local tanks = { { "WARRIOR", 73 }, { "PALADIN", 66 }, { "DRUID", 104 }, { "DEATHKNIGHT", 250 }, { "MONK", 268 }, { "DEMONHUNTER", 581 } }
+  local heals = { { "PALADIN", 65 }, { "DRUID", 105 }, { "PRIEST", 256 }, { "SHAMAN", 264 }, { "MONK", 270 }, { "EVOKER", 1468 } }
+  local dps = { { "SHAMAN", 262 }, { "HUNTER", 254 }, { "ROGUE", 259 }, { "WARLOCK", 265 }, { "DEATHKNIGHT", 251 }, { "MONK", 269 },
+    { "PRIEST", 258 }, { "EVOKER", 1467 }, { "DRUID", 102 }, { "WARRIOR", 72 } }
+  for i = 1, 10 do id = id + 1; local t = tanks[(i - 1) % #tanks + 1]; big[id] = { { name = "T" .. i, class = t[1], role = "TANK", spec = t[2], score = 3000 + i, ilvl = 320 } } end
+  for i = 1, 10 do id = id + 1; local t = heals[(i - 1) % #heals + 1]; big[id] = { { name = "H" .. i, class = t[1], role = "HEALER", spec = t[2], score = 3000 + i, ilvl = 320 } } end
+  for i = 1, 20 do id = id + 1; local t = dps[(i - 1) % #dps + 1]; big[id] = { { name = "D" .. i, class = t[1], role = "DAMAGER", spec = t[2], score = 3000 + i, ilvl = 320 } } end
+  APPLICANTS = big
+  ns70.state.keyLevelOverride = 10
+  ns70.Tracker:Rescan(); ns70.ApplicantFit.ClearCache(); FG.ClearCache()
+  local ctx, evals = ns70.ApplicantFit:ForLiveGroup()
+  local t0 = os.clock()
+  p = FG:Plan(ctx, evals)
+  local ms = (os.clock() - t0) * 1000
+  ok(p.status == "ready" and p.leaves <= 8 * 8 * 28 and p.checked <= H70.FILL_MAX_FULL_CHECKS,
+    string.format("4 open slots, 40 applicants: %s, %d groups, %d full checks", p.status, p.leaves, p.checked))
+  FG.lastTiming = { ms = ms, leaves = p.leaves, checked = p.checked }
+  print(string.format("  (timing) Fill group plan at 4 open slots, 40 applicants: %.1f ms, %d groups counted, %d full analyses", ms, p.leaves, p.checked))
+  ok(ms < 5000, "the worst case plans in reasonable time here (" .. math.floor(ms) .. " ms)")
+  APPLICANTS, LISTING, ROSTER = {}, nil, {}
+  ns70.state.keyLevelOverride = nil
+  ns70.Tracker:Rescan()
+end
+
 print(string.format("%d passed, %d failed", passes, fails))
 return fails

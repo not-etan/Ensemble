@@ -146,6 +146,37 @@ DD.HEURISTICS = {
   EXPERIENCE_WEIGHT_MID = 0.20,    -- +6 to +9
   EXPERIENCE_WEIGHT_HIGH = 0.30,   -- +10 and up
   LOW_KEY_LEVEL = 9,               -- keys up to here get the "low key" host coaching
+
+  -- Fill group (1.4.0) --------------------------------------------------------------
+  -- "Match the key level": Relaxed up to +6, Standard from +7, Strict from +12.
+  FILL_STANDARD_FROM = 7,
+  FILL_STRICT_FROM = 12,
+  -- "Suggested for the key" filters start here (off up to +6: newer players, low keys), and
+  -- ask for what timing every dungeon this many levels below the key would give.
+  FILL_SUGGEST_FROM = 7,
+  FILL_SUGGEST_OFFSET = 2,
+  FILL_RATING_ROUND = 50,
+  -- Mythic+ rating model for the suggested minimum: a timed key's dungeon score is
+  -- RATING_BASE at +RATING_BASE_LEVEL, RATING_PER_LEVEL more per level, RATING_AFFIX_BONUS more at
+  -- each level in RATING_AFFIX_LEVELS, plus up to 15 for speed (left out); the overall rating
+  -- adds the best run of each of RATING_DUNGEONS dungeons. From the Midnight Season 2 rating
+  -- calculators (mrmythical.com, misti.services; expcarry.com gives the same base), checked
+  -- October 23, 2026 against three published anchors: Keystone Legend 3000 (all eight timed
+  -- around +12-13: model 2920 / 3040), Season 1's Keystone Myth 3400 (flat +16: 3400) and
+  -- Season 2's 3600 (+18 average: 3640). Re-check every season (Season Update runbook).
+  RATING_BASE = 155,
+  RATING_BASE_LEVEL = 2,
+  RATING_PER_LEVEL = 15,
+  RATING_AFFIX_LEVELS = { 5, 7, 10, 12 },
+  RATING_AFFIX_BONUS = 15,
+  RATING_DUNGEONS = 8,
+  -- The planner keeps the best few applicants per role by pick rating, and runs at most this
+  -- many full analyses per plan (best total first).
+  FILL_POOL_PER_ROLE = 8,
+  FILL_MAX_FULL_CHECKS = 60,
+  -- The Fill group button pauses this long after the planned group changes, so a click
+  -- never lands on a group you didn't see.
+  FILL_INVITE_PAUSE = 1.5,
 }
 
 -- Spell IDs for dungeon abilities named in requirement `source` text: used for icons and
