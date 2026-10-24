@@ -447,9 +447,14 @@ local function CheckFill()
   if type(fn) ~= "function" then
     Add("WARN", "C_MythicPlus.GetRewardLevelForDifficultyLevel missing: no suggested item level (set your own or use your listing's)")
   else
+    -- 0 (or nothing) means no suggested item level: the filter shows "Not in force" (seen in
+    -- 12.1.5 build 70575, October 24: end of run 0, weekly 318). Was marked OK before 1.4.1.
     local ok, weekly, eor = pcall(fn, 10)
-    Add(ok and tonumber(eor) and "OK" or "WARN", string.format("reward item level for +10: end of run %s, weekly %s (suggested item level reads this)",
-      tostring(ok and eor), tostring(ok and weekly)))
+    local good = ok and tonumber(eor) and tonumber(eor) > 0
+    Add(good and "OK" or "WARN", string.format("reward item level for +10: end of run %s, weekly %s%s",
+      tostring(ok and eor), tostring(ok and weekly),
+      good and " (suggested item level reads this)"
+      or " - no end-of-run value, so the suggested item level stays off (use your listing's or a custom number)"))
   end
   local okH, has = pcall(C_LFGList.HasActiveEntryInfo)
   if okH and has then
@@ -465,7 +470,16 @@ local function CheckFill()
   Add(C_LFGList.InviteApplicant and "OK" or "FAIL", "C_LFGList.InviteApplicant (Fill group and Invite buttons)")
   Add(C_LFGList.GetNumInvitedApplicantMembers and "OK" or "INFO",
     "C_LFGList.GetNumInvitedApplicantMembers" .. (C_LFGList.GetNumInvitedApplicantMembers and "" or " missing: the five-player check counts pending invites itself"))
-  Add((PlaySound and SOUNDKIT and SOUNDKIT.READY_CHECK) and "OK" or "WARN", "PlaySound / SOUNDKIT.READY_CHECK (Auto-fill's sound)")
+  Add((PlaySound and SOUNDKIT and SOUNDKIT.READY_CHECK) and "OK" or "WARN", "PlaySound / SOUNDKIT.READY_CHECK (Auto-fill's ready-check sound)")
+  Add(PlaySoundFile and "OK" or "WARN", "PlaySoundFile (Auto-fill's Ensemble chime)"
+    .. (PlaySoundFile and "" or " missing: the game's ready-check sound plays instead"))
+  -- What the last group-ready sound (or Play in Settings) actually did since the last reload.
+  local ls = FG.lastSound
+  if ls then
+    local NAMES = { chime = "Ensemble chime", readycheck = "game ready check" }
+    Add(ls.played == ls.choice and "OK" or "WARN", string.format("last group-ready sound: %s%s", NAMES[ls.played] or "nothing played",
+      ls.played == ls.choice and "" or (" (picked: " .. tostring(NAMES[ls.choice] or ls.choice) .. ")")))
+  end
   local mode = FG:InviteMode()
   local learned = ns.db and ns.db.fillInvite
   if mode == "one" then

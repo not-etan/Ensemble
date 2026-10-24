@@ -323,7 +323,7 @@ function FG:SetMust(dk, id, value)
   ns:Fire("FILL_SETTINGS_CHANGED")
 end
 
--- "Back to boss needs": the dungeon's defaults again.
+-- "Reset needs": the dungeon's defaults again.
 function FG:ResetMusts(dk)
   if ns.db and ns.db.fillMusts then ns.db.fillMusts[dk or ""] = nil end
   ns:Fire("FILL_SETTINGS_CHANGED")
@@ -1104,12 +1104,31 @@ function FG:CheckAutoFill()
   else self.waitTimer = C_Timer.NewTimer(wait, fire) end
 end
 
+-- The group-ready sound (Settings > Fill group): Ensemble's chime (Media/GroupReady.ogg, the
+-- default) or the game's ready check. The chime falls back to the ready check when the file
+-- can't play (PlaySoundFile missing, or the client says it won't play it). Master channel, as
+-- before, so it's heard with game sounds turned down. FG.lastSound records what played, for
+-- /ens verify. Returns "chime", "readycheck" or nil.
+FG.SOUNDS = { chime = "Ensemble chime", readycheck = "Game ready check" }
+FG.SOUND_ORDER = { "chime", "readycheck" }
+function FG:PlayReadySound(choice)
+  choice = choice or FillSettings().soundChoice or "chime"
+  local played
+  if choice == "chime" and PlaySoundFile then
+    local ok, willPlay = pcall(PlaySoundFile, ns.READY_SOUND, "Master")
+    if ok and willPlay then played = "chime" end
+  end
+  if not played and PlaySound then
+    local kit = SOUNDKIT and (SOUNDKIT.READY_CHECK or SOUNDKIT.IG_PLAYER_INVITE)
+    if kit and pcall(PlaySound, kit, "Master") then played = "readycheck" end
+  end
+  FG.lastSound = { choice = choice, played = played }
+  return played
+end
+
 -- Sound plus the alert (the UI decides where: the docked panel, or the pop-up).
 function FG:Notify(plan)
-  if FillSettings().sound ~= false and PlaySound then
-    local kit = SOUNDKIT and (SOUNDKIT.READY_CHECK or SOUNDKIT.IG_PLAYER_INVITE)
-    if kit then pcall(PlaySound, kit, "Master") end
-  end
+  if FillSettings().sound ~= false then self:PlayReadySound() end
   ns:Fire("FILL_ALERT", plan, false)
 end
 

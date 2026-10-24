@@ -893,6 +893,8 @@ function UI:LayoutSlots()
   end
   local listTop = -8 - ns.NUM_SLOTS * (h + 4) - 4
   cp.sideList:Fill(4, listTop, -4, 70)
+  -- The hosting applicant panel moves with them (it kept its 100% spot and ran into the last slot at 125%).
+  self:LayoutAppPanel(listTop)
 end
 
 function UI:ApplyTextSize()
@@ -3108,28 +3110,71 @@ end
 -- "List view" switches back to the usual left column; the Applicants tab keeps compare,
 -- filters and the full breakdown.
 ---------------------------------------------------------------------------
-local APP_ROW_H = 36
-local APP_TAG_W = 72   -- room for the rating word / "Group after" status column
+local APP_ROW_H = 36   -- at 100% text; rows grow with the text size (UI:AppRowH)
+local APP_TAG_W = 72   -- room for the rating word / "Group after" status column, at least
+
+-- Row pitch: the name (12) and headline (10) lines stacked with their gaps, never below 36.
+function UI:AppRowH()
+  return math.max(APP_ROW_H, FontPx(12) + FontPx(10) + 14)
+end
+
+-- Under the slots, wherever LayoutSlots puts them (they grow with the text size), and the rows
+-- at the pitch for the text size. Called by LayoutSlots.
+function UI:LayoutAppPanel(top)
+  local f = self.cp and self.cp.appPanel
+  if not f then return end
+  f.top = top or f.top
+  f.baseH = (f.colH or 450) + f.top - 12
+  f:ClearAllPoints()
+  f:SetPoint("TOPLEFT", 8, f.top - 4); f:SetPoint("BOTTOMRIGHT", -8, 8)
+  f.rowH = self:AppRowH()
+  for i, row in ipairs(f.rows) do
+    row:SetHeight(f.rowH - 4)
+    row:ClearAllPoints()
+    row:SetPoint("TOPLEFT", 0, -20 - (i - 1) * f.rowH); row:SetPoint("RIGHT", 0, 0)
+  end
+end
+
+-- The name and headline end `gap` px left of Invite: room for the rating word and the
+-- "Group after" status, which can be wider than APP_TAG_W at larger text sizes.
+function UI:SetAppRowTextEdge(row, gap)
+  if row.textGap == gap then return end
+  row.textGap = gap
+  row.name:SetPoint("RIGHT", row.inv, "LEFT", -gap, 0)
+  row.head:SetPoint("RIGHT", row.inv, "LEFT", -gap, 0)
+end
+
+-- Widest of a row's status lines, measured (pcall: the method may differ by client).
+local function StatusWidth(fs)
+  for _, m in ipairs({ "GetUnboundedStringWidth", "GetStringWidth" }) do
+    if fs[m] then
+      local ok, w = pcall(fs[m], fs)
+      if ok and type(w) == "number" then return w end
+    end
+  end
+  return 0
+end
 
 function UI:BuildAppPanel(left, top, colH)
   local cp = self.cp
   local f = CreateFrame("Frame", nil, left)
-  f.baseH = (colH or 450) + top - 12
-  f:SetPoint("TOPLEFT", 8, top - 4); f:SetPoint("BOTTOMRIGHT", -8, 8)
+  f.colH, f.top = colH or 450, top
   f:Hide()
   cp.appPanel = f
-  f.title = AccentText(f); f.title:SetPoint("TOPLEFT", 2, 0); f.title:SetText("Applicants: best fit first")
   f.hide = FlatButton(f, "List view", 64, 18, function() ns.db.settings.compApplicants = "list"; UI:QueueRefresh() end)
   f.hide:SetPoint("TOPRIGHT", 0, 2)
   f.hide.tooltip = "Back to the usual view (suggestions for your open slots). Switch back from there."
   f.open = FlatButton(f, "Open tab", 64, 18, function() UI:SetTab("applicants") end)
   f.open:SetPoint("RIGHT", f.hide, "LEFT", -4, 0)
   f.open.tooltip = "Compare, filters and the full breakdown"
+  -- The title stops short of the two links and fits its room (larger text sizes ran it under them).
+  f.title = AccentText(f); f.title:SetPoint("TOPLEFT", 2, 0); f.title:SetPoint("RIGHT", f.open, "LEFT", -6, 0)
+  f.title:SetWordWrap(false)
+  MakeFit(f.title, function() return f.title:GetWidth() or 0 end)
+  f.title:SetText("Applicants: best fit first")
   f.rows = {}
   for i = 1, 6 do
     local row = CreateFrame("Button", nil, f, "BackdropTemplate")
-    row:SetHeight(APP_ROW_H - 4)
-    row:SetPoint("TOPLEFT", 0, -20 - (i - 1) * APP_ROW_H); row:SetPoint("RIGHT", 0, 0)
     Skin(row, C.btn, C.border)
     row.bar = row:CreateTexture(nil, "ARTWORK")
     row.bar:SetPoint("TOPLEFT", 1, -1); row.bar:SetPoint("BOTTOMLEFT", 1, 1); row.bar:SetWidth(3)
@@ -3142,10 +3187,13 @@ function UI:BuildAppPanel(left, top, colH)
     row.tag = Text(row, 10); row.tag:SetPoint("BOTTOMRIGHT", row.inv, "LEFT", -6, 1); row.tag:SetJustifyH("RIGHT")
     row.after = Text(row, 10); row.after:SetPoint("TOPRIGHT", row.inv, "LEFT", -6, -1); row.after:SetJustifyH("RIGHT")
     row.after:SetWordWrap(false)
-    row.name = Text(row, 12); row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 6, 1); row.name:SetPoint("RIGHT", row.inv, "LEFT", -APP_TAG_W, 0)
+    -- Name on the row's top edge, headline on its bottom edge (not the 22px icon's), so the
+    -- two lines stay apart as the row grows; their right edge follows the status column.
+    row.name = Text(row, 12); row.name:SetPoint("TOPLEFT", 36, -4)
     row.name:SetWordWrap(false)
-    row.head = Text(row, 10, C.text); row.head:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 6, -1); row.head:SetPoint("RIGHT", row.inv, "LEFT", -APP_TAG_W, 0)
+    row.head = Text(row, 10, C.text); row.head:SetPoint("BOTTOMLEFT", 36, 4)
     row.head:SetWordWrap(false)
+    UI:SetAppRowTextEdge(row, APP_TAG_W)
     row:SetScript("OnEnter", function(self)
       self:SetBackdropBorderColor(unpack(C.accent))
       if self.tooltip and GameTooltip then
@@ -3160,6 +3208,7 @@ function UI:BuildAppPanel(left, top, colH)
   end
   f.more = Text(f, 11, C.muted)
   f.more:SetJustifyH("LEFT"); f.more:SetWordWrap(true)
+  self:LayoutAppPanel(top)
 end
 
 -- True when the Composition tab shows the applicant panel.
@@ -3183,7 +3232,8 @@ function UI:RenderAppPanel()
   local h = f:GetHeight()
   h = math.max(h or 0, f.baseH - (H - UI.MIN_H))   -- at least what the smallest window leaves
   -- 20 = title row; 30 = the hint under the rows, which may wrap to two lines.
-  local fits = math.max(1, math.floor((h - 20 - 30) / APP_ROW_H))
+  local rowH = f.rowH or APP_ROW_H
+  local fits = math.max(1, math.floor((h - 20 - 30) / rowH))
   local n = math.min(#evals, fits, #f.rows)
   for i, row in ipairs(f.rows) do
     local ev = i <= n and evals[i]
@@ -3199,6 +3249,7 @@ function UI:RenderAppPanel()
       row.head:SetText(ev.headline or "")
       row.tag:SetText(ev.rating.hex .. ev.rating.word:upper() .. "|r")
       row.after:SetText(ev.roleConflict and "" or self:GroupAfterText(ev.groupAfter, "short"))
+      self:SetAppRowTextEdge(row, math.max(APP_TAG_W, math.ceil(math.max(StatusWidth(row.tag), StatusWidth(row.after))) + 12))
       local id = ev.applicantID
       row.selected = self.cp.preview == id
       row:SetBackdropBorderColor(unpack(row.selected and C.accent or C.border))
@@ -3211,7 +3262,7 @@ function UI:RenderAppPanel()
     end
   end
   f.more:ClearAllPoints()
-  f.more:SetPoint("TOPLEFT", 4, -20 - n * APP_ROW_H - 2)
+  f.more:SetPoint("TOPLEFT", 4, -20 - n * rowH - 2)
   f.more:SetPoint("RIGHT", f, "RIGHT", -4, 0)   -- wrap inside the column, never into Needs
   if #evals == 0 then
     f.more:SetText("No applicants yet. Ratings appear as soon as someone applies.")
@@ -5383,23 +5434,27 @@ function UI:BuildSettings_fill(f)
   -- How complete the group must be.
   SubHead(f, x1, -44, "How complete the group must be")
   Note(f, x1, -62, 300, "Each level adds to the musts below.")
-  local y = -84
+  -- Each level hangs below the previous one's description, and "Always require" below the
+  -- last, so a description that wraps at a larger text size pushes the rest down instead of
+  -- running into it (seen at 125% in 1.4.0).
+  local prev
   for _, def in ipairs({
     { "auto", "Match the key level", "Relaxed to +6, Standard +7 to +11, Strict from +12" },
     { "relaxed", "Relaxed", "Your musts, and no critical need missing" },
     { "standard", "Standard", "Also battle rez and every high need, trash included" },
     { "strict", "Strict", "Nothing medium+ missing; critical and high not thin" },
   }) do
-    local c = AddCheck(self, f, x1, y, def[2], function() return (FillS().level or "auto") == def[1] end,
+    local c = AddCheck(self, f, x1, -84, def[2], function() return (FillS().level or "auto") == def[1] end,
       function() FillS().level = def[1]; ns:Fire("FILL_SETTINGS_CHANGED"); C_Timer.After(0, function() UI:RefreshSettings() end) end,
       def[3] .. ". Needs you untick in What to check stay out at every level.")
     c:SetWidth(290)
-    Note(f, x1 + 22, y - 18, 280, def[3])
-    y = y - 38
+    if prev then c:ClearAllPoints(); c:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", -22, -6) end
+    local n = Note(f, x1 + 22, -102, 280, def[3])
+    n:ClearAllPoints(); n:SetPoint("TOPLEFT", c, "BOTTOMLEFT", 22, 2)
+    prev = n
   end
   -- Always require: the musts for one dungeon.
-  y = y - 4
-  local head = Text(f, 12, C.text); head:SetPoint("TOPLEFT", x1, y); head:SetText("Always require:")
+  local head = Text(f, 12, C.text); head:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", -22, -10); head:SetText("Always require:")
   local pick = FlatButton(f, "", 170, 18, function(btn)
     local items = { { text = "Musts for:", header = true } }
     for _, dk in ipairs(DD.order) do
@@ -5412,10 +5467,14 @@ function UI:BuildSettings_fill(f)
   pick.text:ClearAllPoints(); pick.text:SetPoint("LEFT", 4, 0); pick.text:SetJustifyH("LEFT")
   pick.tooltip = "Pick another dungeon to see or change its musts"
   self.fillMustsPick = pick
-  self.fillMustsNote = Note(f, x1, y - 18, 300, "")
-  -- Rows are built once and relabeled for each dungeon (a scroll area: Kings' Rest lists 7).
+  self.fillMustsNote = Note(f, x1, -258, 300, "")
+  self.fillMustsNote:ClearAllPoints(); self.fillMustsNote:SetPoint("TOPLEFT", head, "BOTTOMLEFT", 0, -6)
+  -- Rows are built once and relabeled for each dungeon. The box is as tall as its rows, so the
+  -- buttons under it sit right after the last must; it scrolls only when the rows would push
+  -- the buttons off the panel (Kings' Rest lists 8 at a large text size). UI:LayoutFillMusts.
   local box = CreateFrame("ScrollFrame", nil, f)
-  box:SetPoint("TOPLEFT", x1, y - 40); box:SetPoint("BOTTOMLEFT", x1, 44); box:SetWidth(300)
+  box:SetPoint("TOPLEFT", self.fillMustsNote, "BOTTOMLEFT", 0, -8); box:SetWidth(300); box:SetHeight(22)
+  self.fillMustsBox, self.fillPanel = box, f
   local inner = CreateFrame("Frame", nil, box); inner:SetSize(300, 1)
   box:SetScrollChild(inner)
   box:EnableMouseWheel(true)
@@ -5450,11 +5509,15 @@ function UI:BuildSettings_fill(f)
     if #items == 1 then items[#items + 1] = { text = "Nothing else to add", header = true } end
     UI:ShowMenu(btn, items)
   end)
-  add:SetPoint("BOTTOMLEFT", x1, 14)
+  add:SetPoint("TOPLEFT", box, "BOTTOMLEFT", 0, -8)
   add.tooltip = "Add one of the dungeon's other needs (trash) to its musts"
-  local back = Button(f, "Back to boss needs", 150, 22, function() FG:ResetMusts(UI:FillMustsDungeon()); UI:RefreshSettings() end)
+  local back = Button(f, "Reset needs", 110, 22, function() FG:ResetMusts(UI:FillMustsDungeon()); UI:RefreshSettings() end)
   back:SetPoint("LEFT", add, "RIGHT", 8, 0)
   back.tooltip = "This dungeon's musts back to its defaults: Bloodlust and the boss needs"
+  self.fillMustsAdd, self.fillMustsReset = add, back
+  -- Re-fit when the window or the text size changes the room under the list.
+  f:HookScript("OnSizeChanged", function() UI:LayoutFillMusts() end)
+  f:HookScript("OnShow", function() C_Timer.After(0, function() UI:LayoutFillMusts() end) end)
 
   -- Who can be invited.
   SubHead(f, x2, -44, "Who can be invited")
@@ -5501,7 +5564,25 @@ function UI:BuildSettings_fill(f)
   AddCheck(self, f, x2, yy, "Turn Auto-fill on when I list a group", function() return FillS().autoArm == true end,
     function(v) FillS().autoArm = v end, "Off: turn it on per listing with the Auto-fill box on the Applicants tab."):SetWidth(400); yy = yy - 24
   AddCheck(self, f, x2, yy, "Play a sound when a full group is ready", function() return FillS().sound ~= false end,
-    function(v) FillS().sound = v end, "The ready-check sound, once per new group."):SetWidth(400); yy = yy - 24
+    function(v) FillS().sound = v end, "Once per new group: Ensemble's chime or the game's ready check (pick it below)."):SetWidth(400); yy = yy - 24
+  -- Which sound, and a button to hear it.
+  local snd = Button(f, "", 150, 20, function(btn)
+    local items = {}
+    for _, k in ipairs(FG.SOUND_ORDER) do
+      items[#items + 1] = { text = FG.SOUNDS[k], selected = (FillS().soundChoice or "chime") == k,
+        onClick = function() FillS().soundChoice = k; UI:RefreshSettings() end }
+    end
+    UI:ShowMenu(btn, items)
+  end)
+  SetFontSize(snd.text, 11)
+  snd:SetPoint("TOPLEFT", x2 + 22, yy)
+  snd.tooltip = "Ensemble's own chime, or the game's ready-check sound"
+  local play = Button(f, "Play", 50, 20, function() FG:PlayReadySound(FillS().soundChoice) end)
+  SetFontSize(play.text, 11)
+  play:SetPoint("LEFT", snd, "RIGHT", 8, 0)
+  play.tooltip = "Hear the sound now"
+  self.fillSoundBtn, self.fillSoundPlay = snd, play
+  yy = yy - 28
   AddCheck(self, f, x2, yy, "Show a pop-up when the window is closed", function() return FillS().popup ~= false end,
     function(v) FillS().popup = v; UI:UpdateFillPopup() end,
     "With the main window and the Group Finder closed, a small pop-up shows the plan, with Review and Fill group."):SetWidth(400); yy = yy - 30
@@ -5512,8 +5593,27 @@ function UI:BuildSettings_fill(f)
   local wp = Button(f, "+", 22, 20, function() FillS().wait = math.min(120, (FillS().wait or 15) + 5); UI:RefreshSettings() end)
   wp:SetPoint("LEFT", wv, "RIGHT", 2, 0)
   self.fillWaitText = wv
-  Note(f, x2, yy - 24, 440, "Gives more players time to apply, so the first full group isn't the only one seen.")
-  Note(f, x2, yy - 52, 440, "Ensemble only invites when you click: Auto-fill finds the group and tells you; you send the invites.")
+  local waitNote = Note(f, x2, yy - 24, 440, "Gives more players time to apply, so the first full group isn't the only one seen.")
+  -- Hangs below the note above (two lines at larger text sizes).
+  local inviteNote = Note(f, x2, yy - 52, 440, "Ensemble only invites when you click: Auto-fill finds the group and tells you; you send the invites.")
+  inviteNote:ClearAllPoints(); inviteNote:SetPoint("TOPLEFT", waitNote, "BOTTOMLEFT", 0, -6)
+end
+
+-- The musts box: as tall as its rows, capped so "+ Add a need" and "Reset needs" stay inside
+-- the panel (the box scrolls past that). Without real positions yet (before the first layout,
+-- or in tests) it takes the rows' full height.
+function UI:LayoutFillMusts()
+  local box, f, inner = self.fillMustsBox, self.fillPanel, self.fillMustInner
+  if not (box and f and inner) then return end
+  local content = math.max(22, inner:GetHeight() or 22)
+  local h = content
+  local top, bottom = box:GetTop(), f:GetBottom()
+  if type(top) == "number" and type(bottom) == "number" then
+    h = math.max(44, math.min(content, top - bottom - 8 - 22 - 14))   -- gap, buttons, margin
+  end
+  box:SetHeight(h)
+  local max = math.max(0, content - h)
+  if (box:GetVerticalScroll() or 0) > max then box:SetVerticalScroll(max) end
 end
 
 -- The parts of the Fill group section that depend on the dungeon and the key.
@@ -5566,6 +5666,7 @@ function UI:RefreshFillSettings()
   end
   for k = i + 1, #rows do rows[k].check:Hide() end
   self.fillMustInner:SetHeight(math.max(1, y))
+  self:LayoutFillMusts()
   -- Filters: the value in force for the key.
   local level = ns.ApplicantFit:GetKeyLevel(dk)
   local filters = FG:Filters(nil, level)
@@ -5580,6 +5681,7 @@ function UI:RefreshFillSettings()
       or ("Not in force: " .. tostring(fl.why) .. ".")))
   end
   self.fillWaitText:SetText((ns.db.settings.fill.wait or 15) .. " s")
+  self.fillSoundBtn.text:SetText(FG.SOUNDS[ns.db.settings.fill.soundChoice or "chime"] or FG.SOUNDS.chime)
 end
 
 function UI:BuildSettings_chat(f)

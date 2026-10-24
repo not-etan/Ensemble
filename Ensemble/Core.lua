@@ -201,6 +201,8 @@ end
 
 -- The addon's emblem (Media/LogoMark), also used inline in chat as a text-height icon.
 ns.LOGO_MARK = "Interface\\AddOns\\Ensemble\\Media\\LogoMark"
+-- Auto-fill's "group ready" chime: our own, synthesized for Ensemble (1.4.1), not game audio.
+ns.READY_SOUND = "Interface\\AddOns\\Ensemble\\Media\\GroupReady.ogg"
 -- Prefix on lines printed to your own chat: the emblem, then "Ensemble:" in white. Party-chat
 -- posts never use it (they're plain text; the game strips colors and icons from player chat).
 ns.CHAT_PREFIX = "|T" .. ns.LOGO_MARK .. ":0|t |cffffffffEnsemble:|r "
@@ -288,6 +290,7 @@ ns.DEFAULTS = {
       skipNoData = true,
       autoArm = false,
       sound = true,
+      soundChoice = "chime",   -- "chime" (Ensemble's) or "readycheck" (the game's)
       popup = true,
       wait = 15,
     },
@@ -380,6 +383,7 @@ local function SanitizeDB(db)
       if c.on ~= false then c.on = true end
     end
     f.wait = math.max(0, math.min(120, tonumber(f.wait) or d.wait))
+    if f.soundChoice ~= "chime" and f.soundChoice ~= "readycheck" then f.soundChoice = d.soundChoice end
   end
   -- Settings that no longer exist (1.3.0: the Mythic Dungeon Tools route switch).
   if type(db.settings) == "table" then db.settings.routePlan = nil end

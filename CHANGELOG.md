@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.1
+- **Group ready chime:** Auto-fill now plays Ensemble's own chime when a full group is ready. Settings > Fill group can switch it back to the game's ready-check sound, play it to hear it, or turn the sound off. If the chime can't play, the ready-check sound plays instead.
+- **Settings > Fill group at larger text sizes:** the strictness levels no longer run into each other or into "Always require" when their descriptions wrap. "+ Add a need" and the renamed "Reset needs" (was "Back to boss needs") now sit right under the dungeon's list of musts instead of at the bottom of the panel.
+- **Applicants on the Composition tab at larger text sizes:** the panel no longer overlaps the last party slot, its title no longer runs under "Open tab", and each applicant's text stops before the rating and "missing" status instead of running under it.
+- **`/ens verify`:** says when the game gives no end-of-run item level (the suggested minimum item level then stays off) instead of passing it, and shows which group-ready sound played last.
+
 ## 1.4.0
 - **Fill group:** a new band at the top of the Applicants tab finds a full group among your applicants (always one tank, one healer and three DPS, counting anyone you've already invited) that covers what the key needs, and invites it with one click. The button glows while a group passes, its players are tagged IN PLAN, and a dot shows on the Applicants tab when you're elsewhere. Click the band for the plan: each player, the group after they join, why this group, and who was skipped. When nothing passes, it says what it's waiting for and shows the closest group. The click plans again on the latest applicants and invites only the group you saw. Ensemble only invites when you click.
 - **How complete the group must be** (Settings > Fill group): Relaxed, Standard or Strict, or match the key level (Relaxed up to +6, Standard from +7, Strict from +12). Each dungeon also has its musts: Bloodlust plus the needs its boss cards list, which you can untick or add to, saved per dungeon. Only dependable sources count: pets, conditional and long-cooldown abilities don't, optional talents do. A Holy Paladin's Intercession counts as a thin battle rez.

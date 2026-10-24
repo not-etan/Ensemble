@@ -4841,7 +4841,7 @@ do
   ok(ns70.db.fillMusts.DenOfNalorakk.on.DN_FREEDOM == false and ns70.db.fillMusts.DenOfNalorakk.lust == false, "saved per dungeon, only the differences")
   ok(FG:Musts("MurderRow").lust and not FG:Musts("MurderRow").custom, "other dungeons keep their defaults")
   FG:ResetMusts("DenOfNalorakk")
-  ok(FG:Musts("DenOfNalorakk").lust and #FG:Musts("DenOfNalorakk").reqs == 4 and ns70.db.fillMusts.DenOfNalorakk == nil, "Back to boss needs")
+  ok(FG:Musts("DenOfNalorakk").lust and #FG:Musts("DenOfNalorakk").reqs == 4 and ns70.db.fillMusts.DenOfNalorakk == nil, "Reset needs: the dungeon's defaults again")
 
   -- A group passes at Standard (+10): the highest total of the groups that pass, never a partial.
   local p = plan(with({ [8] = { { name = "Oakra", class = "DRUID", role = "HEALER", spec = 105, score = 3300, ilvl = 320 } } }), 10)
@@ -5173,6 +5173,187 @@ do
   GetBuildInfo, PlaySound, SOUNDKIT = nil, nil, nil
   APPLICANTS, LISTING, ROSTER, APPLICANT_STATUS = {}, nil, {}, nil
   PVEFrame._shown = false
+end
+
+-- 72. 1.4.0 test findings (October 24, 125% text): Settings > Fill group stacks by real
+-- height, the musts' buttons follow the last must ("Reset needs"); the hosting applicant panel
+-- on Composition follows the slots and its rows fit at larger text; verify WARNs on a 0
+-- end-of-run reward item level.
+do
+  EnsembleDB = nil
+  ROSTER = {
+    player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" },
+    party1 = { guid = "H", name = "Hal", class = "PRIEST", role = "HEALER" },
+  }
+  INSPECT_CACHE = { H = 256 }
+  LISTING = "Altar of Fangs (Mythic Keystone)"
+  APPLICANTS = {
+    [1] = { { name = "Shamy", class = "SHAMAN", role = "DAMAGER", spec = 263 } },
+    [2] = { { name = "Stabby", class = "ROGUE", role = "DAMAGER", spec = 259, score = 3100 } },
+    [3] = { { name = "Kitty", class = "DRUID", role = "DAMAGER", spec = 103 } },
+  }
+  local ns72 = boot()
+  local UI72 = ns72.UI
+  local function pt(fr, i) return (rawget(fr, "_points") or {})[i or 1] or {} end
+  local function find(text) for _, fr in ipairs(ALLFRAMES) do if rawget(fr, "_text") == text then return fr end end end
+
+  -- Settings > Fill group: each level hangs below the description above it.
+  UI72:OpenSettings("fill"); RunTimers()
+  local relaxed, strictNote = find("Relaxed"), find("Nothing medium+ missing; critical and high not thin")
+  local autoNote = find("Relaxed to +6, Standard +7 to +11, Strict from +12")
+  -- The label is a font string inside the check; the check is its parent's anchor chain.
+  local relaxedCheck
+  for _, c in ipairs(UI72.checks) do if c.label == relaxed then relaxedCheck = c end end
+  ok(relaxedCheck and pt(relaxedCheck)[1] == "TOPLEFT" and pt(relaxedCheck)[2] == autoNote and pt(relaxedCheck)[3] == "BOTTOMLEFT",
+    "Fill group: a level hangs below the previous level's description")
+  local head = find("Always require:")
+  ok(head and pt(head)[2] == strictNote and pt(head)[3] == "BOTTOMLEFT", "\"Always require\" hangs below the last level")
+  local box = UI72.fillMustsBox
+  ok(pt(box)[2] == UI72.fillMustsNote and pt(UI72.fillMustsNote)[2] == head, "the musts box hangs below its note")
+  local add, reset = UI72.fillMustsAdd, UI72.fillMustsReset
+  ok(pt(add)[1] == "TOPLEFT" and pt(add)[2] == box and pt(add)[3] == "BOTTOMLEFT", "\"+ Add a need\" sits right under the last must")
+  ok(reset.text:GetText() == "Reset needs" and pt(reset)[2] == add and not find("Back to boss needs"), "\"Reset needs\" beside it (was \"Back to boss needs\")")
+  ok(reset.tooltip:find("defaults", 1, true), "its tooltip says what it resets to")
+  -- The box is as tall as its rows, so the buttons move with the dungeon's list.
+  local inner = UI72.fillMustInner
+  local function rowsFor(dk) UI72.fillMustsDk = dk; UI72:RefreshSettings(); return inner:GetHeight(), box:GetHeight() end
+  local hA, bA = rowsFor("AltarOfFangs")
+  local hK, bK = rowsFor("KingsRest")
+  ok(bA == hA and bK == hK and hK > hA, string.format("box follows the list: Altar of Fangs %d px, Kings' Rest %d px", bA, bK))
+  -- With real positions: capped so the buttons stay inside the panel; the rest scrolls.
+  rawset(box, "_top", 300); rawset(UI72.fillPanel, "_bottom", 100)
+  UI72:LayoutFillMusts()
+  ok(box:GetHeight() == math.min(hK, 300 - 100 - 44), "capped by the room under it (" .. box:GetHeight() .. ")")
+  rawset(box, "_top", 1000); UI72:LayoutFillMusts()
+  ok(box:GetHeight() == hK, "plenty of room: the whole list, no scrolling")
+  rawset(box, "_top", nil); rawset(UI72.fillPanel, "_bottom", nil)
+  UI72.fillMustsDk = nil
+  -- The invite note hangs below the wait note (two lines at larger text).
+  local waitNote = find("Gives more players time to apply, so the first full group isn't the only one seen.")
+  local inviteNote = find("Ensemble only invites when you click: Auto-fill finds the group and tells you; you send the invites.")
+  ok(pt(inviteNote)[2] == waitNote and pt(inviteNote)[3] == "BOTTOMLEFT", "Auto-fill notes stack")
+
+  -- Composition while hosting, at 125%: the panel follows the slots.
+  UI72:Show("applicants"); RunTimers()
+  UI72:Show("composition"); RunTimers()
+  local cp = UI72.cp
+  local f = cp.appPanel
+  ok(f:IsShown(), "hosting: the applicant panel shows")
+  local FP = UI72.FontPx
+  local function slotTop()
+    local h = math.max(40, FP(13) + FP(11) + 14)
+    return -8 - ns72.NUM_SLOTS * (h + 4) - 4
+  end
+  ok(pt(f)[1] == "TOPLEFT" and pt(f)[3] == slotTop() - 4, "100%: the panel starts under the slots (" .. tostring(pt(f)[3]) .. ")")
+  local function measure(self)
+    local t = tostring(rawget(self, "_text") or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", "  ")
+    return #t * (rawget(self, "_fontSize") or 12) * 0.6
+  end
+  for _, fr in ipairs(ALLFRAMES) do rawset(fr, "GetUnboundedStringWidth", measure) end
+  UI72:SetTextSize(125); RunTimers()
+  ok(pt(f)[3] == slotTop() - 4 and slotTop() < -228, "125%: the panel moves down with the taller slots (" .. tostring(pt(f)[3]) .. ")")
+  local rowH = UI72:AppRowH()
+  ok(rowH == FP(12) + FP(10) + 14 and rowH > 36, "125%: applicant rows grow (" .. rowH .. " px)")
+  local r1, r2 = f.rows[1], f.rows[2]
+  ok(r1._h == rowH - 4 and pt(r2)[3] == -20 - rowH, "rows at the new pitch")
+  ok(pt(r1.name)[1] == "TOPLEFT" and pt(r1.name)[2] == 36 and pt(r1.head)[1] == "BOTTOMLEFT" and pt(r1.head)[3] == 4, "name on the row's top edge, headline on its bottom edge")
+  -- The title stops before the links and fits.
+  local tp
+  for _, p in ipairs(rawget(f.title, "_points")) do if p[1] == "RIGHT" then tp = p end end
+  ok(tp and tp[2] == f.open and f.title.cmFit ~= nil, "title ends before \"Open tab\" and fits its room")
+  -- The name and headline end left of the status column, however wide it is.
+  -- The game replaces a repeated anchor; the stub keeps every call, so read the last RIGHT.
+  local function rightGap(fs)
+    local g
+    for _, p in ipairs(rawget(fs, "_points")) do if p[1] == "RIGHT" then g = -p[4] end end
+    return g
+  end
+  UI72:Refresh(); RunTimers()
+  local widest = math.max(measure(r1.tag), measure(r1.after))
+  ok(rightGap(r1.name) >= widest + 12 and rightGap(r1.head) == rightGap(r1.name) and rightGap(r1.name) >= 72,
+    string.format("125%%: text ends left of the status (%d px gap, status %d px)", rightGap(r1.name), widest))
+  UI72:SetTextSize(100); RunTimers()
+  ok(UI72:AppRowH() == 36 and pt(f)[3] == slotTop() - 4, "back at 100%: 36 px rows, panel under the slots")
+  UI72:Hide()
+
+  -- /ens verify: a 0 end-of-run reward item level is a WARN, not OK.
+  local orig = C_MythicPlus.GetRewardLevelForDifficultyLevel
+  C_MythicPlus.GetRewardLevelForDifficultyLevel = function() return 318, 0 end
+  local report = ns72.Verify:Run()
+  ok(report:find("[WARN] reward item level for +10: end of run 0, weekly 318 - no end-of-run value", 1, true),
+    "verify: end of run 0 WARNs (the suggested item level stays off)")
+  C_MythicPlus.GetRewardLevelForDifficultyLevel = orig
+  report = ns72.Verify:Run()
+  ok(report:find("[OK] reward item level for +10: end of run 300, weekly 310 (suggested item level reads this)", 1, true),
+    "verify: a real value stays OK")
+  for _, fr in ipairs(ALLFRAMES) do rawset(fr, "GetUnboundedStringWidth", nil) end
+
+  -- The group-ready sound (the author's pick, October 24: chime A with a picker).
+  local FG72 = ns72.FillGroup
+  local files, kits = {}, {}
+  local fileWillPlay = true
+  PlaySoundFile = function(path, ch) files[#files + 1] = path .. "|" .. tostring(ch); return fileWillPlay, 1 end
+  SOUNDKIT = { READY_CHECK = 8960 }
+  PlaySound = function(id, ch) kits[#kits + 1] = id .. "|" .. tostring(ch); return true end
+  local fs72 = ns72.db.settings.fill
+  ok(fs72.soundChoice == "chime" and fs72.sound == true, "default: the sound is on, Ensemble's chime")
+  ok(FG72:PlayReadySound() == "chime" and files[1] == ns72.READY_SOUND .. "|Master" and #kits == 0, "the chime plays from the addon's Media folder, on Master")
+  ok(ns72.READY_SOUND == "Interface\\AddOns\\Ensemble\\Media\\GroupReady.ogg", "path to the chime")
+  local slurp = function(path) local fh = io.open(path, "rb"); if not fh then return nil end local t = fh:read("*a"); fh:close(); return t end
+  local ogg = slurp(ADDON_DIR .. "/Media/GroupReady.ogg")
+  ok(ogg and ogg:sub(1, 4) == "OggS" and #ogg < 64 * 1024, "the chime ships in Media as a small Ogg file")
+  fs72.soundChoice = "readycheck"
+  ok(FG72:PlayReadySound() == "readycheck" and kits[1] == "8960|Master" and #files == 1, "the game's ready check, by choice")
+  fs72.soundChoice = "chime"
+  fileWillPlay = false
+  ok(FG72:PlayReadySound() == "readycheck" and #kits == 2, "the chime can't play: the ready check instead")
+  local report = ns72.Verify:Run()
+  ok(report:find("[WARN] last group-ready sound: game ready check (picked: Ensemble chime)", 1, true), "verify: says the chime didn't play")
+  fileWillPlay = true
+  local savedPSF = PlaySoundFile
+  PlaySoundFile = nil
+  ok(FG72:PlayReadySound() == "readycheck", "no PlaySoundFile: the ready check")
+  report = ns72.Verify:Run()
+  ok(report:find("[WARN] PlaySoundFile (Auto-fill's Ensemble chime) missing: the game's ready-check sound plays instead", 1, true), "verify: PlaySoundFile missing WARNs")
+  PlaySoundFile = savedPSF
+  FG72:PlayReadySound()
+  report = ns72.Verify:Run()
+  ok(report:find("[OK] PlaySoundFile (Auto-fill's Ensemble chime)", 1, true) and report:find("[OK] last group-ready sound: Ensemble chime", 1, true),
+    "verify: the chime present and played")
+  -- Notify plays it once, and nothing when the sound is off.
+  local origFire = ns72.Fire
+  ns72.Fire = function() end
+  local before = #files
+  FG72:Notify({})
+  ok(#files == before + 1, "a new group: the chime plays")
+  fs72.sound = false
+  FG72:Notify({})
+  ok(#files == before + 1 and #kits == 3, "sound off: nothing plays")
+  fs72.sound = true
+  ns72.Fire = origFire
+  -- Settings > Fill group: the menu and the Play button.
+  UI72:OpenSettings("fill"); RunTimers()
+  ok(UI72.fillSoundBtn.text:GetText() == "Ensemble chime", "Settings: the sound menu shows the chime")
+  local items
+  local oldShow = UI72.ShowMenu
+  UI72.ShowMenu = function(_, _, it) items = it end
+  UI72.fillSoundBtn:Click()
+  UI72.ShowMenu = oldShow
+  ok(items and #items == 2 and items[1].text == "Ensemble chime" and items[1].selected and items[2].text == "Game ready check", "the menu: chime (picked), game ready check")
+  items[2].onClick()
+  ok(fs72.soundChoice == "readycheck" and UI72.fillSoundBtn.text:GetText() == "Game ready check", "picking the ready check")
+  local k0 = #kits
+  UI72.fillSoundPlay:Click()
+  ok(#kits == k0 + 1, "Play: hear the picked sound")
+  UI72:ResetSettingsSection("fill")
+  ok(fs72.soundChoice == "chime" or ns72.db.settings.fill.soundChoice == "chime", "Reset section: back to the chime")
+  UI72:Hide()
+  -- Saved data: an unknown choice goes back to the chime.
+  EnsembleDB = { schema = 4, settings = { fill = { soundChoice = "airhorn" } } }
+  local nsS72 = boot()
+  ok(nsS72.db.settings.fill.soundChoice == "chime", "saved sound choice cleaned")
+  PlaySoundFile, PlaySound, SOUNDKIT = nil, nil, nil
+  APPLICANTS, LISTING, ROSTER, INSPECT_CACHE = {}, nil, {}, {}
 end
 
 print(string.format("%d passed, %d failed", passes, fails))
