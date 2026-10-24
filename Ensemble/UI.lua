@@ -2896,8 +2896,12 @@ function UI:SyncFillButton(b, plan)
     or "Invite every player in the plan. Nothing is sent until you click.")
     or (ready and why) or (plan and plan.blocking) or why
   if b.SetGlow then b:SetGlow(ready) end
-  local sig = ready and plan.sig or nil
-  b:SetScript("OnClick", function() if sig then UI:ClickFill(sig) end end)
+  -- The plan the player sees; the click handler is set once and reads it.
+  b.fillSig = ready and plan.sig or nil
+  if not rawget(b, "fillClickSet") then
+    b:SetScript("OnClick", function(self) local s = rawget(self, "fillSig"); if s then UI:ClickFill(s) end end)
+    b.fillClickSet = true
+  end
   -- After a change the button waits a moment; refresh when it may be clicked again.
   if ready and pause > 0 and not self.fillPauseQueued and C_Timer and C_Timer.After then
     self.fillPauseQueued = true
@@ -3004,7 +3008,9 @@ function UI:RenderFillPlan(list, plan, ctx)
     list:Header("Group after")
     local j = plan.judge
     local mustOK = {}
-    for _, row in ipairs(j.mustRows) do if row.status ~= "missing" then mustOK[#mustOK + 1] = row.label end end
+    for _, row in ipairs(j.mustRows) do
+      if row.status ~= "missing" then mustOK[#mustOK + 1] = row.label .. (row.status == "thin" and (HEX.warn .. " (thin)|r") or "") end
+    end
     if #j.mustRows > 0 then
       list:Add(TEX_OK .. " Musts: " .. table.concat(mustOK, ", "), { size = 11, gap = 2, indent = 4 })
     end
@@ -3452,7 +3458,8 @@ function UI:RefreshApplicants()
   for _, ev in ipairs(allEvals) do byID[ev.applicantID] = ev end
   local shownList, hidden = {}, 0
   for _, ev in ipairs(allEvals) do
-    if view.hidePoor and ev.rating and ev.rating.key == "poor" then hidden = hidden + 1
+    -- A player in the Fill plan always shows, so the band never names a hidden card.
+    if view.hidePoor and ev.rating and ev.rating.key == "poor" and not inPlan[ev.applicantID] then hidden = hidden + 1
     else shownList[#shownList + 1] = ev end
   end
   local Avg = ns.ApplicantFit.Avg
@@ -4016,8 +4023,11 @@ function UI:RenderFinderPlanView(ctx)
   end
   local j = plan.judge
   local side = { HEX.accent .. "GROUP AFTER|r" }
+  local thinMusts = 0
+  for _, row in ipairs(j.mustRows) do if row.status == "thin" then thinMusts = thinMusts + 1 end end
   local musts = #j.mustRows > 0 and (TEX_OK .. " Musts: " .. (plan.musts.lust and "Bloodlust" or "")
-    .. (#plan.musts.reqs > 0 and ((plan.musts.lust and ", " or "") .. #plan.musts.reqs .. " boss need" .. (#plan.musts.reqs == 1 and "" or "s")) or "")) or nil
+    .. (#plan.musts.reqs > 0 and ((plan.musts.lust and ", " or "") .. #plan.musts.reqs .. " boss need" .. (#plan.musts.reqs == 1 and "" or "s")) or "")
+    .. (thinMusts > 0 and (HEX.warn .. " (" .. thinMusts .. " thin)|r") or "")) or nil
   if musts then side[#side + 1] = musts end
   side[#side + 1] = TEX_OK .. " Passes " .. FG.LEVEL_LABEL[plan.level]
   if #j.thin > 0 then side[#side + 1] = TEX_WAIT .. " " .. #j.thin .. " thin: " .. table.concat(j.thin, ", ") end
@@ -4088,6 +4098,7 @@ function UI:BuildFillPopup()
   f.after = Text(f, 11); f.after:SetPoint("TOPLEFT", 12, -110); f.after:SetPoint("RIGHT", -12, 0); f.after:SetWordWrap(false)
   f.fill = Button(f, "Fill group", 150, 24)
   f.fill:SetPoint("BOTTOMRIGHT", -10, 8)
+  if f.fill.SetMotionScriptsWhileDisabled then f.fill:SetMotionScriptsWhileDisabled(true) end  -- the tooltip says why it's off
   Glow(f.fill)
   f.review = Button(f, "Review", 110, 24, function()
     UI:Show("applicants"); UI.ap.showPlan = true; UI:QueueRefresh(); f:Hide()
@@ -5421,8 +5432,12 @@ local function FillS() return S().fill end
 function UI:FillMustsDungeon()
   local dk = self.fillMustsDk
   if dk and DD.list[dk] then return dk, "picked" end
-  local live = ns:GetEffectiveDungeon(true)
-  if live and DD.list[live] then return live, "your listing" end
+  -- Named by where it came from (it said "your listing" for all three before the 1.4.1 review).
+  local live, src = ns:GetEffectiveDungeon(true)
+  if live and DD.list[live] then
+    if src == "manual" then return live, "your pick on the Applicants tab" end
+    return live, ns.state.autoSource == "zone" and "the dungeon you're in" or "your listing"
+  end
   local key = ns:OwnKeystoneDungeon()
   if key and DD.list[key] then return key, "your keystone" end
   return DD.order[1], "pick one"
@@ -5539,13 +5554,23 @@ function UI:BuildSettings_fill(f)
     SetFontSize(src.text, 11)
     src:SetPoint("TOPLEFT", x2 + 22, yy - 22)
     src.tooltip = "Where the minimum comes from: suggested for the key, your listing's own minimum, or a number you set"
+    -- "-" / "+" switch to Custom, stepping from the number shown: the value in force (Suggested
+    -- or From my listing) when the source isn't Custom yet, else the saved number (1.4.1 review, R3).
+    local function stepFrom()
+      local c = FillS()[k]
+      if c.source ~= "custom" then
+        local fl = FG:Filters(nil, ns.ApplicantFit:GetKeyLevel((UI:FillMustsDungeon())))[k]
+        if fl and fl.on and fl.value then return fl.value end
+      end
+      return tonumber(c.value) or 0
+    end
     local minus = Button(f, "-", 22, 20, function()
-      local c = FillS()[k]; c.source = "custom"; c.value = math.max(0, (tonumber(c.value) or 0) - step); ns:Fire("FILL_SETTINGS_CHANGED"); UI:RefreshSettings()
+      local c = FillS()[k]; local v = stepFrom(); c.source = "custom"; c.value = math.max(0, v - step); ns:Fire("FILL_SETTINGS_CHANGED"); UI:RefreshSettings()
     end)
     minus:SetPoint("LEFT", src, "RIGHT", 8, 0)
     local val = Text(f, 12, C.text, "CENTER"); val:SetPoint("LEFT", minus, "RIGHT", 2, 0); val:SetWidth(50)
     local plus = Button(f, "+", 22, 20, function()
-      local c = FillS()[k]; c.source = "custom"; c.value = (tonumber(c.value) or 0) + step; ns:Fire("FILL_SETTINGS_CHANGED"); UI:RefreshSettings()
+      local c = FillS()[k]; local v = stepFrom(); c.source = "custom"; c.value = v + step; ns:Fire("FILL_SETTINGS_CHANGED"); UI:RefreshSettings()
     end)
     plus:SetPoint("LEFT", val, "RIGHT", 2, 0)
     minus.tooltip = "Lower (sets a custom number)"; plus.tooltip = "Raise (sets a custom number)"

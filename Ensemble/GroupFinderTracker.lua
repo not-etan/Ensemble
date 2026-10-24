@@ -335,7 +335,13 @@ function Tracker:Rescan()
           local s = Readable(GetInspectSpecialization(unit))
           if type(s) == "number" and s > 0 then specID = s end
         end
-        if not specID then specID = specByName[FullName(unit) or ""] end
+        if not specID then
+          -- From their application (they joined from your listing). Used once: it moves to the
+          -- per-player cache, so a spec change (which clears that) can't bring the old one back.
+          local full = FullName(unit)
+          specID = full and specByName[full]
+          if specID and guid then specByName[full] = nil end
+        end
         if specID and guid then specByGUID[guid] = specID end
       end
       if type(specID) ~= "number" or not ns.UD:GetSpec(specID) then specID = nil end
@@ -493,6 +499,9 @@ frame:SetScript("OnEvent", function(_, event, arg1)
     if arg1 and arg1 ~= "player" then
       local guid = Readable(UnitGUID(arg1))
       if guid then specByGUID[guid] = nil end
+      -- And the spec from their application, if it's still here (1.4.1 review, R2).
+      local full = FullName(arg1)
+      if full then specByName[full] = nil end
     end
     Tracker:RequestUpdate()
   elseif event == "PLAYER_REGEN_ENABLED" then

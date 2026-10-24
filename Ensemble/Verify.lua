@@ -477,13 +477,21 @@ local function CheckFill()
   local ls = FG.lastSound
   if ls then
     local NAMES = { chime = "Ensemble chime", readycheck = "game ready check" }
-    Add(ls.played == ls.choice and "OK" or "WARN", string.format("last group-ready sound: %s%s", NAMES[ls.played] or "nothing played",
-      ls.played == ls.choice and "" or (" (picked: " .. tostring(NAMES[ls.choice] or ls.choice) .. ")")))
+    if ls.soundOff then
+      -- Neither sound would play: game sound (or the Master channel) is off, not a file problem.
+      Add("INFO", "last group-ready sound: nothing played - the game wasn't playing sounds (game sound or the Master channel off?)")
+    else
+      Add(ls.played == ls.choice and "OK" or "WARN", string.format("last group-ready sound: %s%s", NAMES[ls.played] or "nothing played",
+        ls.played == ls.choice and "" or (" (picked: " .. tostring(NAMES[ls.choice] or ls.choice) .. ")")))
+    end
   end
   local mode = FG:InviteMode()
   local learned = ns.db and ns.db.fillInvite
   if mode == "one" then
     Add("INFO", "invites: one per click on build " .. tostring(learned and learned.build) .. " (" .. tostring(learned and learned.reason) .. ")")
+  elseif learned and learned.build == FG.GameBuild() and learned.oneAtATime == false then
+    -- A one-click fill already went through on this build (kept across reloads since 1.4.1).
+    Add("OK", "invites: one click sends the whole plan (seen on build " .. tostring(learned.build) .. ": " .. tostring(learned.reason) .. ")")
   else
     Add("INFO", "invites: one click sends the whole plan" .. (learned and learned.build ~= FG.GameBuild() and " (re-testing on this build)" or " (untested on this build until the first fill)"))
   end

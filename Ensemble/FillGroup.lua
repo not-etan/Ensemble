@@ -424,6 +424,10 @@ function FG:Judge(r, level, musts, settings)
     out.mustRows[#out.mustRows + 1] = { label = label, status = st, req = req }
     if st == "missing" or (level == "strict" and st == "thin") then
       fail({ label = label, status = st, sev = req.severity, must = true, keys = ReqKeys(req) })
+    elseif st == "thin" then
+      -- A thin must passes below Strict, but it's still thin: listed with the rest, never
+      -- shown as covered (1.4.1 review, R7; the never-hide-a-critical-detail rule).
+      out.thin[#out.thin + 1] = label .. " (must)"
     end
   end
   -- The level: dungeon requirements (visible ones), then the generic needs. A requirement
@@ -473,10 +477,15 @@ end
 -- Need specs: { keys, min, notMissing, covered, label, must, short = bool (rotational kicks) }.
 -- Each test is a necessary condition of the full judge, so a group the counts rule out could
 -- never pass; groups they let through still get the full analysis.
+-- `solid` (1.4.1 review, R4): where the level fails a THIN need of that severity, a fallback
+-- (Intercession) can't make it pass, so only solid sources count toward it. Then a pool whose
+-- only battle rez is Intercession shows as a pool gap at Strict instead of sending every group
+-- to the full analysis.
 local function BuildSpecs(base, level, musts, settings)
   local specs = {}
   local crit = H().CRITICAL_SOLE_PROVIDER_IS_THIN
-  local function minFor(req)
+  -- A must's sole critical source is thin (MustStatus counts solid sources only), so 2 here.
+  local function mustMin(req)
     local m = req.minProviders or 1
     if req.severity == "critical" and crit then m = math.max(m, 2) end
     return m
@@ -485,8 +494,9 @@ local function BuildSpecs(base, level, musts, settings)
     specs[#specs + 1] = { keys = { "bloodlust" }, min = 1, notMissing = true, label = "Bloodlust", must = true }
   end
   for _, req in ipairs(musts and musts.reqs or {}) do
-    specs[#specs + 1] = { keys = ReqKeys(req), min = minFor(req), notMissing = req.confidence == "verified",
-      covered = level == "strict", label = (musts.labels and musts.labels[req.id]) or (UD:CapLabel(req.need) .. " for " .. CastName(req)),
+    local strict = level == "strict"
+    specs[#specs + 1] = { keys = ReqKeys(req), min = mustMin(req), notMissing = req.confidence == "verified",
+      covered = strict, solid = strict, label = (musts.labels and musts.labels[req.id]) or (UD:CapLabel(req.need) .. " for " .. CastName(req)),
       must = true }
   end
   local isMust = {}
@@ -505,14 +515,18 @@ local function BuildSpecs(base, level, musts, settings)
       local nm = FG.LevelFails(level, "missing", sev) and not it.unconfirmed
       local cv = FG.LevelFails(level, "thin", sev)
       if nm or cv then
-        specs[#specs + 1] = { keys = ReqKeys(it.req), min = minFor(it.req), notMissing = nm, covered = cv,
+        -- Only minProviders here, not the critical "sole source is thin" 2: the analysis applies
+        -- that rule to every source, pets and conditional ones included, which these counts leave
+        -- out (one solid source plus a pet's passes the judge; review, October 24, 2026).
+        specs[#specs + 1] = { keys = ReqKeys(it.req), min = it.req.minProviders or 1, notMissing = nm, covered = cv, solid = cv,
           label = UD:CapLabel(it.req.need) .. " for " .. CastName(it.req) }
       end
     end
   end
   for _, g in ipairs(GENERIC) do
     if GenericOn(g, settings) and not (g.cap == "bloodlust" and musts and musts.lust) and FG.LevelFails(level, "missing", g.sev) then
-      specs[#specs + 1] = { keys = { g.cap }, min = 1, notMissing = true, label = UD:CapLabel(g.cap), generic = true }
+      specs[#specs + 1] = { keys = { g.cap }, min = 1, notMissing = true, label = UD:CapLabel(g.cap), generic = true,
+        solid = FG.LevelFails(level, "thin", g.sev) }
     end
   end
   return specs
@@ -535,9 +549,12 @@ local function MemberCounts(m, specs, settings)
       if sp.short then
         for _, e in ipairs(UD:Sources(profile, "interrupt", settings) or {}) do if not e.long then hit = true end end
       elseif not pending then
-        -- Fallbacks count here too: this is only a quick rule-out, never the final word.
+        -- Fallbacks count here too (this is only a quick rule-out, never the final word), except
+        -- where a thin need fails the level (sp.solid): there a fallback can't pass it.
         for _, k in ipairs(sp.keys) do
-          for _, e in ipairs(UD:Sources(profile, k, settings) or {}) do if SolidSource(e) or e.fallback then hit = true end end
+          for _, e in ipairs(UD:Sources(profile, k, settings) or {}) do
+            if SolidSource(e) or (e.fallback and not sp.solid) then hit = true end
+          end
         end
       end
     end
@@ -557,6 +574,8 @@ local function CheapFails(specs, counts)
   end
   return n
 end
+-- For the tests: the cheap counts must never rule out a group the full judge would pass.
+FG.BuildSpecs, FG.MemberCounts, FG.CheapFails = BuildSpecs, MemberCounts, CheapFails
 
 ---------------------------------------------------------------------------
 -- The plan
@@ -688,13 +707,44 @@ function FG:Plan(ctx, evals, settings)
     if x.ev.score ~= y.ev.score then return x.ev.score > y.ev.score end
     return (x.ev.members[1].firstSeen or 0) < (y.ev.members[1].firstSeen or 0)
   end)
-  local kept, taken = {}, {}
+  local kept, taken, cut = {}, {}, {}
   for _, c in ipairs(cands) do
     if #c.ev.members > 1 then kept[#kept + 1] = c
     else
       local r = c.ev.roles[1]
       taken[r] = (taken[r] or 0) + 1
-      if taken[r] <= perRole then kept[#kept + 1] = c end
+      if taken[r] <= perRole then kept[#kept + 1] = c else cut[#cut + 1] = c end
+    end
+  end
+  -- Need-aware keep (1.4.1 review, R1): pick rating scores each applicant alone, so the one
+  -- player a must or a Strict need depends on can rank below the cut. For every need the group
+  -- still has to find among applicants, each open role keeps at least one more provider than
+  -- that role could seat (when the pool has them), taking the best-rated cut ones back. The
+  -- search grows by a few players at most; `cut` is already sorted best first.
+  plan.keptBack = 0
+  if #cut > 0 then
+    local back = {}
+    for i, sp in ipairs(specs) do
+      local target = sp.covered and sp.min or (sp.notMissing and 1 or 0)
+      local need = target - (baseCounts[i] or 0)
+      if need > 0 then
+        for _, r in ipairs(ROLES) do
+          if (open[r] or 0) > 0 then
+            local want = math.min(need, open[r]) + 1
+            local have = 0
+            for _, c in ipairs(kept) do if (c.need[r] or 0) > 0 and (c.counts[i] or 0) > 0 then have = have + 1 end end
+            for _, c in ipairs(cut) do
+              if have >= want then break end
+              if not back[c] and c.ev.roles[1] == r and (c.counts[i] or 0) > 0 then
+                back[c] = true; have = have + 1
+              end
+            end
+          end
+        end
+      end
+    end
+    for _, c in ipairs(cut) do
+      if back[c] then kept[#kept + 1] = c; plan.keptBack = plan.keptBack + 1 end
     end
   end
 
@@ -1012,7 +1062,15 @@ function FG:ConfirmFill(rec)
     elseif st == "applied" then stuck = stuck + 1 end
   end
   rec.confirmed, rec.stuck = confirmed, stuck
-  if stuck > 0 and confirmed > 0 then Learn(string.format("%d of %d invites went out", confirmed, #rec.ids)) end
+  if stuck > 0 and confirmed > 0 then Learn(string.format("%d of %d invites went out", confirmed, #rec.ids))
+  elseif stuck == 0 and confirmed == #rec.ids and #rec.errors == 0 and not rec.blocked and ns.db then
+    -- Every invite went out on one click: remember it for this build, so /ens verify still says
+    -- so after a /reload (1.4.1 review, R8). Never replaces a learned "one per click" for the build.
+    local m = ns.db.fillInvite
+    if not (type(m) == "table" and m.oneAtATime and m.build == GameBuild()) then
+      ns.db.fillInvite = { oneAtATime = false, build = GameBuild(), reason = string.format("%d of %d invites went out on one click", confirmed, #rec.ids) }
+    end
+  end
   ns:Fire("FILL_DONE", rec)
 end
 
@@ -1113,16 +1171,23 @@ FG.SOUNDS = { chime = "Ensemble chime", readycheck = "Game ready check" }
 FG.SOUND_ORDER = { "chime", "readycheck" }
 function FG:PlayReadySound(choice)
   choice = choice or FillSettings().soundChoice or "chime"
-  local played
+  local played, chimeDeclined, kitDeclined
   if choice == "chime" and PlaySoundFile then
     local ok, willPlay = pcall(PlaySoundFile, ns.READY_SOUND, "Master")
-    if ok and willPlay then played = "chime" end
+    if ok and willPlay then played = "chime" else chimeDeclined = true end
   end
   if not played and PlaySound then
     local kit = SOUNDKIT and (SOUNDKIT.READY_CHECK or SOUNDKIT.IG_PLAYER_INVITE)
-    if kit and pcall(PlaySound, kit, "Master") then played = "readycheck" end
+    if kit then
+      -- PlaySound's first return is willPlay too: false when game sound (or Master) is off.
+      -- nil (a client that doesn't say) counts as played, as before (1.4.1 review, R6).
+      local ok, willPlay = pcall(PlaySound, kit, "Master")
+      if ok and willPlay ~= false then played = "readycheck" else kitDeclined = true end
+    end
   end
-  FG.lastSound = { choice = choice, played = played }
+  -- Both declined: the game isn't playing sounds right now, not a problem with the chime file.
+  FG.lastSound = { choice = choice, played = played, soundOff = (not played and kitDeclined) or nil,
+    chimeDeclined = chimeDeclined }
   return played
 end
 

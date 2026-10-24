@@ -4865,7 +4865,8 @@ do
   ok(sk.Lumira == "M+ rating 2950 (needs 3250)" and sk.Darik == "item level 300 (needs 305)", "skipped with their reasons")
   ok(p.closest and p.closest.judge.fails[1] and p.closest.judge.fails[1].label == "Battle resurrection (only a fallback)",
     "closest group: only Intercession, which Strict doesn't take")
-  ok(p.blocking == "Closest group: thin Battle resurrection (only a fallback)", "what's stopping it: " .. tostring(p.blocking))
+  -- 1.4.1 review (R4): at Strict a fallback can't count, so it's a pool gap with who could bring it.
+  ok(p.blocking == "Waiting for Battle resurrection: Death Knight, Druid or Warlock", "what's stopping it: " .. tostring(p.blocking))
   -- Intercession passes Standard as a thin battle rez (no DK, Druid or Warlock in the group).
   p = plan(BASE, 10)
   local thinBrez
@@ -5354,6 +5355,260 @@ do
   ok(nsS72.db.settings.fill.soundChoice == "chime", "saved sound choice cleaned")
   PlaySoundFile, PlaySound, SOUNDKIT = nil, nil, nil
   APPLICANTS, LISTING, ROSTER, INSPECT_CACHE = {}, nil, {}, {}
+end
+
+-- 73. 1.4.1 code review fixes (October 24, 2026): the planner never misses a passing group (the
+-- quick counts never rule one out; a need-aware keep after the per-role cut), Strict counts only
+-- solid sources where a fallback can't pass, a party member's spec change after joining from the
+-- listing, the rating/item level steppers, the sound with game sound off, thin musts shown as
+-- thin, a one-click fill remembered, and the small interface fixes.
+do
+  -- A seeded generator of our own, so LuaJIT and Lua 5.1 test the same groups.
+  local seed = 12345
+  local function rnd(n) seed = (seed * 1103515245 + 12345) % 2147483648; return math.floor(seed / 65536) % n + 1 end
+  EnsembleDB = nil
+  ROSTER = { player = { guid = "P", name = "Faelan", class = "WARRIOR", spec = 73, role = "TANK" } }
+  LISTING = "Den of Nalorakk (Mythic Keystone)"
+  APPLICANT_STATUS, APPLICANTS, INSPECT_CACHE = {}, {}, {}
+  local ns73 = boot()
+  local FG, UD, DD, A, H = ns73.FillGroup, ns73.UD, ns73.Dungeons, ns73.Analysis, ns73.Dungeons.HEURISTICS
+  local s = ns73.db.settings
+  local byRole = { TANK = {}, HEALER = {}, DAMAGER = {} }
+  for id, p in pairs(UD.specs) do table.insert(byRole[p.role], { id = id, class = p.class }) end
+  for _, r in pairs(byRole) do table.sort(r, function(a, b) return a.id < b.id end) end
+
+  -- The quick counts are a necessary condition of the judge: a group they rule out never passes.
+  -- (Before the review, a critical need at Strict asked for 2 solid sources while the judge takes
+  -- one solid plus a pet's or a conditional one: Temple of Sethraliss's Magic dispel.)
+  local bad, ruled, passed = 0, 0, 0
+  for _ = 1, 300 do
+    local dk = DD.order[rnd(#DD.order)]
+    local level = FG.LEVELS[rnd(3)]
+    local musts = FG:Musts(dk)
+    local function mem(role, pend)
+      local sp = byRole[role][rnd(#byRole[role])]
+      return { specID = (not pend) and sp.id or nil, classFile = sp.class, role = role, label = role }
+    end
+    local all = { mem("TANK"), mem("HEALER"), mem("DAMAGER"), mem("DAMAGER"), mem("DAMAGER", rnd(12) == 1) }
+    local specs = FG.BuildSpecs(A:Analyze({ all[1] }, dk, s), level, musts, s)
+    local counts = {}
+    for _, m in ipairs(all) do for i, v in ipairs(FG.MemberCounts(m, specs, s)) do counts[i] = (counts[i] or 0) + v end end
+    local cheap = FG.CheapFails(specs, counts)
+    local pass = FG:Judge(A:Analyze(all, dk, s), level, musts, s).pass
+    if cheap > 0 then ruled = ruled + 1 end
+    if pass then passed = passed + 1 end
+    if cheap > 0 and pass then bad = bad + 1 end
+  end
+  ok(bad == 0 and ruled > 50 and passed > 50, string.format("quick counts never rule out a passing group (%d ruled out, %d pass, %d both)", ruled, passed, bad))
+
+  -- The plan against the same search with no per-role cut and no check cap: never "none" when a
+  -- group passes. The cut is 4 per role here so it bites often; the keep-back must be used.
+  local listings = { "Den of Nalorakk (Mythic Keystone)", "Altar of Fangs (Mythic Keystone)", "Kings' Rest (Mythic Keystone)",
+    "Murder Row (Mythic Keystone)", "The Blinding Vale (Mythic Keystone)", "Temple of Sethraliss (Mythic Keystone)",
+    "Voidscar Arena (Mythic Keystone)", "Ruby Life Pools (Mythic Keystone)" }
+  local function plan(apps, level)
+    APPLICANTS = apps
+    ns73.state.keyLevelOverride = level
+    ns73.Tracker:Rescan()
+    ns73.ApplicantFit.ClearCache(); FG.ClearCache()
+    return FG:Current()
+  end
+  local oldPer, oldCap = H.FILL_POOL_PER_ROLE, H.FILL_MAX_FULL_CHECKS
+  local missed, readyBoth, keptBack, lower = 0, 0, 0, 0
+  for t = 1, 12 do
+    LISTING = listings[(t % #listings) + 1]
+    local apps, id = {}, 1
+    for i = 1, 1 + rnd(3) do
+      local sp = byRole.HEALER[rnd(#byRole.HEALER)]
+      apps[id] = { { name = "H" .. i, class = sp.class, role = "HEALER", spec = sp.id, score = 3000 + rnd(600), ilvl = 320 } }; id = id + 1
+    end
+    for i = 1, 8 + rnd(10) do
+      local sp = byRole.DAMAGER[rnd(#byRole.DAMAGER)]
+      apps[id] = { { name = "D" .. i, class = sp.class, role = "DAMAGER", spec = sp.id, score = 3000 + rnd(600), ilvl = 320 } }; id = id + 1
+    end
+    H.FILL_POOL_PER_ROLE, H.FILL_MAX_FULL_CHECKS = 4, 60
+    local p = plan(apps, 14)
+    keptBack = keptBack + (p.keptBack or 0)
+    H.FILL_POOL_PER_ROLE, H.FILL_MAX_FULL_CHECKS = 99, 100000
+    local q = plan(apps, 14)
+    if q.status == "ready" then
+      if p.status ~= "ready" then missed = missed + 1
+      else readyBoth = readyBoth + 1; if p.total < q.total then lower = lower + 1 end end
+    end
+  end
+  H.FILL_POOL_PER_ROLE, H.FILL_MAX_FULL_CHECKS = oldPer, oldCap
+  ok(missed == 0 and readyBoth > 0 and keptBack > 0, string.format("Strict: the cut never hides a passing group (%d missed, %d ready, %d kept back)", missed, readyBoth, keptBack))
+  ok(lower == 0, "and the plan's group is the best total the uncut search finds")
+
+  -- Strict with Intercession the only battle rez: a pool gap with who could bring it, decided by
+  -- the quick counts (no full analyses), not "Closest group: thin Battle resurrection".
+  LISTING = "Kings' Rest (Mythic Keystone)"
+  local pal = {}
+  for i = 1, 3 do pal[i] = { { name = "HP" .. i, class = "PALADIN", role = "HEALER", spec = 65, score = 3300 + i, ilvl = 320 } } end
+  local dps = { { "SHAMAN", 262 }, { "MAGE", 63 }, { "ROGUE", 259 }, { "PRIEST", 258 }, { "DEMONHUNTER", 577 }, { "MONK", 269 }, { "EVOKER", 1467 } }
+  for i, d in ipairs(dps) do pal[#pal + 1] = { { name = "D" .. i, class = d[1], role = "DAMAGER", spec = d[2], score = 3200 + i, ilvl = 320 } } end
+  local p = plan(pal, 14)
+  ok(p.status == "none" and p.checked <= 1 and not p.capped, "Strict, Intercession only: no group, " .. tostring(p.checked) .. " full analyses")
+  ok(p.blocking == "Waiting for Battle resurrection: Death Knight, Druid or Warlock", "Strict: the pool gap names who could bring it: " .. tostring(p.blocking))
+  p = plan(pal, 10)
+  ok(p.status == "ready", "Standard: Intercession still passes as a thin battle rez")
+
+  -- A thin must passes below Strict but is listed as thin, never shown as covered.
+  local req = { id = "T_MUST", need = "interrupt", source = "Test Cast (Test Boss)", severity = "critical", confidence = "verified", minProviders = 2 }
+  local r = { caps = { interrupt = { { index = 1, member = {}, entry = { name = "Kick" } } } }, dungeon = { items = {} }, findings = {} }
+  local j = FG:Judge(r, "standard", { lust = false, reqs = { req }, labels = { T_MUST = "Interrupts for Test Cast" } }, s)
+  local thinMust = false
+  for _, t in ipairs(j.thin) do if t == "Interrupts for Test Cast (must)" then thinMust = true end end
+  ok(j.mustRows[1].status == "thin" and thinMust, "a thin must is in the thin list, marked (must)")
+  j = FG:Judge(r, "strict", { lust = false, reqs = { req }, labels = { T_MUST = "Interrupts for Test Cast" } }, s)
+  ok(not j.pass and j.fails[1].must, "and Strict still stops on it")
+
+  -- A one-click fill that the game took whole is remembered for the build (verify after /reload).
+  ns73.db.fillInvite = nil
+  APPLICANTS = {}
+  ns73.Tracker:Rescan()
+  FG:ConfirmFill({ ids = { 901, 902 }, errors = {}, sent = 2, planned = 2, mode = "all" })
+  local fi = ns73.db.fillInvite
+  ok(fi and fi.oneAtATime == false and fi.build == FG.GameBuild() and FG:InviteMode() == "all", "a whole one-click fill is saved for this build")
+  local report = ns73.Verify:Run()
+  ok(report:find("[OK] invites: one click sends the whole plan (seen on build", 1, true), "verify: the one-click result shows after a reload")
+  ns73.db.fillInvite = { oneAtATime = true, build = FG.GameBuild(), reason = "learned" }
+  FG:ConfirmFill({ ids = { 901, 902 }, errors = {}, sent = 2, planned = 2, mode = "all" })
+  ok(ns73.db.fillInvite.oneAtATime == true, "never replaces a learned one-per-click for the build")
+  ns73.db.fillInvite = nil
+  FG:ConfirmFill({ ids = { 901, 902 }, errors = {}, sent = 2, planned = 2, mode = "all", blocked = "InviteApplicant" })
+  ok(ns73.db.fillInvite == nil, "a blocked fill isn't saved as a success")
+
+  -- Sound with game sound off: neither plays; verify doesn't blame the chime.
+  SOUNDKIT = { READY_CHECK = 8960 }
+  PlaySoundFile = function() return false end
+  PlaySound = function() return false end
+  ok(FG:PlayReadySound("chime") == nil and FG.lastSound.soundOff, "game sound off: nothing played, recorded as sound off")
+  report = ns73.Verify:Run()
+  ok(report:find("[INFO] last group-ready sound: nothing played - the game wasn't playing sounds", 1, true)
+    and not report:find("(picked: Ensemble chime)", 1, true), "verify: sound off, not a chime problem")
+  PlaySound = function() return true end
+  FG:PlayReadySound("chime")
+  report = ns73.Verify:Run()
+  ok(FG.lastSound.played == "readycheck" and report:find("[WARN] last group-ready sound: game ready check (picked: Ensemble chime)", 1, true),
+    "the chime alone won't play: the ready check, and verify says so")
+  PlaySound = function() end
+  ok(FG:PlayReadySound("readycheck") == "readycheck", "a PlaySound that returns nothing still counts as played")
+  PlaySoundFile, PlaySound, SOUNDKIT = nil, nil, nil
+
+  -- A party member who joined from the listing, then changes spec: the old spec doesn't come back.
+  LISTING = "Den of Nalorakk (Mythic Keystone)"
+  APPLICANTS = { [1] = { { name = "Bralia-Stormrage", class = "PALADIN", role = "HEALER", spec = 65, score = 3400, ilvl = 320 } } }
+  local T = ns73.Tracker
+  T:Acquire("test73"); T:Rescan()
+  APPLICANTS = {}
+  ROSTER.party1 = { guid = "G-B", name = "Bralia", class = "PALADIN", spec = 65, role = "HEALER" }
+  local origUnitName = UnitName
+  UnitName = function(u) if u == "party1" then return "Bralia", "Stormrage" end return origUnitName(u) end
+  T:Rescan()
+  local function specOf() for _, m in ipairs(T.members) do if m.guid == "G-B" then return m.specID end end end
+  ok(specOf() == 65, "joined from the listing: the spec from the application")
+  ROSTER.party1.spec, ROSTER.party1.role = 70, "DAMAGER"
+  NOTIFIED = {}
+  local fr
+  for _, f in ipairs(ALLFRAMES) do if f._events and f._events.PLAYER_SPECIALIZATION_CHANGED and f._events.INSPECT_READY then fr = f end end
+  fr._scripts.OnEvent(fr, "PLAYER_SPECIALIZATION_CHANGED", "party1")
+  T:Rescan(); RunTimers()
+  ok(specOf() == nil and #NOTIFIED > 0, "a spec change: the old spec is gone and an inspect is queued")
+  INSPECT_CACHE["G-B"] = 70
+  fr._scripts.OnEvent(fr, "INSPECT_READY", "G-B")
+  T:Rescan()
+  ok(specOf() == 70, "the inspect gives the new spec")
+  UnitName = origUnitName
+  T:Release("test73")
+  ROSTER.party1 = nil
+
+  -- Settings: "+" and "-" step from the number shown (Suggested 3250 at +17 -> 3300, not 2550).
+  ns73.state.keyLevelOverride = 17
+  APPLICANTS = {}
+  T:Rescan()
+  local UI73 = ns73.UI
+  UI73:Show("applicants"); RunTimers()
+  UI73:OpenSettings("fill"); RunTimers()
+  local fr73 = UI73.fillFilterRows.rating
+  ok(fr73.val:GetText() == "3250", "suggested minimum for +17 shown: " .. tostring(fr73.val:GetText()))
+  local plusB, minusB
+  for _, f in ipairs(ALLFRAMES) do
+    if rawget(f, "tooltip") == "Raise (sets a custom number)" and not plusB then plusB = f end
+    if rawget(f, "tooltip") == "Lower (sets a custom number)" and not minusB then minusB = f end
+  end
+  plusB:Click(); RunTimers()
+  ok(s.fill.rating.source == "custom" and s.fill.rating.value == 3300 and fr73.val:GetText() == "3300", "\"+\" from Suggested 3250: Custom 3300")
+  minusB:Click(); minusB:Click(); RunTimers()
+  ok(s.fill.rating.value == 3200, "then \"-\" steps from the custom number")
+  UI73:ResetSettingsSection("fill")
+
+  -- The musts note names where the dungeon came from.
+  UI73.fillMustsDk = nil
+  ns73.state.liveDungeon = "MurderRow"
+  local dk, how = UI73:FillMustsDungeon()
+  ok(dk == "MurderRow" and how == "your pick on the Applicants tab", "musts follow a hand pick, and say so: " .. tostring(how))
+  ns73.state.liveDungeon = "AUTO"
+  ns73.state.autoDungeon, ns73.state.autoSource = "AltarOfFangs", "zone"
+  dk, how = UI73:FillMustsDungeon()
+  ok(dk == "AltarOfFangs" and how == "the dungeon you're in", "musts follow the dungeon you're in: " .. tostring(how))
+  ns73.state.autoSource = "listing"
+  dk, how = UI73:FillMustsDungeon()
+  ok(how == "your listing", "and your listing")
+  ns73.state.autoDungeon, ns73.state.autoSource = nil, nil
+
+  -- The pop-up's Fill group button keeps its tooltip while off.
+  local motion = false
+  local oldCF = CreateFrame
+  CreateFrame = function(...)
+    local f = oldCF(...)
+    rawset(f, "SetMotionScriptsWhileDisabled", function(_, v) if v then motion = true end end)
+    return f
+  end
+  UI73.fillPopup = nil
+  UI73:BuildFillPopup()
+  CreateFrame = oldCF
+  ok(motion, "pop-up: the Fill group button shows its tooltip while off")
+
+  -- "Hide Poor" never hides a player in the Fill plan (the band names them).
+  LISTING = "Den of Nalorakk (Mythic Keystone)"
+  APPLICANTS = {
+    [1] = { { name = "Poorly", class = "ROGUE", role = "DAMAGER", spec = 259, score = 3000, ilvl = 320 } },
+    [2] = { { name = "Other", class = "MAGE", role = "DAMAGER", spec = 63, score = 3000, ilvl = 320 } },
+  }
+  T:Rescan()
+  local Fit = ns73.ApplicantFit
+  local origLive, origCurrent = Fit.ForLiveGroup, FG.Current
+  Fit.ForLiveGroup = function(self)
+    local ctx, list = origLive(self)
+    for _, ev in ipairs(list) do
+      local rt = {}
+      for k, v in pairs(ev.rating) do rt[k] = v end
+      rt.key = "poor"; ev.rating = rt
+    end
+    return ctx, list
+  end
+  FG.Current = function()
+    local _, list = Fit:ForLiveGroup()
+    local pick
+    for _, ev in ipairs(list) do if ev.members[1].name == "Poorly" then pick = ev end end
+    return { status = "none", picks = { pick }, skipped = {}, pending = {}, poolGaps = {}, level = "standard", blocking = "test" }
+  end
+  s.applicantView.hidePoor = true
+  UI73:Show("applicants"); UI73:Refresh(); RunTimers()
+  local shown, poorlyShown = 0, false
+  for _, c in ipairs(UI73.ap.cards) do
+    if c:IsShown() then
+      shown = shown + 1
+      if tostring(c.name:GetText()):find("Poorly", 1, true) then poorlyShown = true end
+    end
+  end
+  ok(poorlyShown and shown == 1, "Hide Poor: the planned player stays, the other Poor one is hidden (" .. shown .. " shown)")
+  Fit.ForLiveGroup, FG.Current = origLive, origCurrent
+  s.applicantView.hidePoor = false
+  UI73:Hide()
+  ns73.state.keyLevelOverride = nil
+  APPLICANTS, LISTING, ROSTER, INSPECT_CACHE, NOTIFIED = {}, nil, {}, {}, {}
 end
 
 print(string.format("%d passed, %d failed", passes, fails))
