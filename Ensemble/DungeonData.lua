@@ -735,7 +735,11 @@ DD.AREAS = {
 }
 
 -- Default Bloodlust timing, shown until the player sets their own (Plan or Dungeon tab).
--- `at` is where it goes: "b<N>" = boss N, "t<N>" = the trash before boss N. Method.gg and
+-- `at` is where it goes: "b<N>" = boss N, "t<N>" = the trash before boss N. For a boss inside
+-- a DD.BOSS_ORDER group, N is a place in the order, not a boss: the default follows whichever
+-- boss the player does there (October 24, 2026, the author: The Blinding Vale's first Bloodlust
+-- goes on the first boss, Ikuzz or the Trinity). `notes` = { [boss index] = note } gives each
+-- boss that can end up there its own note; `note` is the fallback. Method.gg and
 -- Icy Veins give no timing; these follow WoWCarry's Season 2 guides (one source, so they
 -- show as suggestions). Ruby Life Pools has no guide timing: first and last boss.
 DD.LUST = {
@@ -743,7 +747,7 @@ DD.LUST = {
   MurderRow       = { { at = "b1", note = "when Nibbles hits 20% and Kystia is stunned" },
                       { at = "b4", note = "after her first gateway, once the shield ends" } },
   DenOfNalorakk   = { { at = "b1", note = "on pull" }, { at = "b3", note = "on pull" } },
-  TheBlindingVale = { { at = "b1", note = "Ikuzz at 50% if you go there first; Trinity after the first garden" },
+  TheBlindingVale = { { at = "b1", notes = { [1] = "after the first garden", [2] = "at 50%" } },
                       { at = "b3", note = "at 40%" }, { at = "b4", note = "if it's back" } },
   VoidscarArena   = { { at = "t1", note = "the opening arena champion pull" }, { at = "b2", note = "on pull" },
                       { at = "b3", note = "on pull, if it's back" } },

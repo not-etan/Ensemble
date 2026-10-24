@@ -116,15 +116,31 @@ local function SortUses(dk, list)
   return list
 end
 
+-- A default entry at a boss inside an order group stands for that place in the order (the
+-- data's default order, where place N is boss N): it resolves to the boss the player does
+-- there, with that boss's own note (`notes[boss]`, else `note`). Other entries are unchanged.
+local function ResolveDefault(dk, u)
+  local kind, n = tostring(u.at):match("^(%a)(%d+)$")
+  n = tonumber(n)
+  local at = u.at
+  local BC = ns.BossCards
+  if n and BC and BC:OrderGroup(dk, n) then
+    local bi = BC:Order(dk)[n]
+    if bi then at = kind .. bi end
+  end
+  local bi = tonumber(tostring(at):match("%d+"))
+  local note = (type(u.notes) == "table" and bi and u.notes[bi]) or u.note
+  return { at = at, note = note }
+end
+
 -- The plan for a dungeon: the player's own (db.lust[dk]) or the default, in the player's
 -- boss order (so "Lust 1" is the first one you meet). Returns uses, custom.
 function WT:Lust(dk)
   local own = ns.db and ns.db.lust and ns.db.lust[dk]
   if type(own) == "table" then return own, true end
-  local def = DD().LUST[dk] or {}
-  if not (ns.BossCards and ns.BossCards:IsCustomOrder(dk)) then return def, false end
   local copy = {}
-  for i, u in ipairs(def) do copy[i] = u end
+  for i, u in ipairs(DD().LUST[dk] or {}) do copy[i] = ResolveDefault(dk, u) end
+  if not (ns.BossCards and ns.BossCards:IsCustomOrder(dk)) then return copy, false end
   return SortUses(dk, copy), false
 end
 

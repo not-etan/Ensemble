@@ -4651,5 +4651,66 @@ do
     "wiki: the Mythic Dungeon Tools route callout is gone")
 end
 
+-- 69. The Blinding Vale's default Bloodlust follows the first boss (October 24, the author):
+-- Ikuzz first -> on Ikuzz "at 50%"; the Trinity first -> on the Trinity "after the first
+-- garden". Marker, Plan line, boss window and party post all agree; a saved plan stays put.
+do
+  EnsembleDB = nil
+  local ns69 = boot()
+  local WT, BC, BW = ns69.Walkthrough, ns69.BossCards, ns69.BossWindow
+  local dk = "TheBlindingVale"
+  local bosses = BC:Bosses(dk)
+  ok(bosses[1].name == "Lightblossom Trinity" and bosses[2].name == "Ikuzz the Light Hunter", "Vale data order: Trinity 1, Ikuzz 2")
+  local function check(firstIdx, note, label)
+    local uses, custom = WT:Lust(dk)
+    ok(not custom and uses[1].at == "b" .. firstIdx and uses[1].note == note, label .. ": default lust 1 on " .. bosses[firstIdx].name)
+    -- Walkthrough marker on the first boss step.
+    local marked
+    for _, st in ipairs(WT:Build(dk).steps) do
+      if st.kind == "boss" and #WT:LustAt(dk, st) > 0 and not marked then marked = st end
+    end
+    ok(marked and marked.boss == firstIdx and marked.pos == 1, label .. ": walkthrough marker on the first boss")
+    -- Plan / Dungeon tab line, party post, boss window.
+    ok(WT:LustText(dk, uses[1]) == bosses[firstIdx].name .. " (" .. note .. ")", label .. ": Plan line names that boss and its note")
+    local chat = WT:LustChat(dk)
+    ok(chat and chat:find("^Lust: " .. bosses[firstIdx].name:gsub("%p", "%%%0") .. " %(" .. note:gsub("%p", "%%%0") .. "%)"),
+      label .. ": party post starts on that boss: " .. tostring(chat))
+    local rows = BW:LustRows(dk, "b" .. firstIdx)
+    local other = BW:LustRows(dk, "b" .. (3 - firstIdx))
+    ok(#rows == 1 and rows[1].text == "Bloodlust: " .. note and #other == 0, label .. ": boss window shows it on that boss only")
+  end
+  check(1, "after the first garden", "Trinity first")
+  BC:MoveBoss(dk, 2, -1)
+  check(2, "at 50%", "Ikuzz first")
+  -- The rest of the plan is unchanged (Ruia at 40%, Ziekket if it's back).
+  local uses = WT:Lust(dk)
+  ok(#uses == 3 and uses[2].at == "b3" and uses[2].note == "at 40%" and uses[3].at == "b4", "the later defaults stay on Ruia and Ziekket")
+  ok(ns69.db.lust == nil or ns69.db.lust[dk] == nil, "showing the default saves nothing")
+  -- A saved plan stays where the player put it when the order changes.
+  WT:SetLustNote(dk, 1, "my note")
+  local own = ns69.db.lust[dk]
+  ok(own[1].at == "b2" and own[1].note == "my note", "editing copies the resolved default (Ikuzz)")
+  BC:MoveBoss(dk, 1, -1)   -- Trinity first again
+  uses = WT:Lust(dk)
+  local onIkuzz
+  for _, u in ipairs(uses) do if u.at == "b2" and u.note == "my note" then onIkuzz = true end end
+  ok(onIkuzz and select(2, WT:Lust(dk)) == true, "a saved plan doesn't move with the order")
+  WT:ResetLust(dk)
+  ok(WT:Lust(dk)[1].at == "b1" and WT:Lust(dk)[1].note == "after the first garden", "reset: back to the default, on the first boss")
+  -- Data-driven: dungeons without an order choice keep their defaults as written.
+  local ao = WT:Lust("AltarOfFangs")
+  ok(ao[1].at == "b1" and ao[1].note == "on pull" and ao[2].at == "b3", "fixed-order dungeons unchanged")
+  -- Every default note entry names a real boss.
+  local badNotes = {}
+  for dk2, list in pairs(ns69.Dungeons.LUST) do
+    for _, u in ipairs(list) do
+      for bi in pairs(u.notes or {}) do if not BC:Bosses(dk2)[bi] then badNotes[#badNotes + 1] = dk2 .. ":" .. tostring(bi) end end
+      if u.notes then ok(BC:OrderGroup(dk2, tonumber(u.at:match("%d+"))) ~= nil, dk2 .. ": per-boss notes only inside an order group") end
+    end
+  end
+  ok(#badNotes == 0, "per-boss notes name real bosses: " .. table.concat(badNotes, ","))
+  ns69.db.bossOrder = {}
+end
+
 print(string.format("%d passed, %d failed", passes, fails))
 return fails
