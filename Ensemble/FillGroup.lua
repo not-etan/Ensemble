@@ -1094,11 +1094,12 @@ function FG:CheckAutoFill()
     FG.waitTimer = nil
     FG.pendingSig = nil
     local p = FG:Current()
-    if FG.armed and p and p.status == "ready" then
+    if FG.armed and p and p.status == "ready" and FG.notifiedSig ~= p.sig then
       FG.notifiedSig = p.sig
       FG:Notify(p)
     end
   end
+  if self.waitTimer then self.waitTimer:Cancel(); self.waitTimer = nil end
   if wait <= 0 or not (C_Timer and C_Timer.NewTimer) then fire()
   else self.waitTimer = C_Timer.NewTimer(wait, fire) end
 end

@@ -4923,5 +4923,251 @@ do
   ns70.Tracker:Rescan()
 end
 
+-- 71. Fill group in the interface and the invite flow (1.4.0): the band, IN PLAN / SKIPPED,
+-- the Fill plan, the click (re-plan, unchanged group only, the pause), one click for every
+-- invite or one per click once the game shows it takes only one, the blocked event, the tab
+-- dot, Auto-fill (arming, the wait, the sound), the docked panel turning into the plan, the
+-- pop-up, Settings > Fill group, saved-data cleaning, /ens verify.
+do
+  EnsembleDB = nil
+  ROSTER = { player = { guid = "P", name = "Faelan", class = "WARRIOR", spec = 73, role = "TANK" } }
+  LISTING = "Den of Nalorakk (Mythic Keystone)"
+  APPLICANT_STATUS = {}
+  APPLICANTS = {
+    [1] = { { name = "Bralia", class = "PALADIN", role = "HEALER", spec = 65, score = 3464, ilvl = 328 } },
+    [2] = { { name = "Bramok", class = "SHAMAN", role = "DAMAGER", spec = 262, score = 3390, ilvl = 324 } },
+    [3] = { { name = "Kelor", class = "MONK", role = "DAMAGER", spec = 269, score = 3429, ilvl = 326 } },
+    [4] = { { name = "Doriah", class = "PRIEST", role = "DAMAGER", spec = 258, score = 3453, ilvl = 325 } },
+    [5] = { { name = "Faren", class = "DEMONHUNTER", role = "DAMAGER", spec = 577, score = 3461, ilvl = 325 } },
+    [6] = { { name = "Lumira", class = "PRIEST", role = "HEALER", spec = 257, noScore = true, ilvl = 320 } },
+    [8] = { { name = "Oakra", class = "DRUID", role = "HEALER", spec = 105, score = 3300, ilvl = 320 } },
+  }
+  BUILD = "70448"
+  GetBuildInfo = function() return "12.1.5", BUILD, "Oct 1 2026", 120105 end
+  SOUNDKIT = { READY_CHECK = 8960 }
+  SOUNDS = {}
+  PlaySound = function(id) SOUNDS[#SOUNDS + 1] = id end
+  local invited = {}
+  C_LFGList.InviteApplicant = function(id) invited[#invited + 1] = id end
+  local ns71 = boot()
+  local UI71, FG = ns71.UI, ns71.FillGroup
+  ns71.state.keyLevelOverride = 10
+  NOW = 1000
+  UI71:Show("applicants"); RunTimers()
+  local ap = UI71.ap
+  local plan = ap.plan
+  ok(plan and plan.status == "ready" and ap.band:IsShown(), "hosting: the Fill group band shows, a group passes")
+  ok(ap.band.title:GetText():find("Full group ready", 1, true) and ap.band.fill.text:GetText() == "Fill group (4)", "band: ready, Fill group (4)")
+  ok(ap.band.fill.glowOn == true, "the button glows while a plan passes")
+  ok(not ap.band.fill:IsEnabled(), "the button waits a moment after the plan changes")
+  NOW = NOW + 2
+  RunTimers(); UI71:Refresh()
+  ok(ap.band.fill:IsEnabled(), "then it can be clicked")
+  ok(ap.context:GetText():find("Pool covers every need", 1, true), "context line: the pool check")
+  local top
+  for _, pt in ipairs(rawget(ap.sf, "_points") or {}) do if pt[1] == "TOPLEFT" then top = pt end end
+  ok(top and top[3] == -(8 + 56 + 6), "the cards start under the band")
+  -- Cards: IN PLAN with an accent edge; SKIPPED dimmed with the reason.
+  local inPlanN, skippedCard = 0, nil
+  for _, c in ipairs(ap.cards) do
+    if c:IsShown() and c.chip:IsShown() then
+      if c.chip.text:GetText() == "IN PLAN" then inPlanN = inPlanN + 1 end
+      if c.chip.text:GetText() == "SKIPPED" then skippedCard = c end
+    end
+  end
+  ok(inPlanN == 4, "four cards marked IN PLAN")
+  ok(skippedCard and skippedCard:GetAlpha() < 1 and skippedCard.headline:GetText():find("Skipped: no M+ rating from the game", 1, true),
+    "a skipped applicant stays on the list, dimmed, with the reason")
+  -- The band opens the Fill plan.
+  ap.band:Click(); RunTimers()
+  local function detail() local t = {} for i = 1, ap.detail.used do t[#t + 1] = ap.detail.pool[i]:GetText() end return table.concat(t, "\n") end
+  ok(ap.detailTitle:GetText() == "FILL PLAN" and detail():find("4 invites, sent together with one click", 1, true)
+    and detail():find("WHY THIS GROUP", 1, true) and detail():find("(you)", 1, true) and detail():find("SKIPPED BY YOUR FILTERS (1)", 1, true)
+    and detail():find("Ensemble only invites when you click.", 1, true), "Fill plan: the group, why, who was skipped, the invite rule")
+  ap.cards[1]:Click(); RunTimers()
+  ok(ap.detailTitle:GetText() == "APPLICANT FIT", "clicking a card goes back to Applicant fit")
+
+  -- The click: one click sends every invite (first fill on this build).
+  local sig = ap.plan.sig
+  ok(FG:InviteMode() == "all", "first fill on a build: one click for the whole plan")
+  PRINTED = ""
+  ap.band.fill:Click()
+  ok(#invited == 4 and FG.lastFill.sent == 4 and PRINTED:find("Invited 4 of 4.", 1, true), "Fill group: four invites from one click")
+  ok(FG:LastFillText():find("4 of 4 invites sent", 1, true), "the last fill is recorded for /ens verify")
+  -- The game took only the first one: from now on, one per click on this build.
+  APPLICANT_STATUS = { [invited[1]] = "invited" }
+  RunTimers()
+  ok(FG.lastFill.confirmed == 1 and FG.lastFill.stuck == 3 and FG:InviteMode() == "one" and ns71.db.fillInvite.build == "70448",
+    "only 1 of 4 taken: invite one per click on this build")
+  ok(FG:LastFillText():find("3 not taken", 1, true), "verify line says how many weren't taken")
+  ns71.Tracker:Rescan(); ns71.ApplicantFit.ClearCache(); FG.ClearCache()
+  NOW = NOW + 2
+  local p2 = FG:Current()
+  ok(#p2.pending == 1 and FG:ButtonText(p2) == "Invite next (2 of 4)", "button: Invite next (2 of 4)")
+  invited = {}
+  FG:Fill(p2.sig)
+  ok(#invited == 1, "one invite per click")
+  -- A new game build tests again.
+  BUILD = "70500"
+  ok(FG:InviteMode() == "all", "a new game build: one click for everything again")
+  BUILD = "70448"
+  -- The click re-plans and invites only the group shown; never right after a change.
+  APPLICANT_STATUS = {}
+  ns71.Tracker:Rescan(); ns71.ApplicantFit.ClearCache(); FG.ClearCache()
+  ns71.db.fillInvite = nil
+  invited = {}
+  local ok1, msg1 = FG:Fill("DenOfNalorakk:9,99")
+  ok(not ok1 and msg1:find("The group changed", 1, true) and #invited == 0, "a changed group isn't invited")
+  local cur = FG:Current()
+  FG.planChangedAt = NOW
+  local ok2, msg2 = FG:Fill(cur.sig)
+  ok(not ok2 and msg2:find("just changed", 1, true) and #invited == 0, "no invite in the pause after a change")
+  NOW = NOW + 2
+  -- An error on the second invite: stop there, and one per click from now on.
+  local calls = 0
+  C_LFGList.InviteApplicant = function(id) calls = calls + 1; if calls == 2 then error("blocked") end; invited[#invited + 1] = id end
+  FG:Fill(cur.sig)
+  ok(#invited == 1 and FG.lastFill.errors[1] and FG:InviteMode() == "one", "an error on the second invite: one per click")
+  -- The game's blocked event naming Ensemble during a fill does the same.
+  ns71.db.fillInvite = nil
+  C_LFGList.InviteApplicant = function(id) invited[#invited + 1] = id end
+  APPLICANT_STATUS = {}
+  ns71.Tracker:Rescan(); ns71.ApplicantFit.ClearCache(); FG.ClearCache()
+  NOW = NOW + 2
+  cur = FG:Current()
+  NOW = NOW + 2
+  FG:Fill(cur.sig)
+  local bw
+  for _, fr in ipairs(ALLFRAMES) do if fr._events.ADDON_ACTION_BLOCKED then bw = fr end end
+  bw._scripts.OnEvent(bw, "ADDON_ACTION_BLOCKED", "OtherAddon", "Foo")
+  ok(FG:InviteMode() == "all", "another addon's blocked event changes nothing")
+  bw._scripts.OnEvent(bw, "ADDON_ACTION_BLOCKED", "Ensemble", "InviteApplicant()")
+  ok(FG:InviteMode() == "one" and FG.lastFill.blocked == "InviteApplicant()", "blocked during a fill: one per click")
+  ns71.db.fillInvite = nil
+  -- Not the leader: no invites.
+  ROSTER.party1 = { guid = "Q", name = "Mia", class = "MAGE", spec = 63, role = "DAMAGER" }
+  local oldLead = UnitIsGroupLeader
+  UnitIsGroupLeader = function() return false end
+  local can, why = FG:CanInvite({ status = "ready", picks = {}, pending = {} })
+  ok(not can and why:find("leader", 1, true), "only the leader (or an assistant) can fill")
+  UnitIsGroupLeader = oldLead
+  ROSTER.party1 = nil
+  APPLICANT_STATUS = {}
+  ns71.Tracker:Rescan(); ns71.ApplicantFit.ClearCache(); FG.ClearCache()
+
+  -- Auto-fill: armed per listing; the wait; the sound; told once per group.
+  ns71.db.settings.fill.autoArm = true
+  LISTING = nil; UI71:OnListingUpdate("LFG_LIST_ACTIVE_ENTRY_UPDATE")
+  LISTING = "Den of Nalorakk (Mythic Keystone)"; UI71:OnListingUpdate("LFG_LIST_ACTIVE_ENTRY_UPDATE")
+  ok(FG.armed and ns71.Tracker:IsHeldBy("autofill"), "a new listing arms Auto-fill (setting on), and it keeps the data fresh")
+  ns71.Tracker:Rescan(); ns71.ApplicantFit.ClearCache(); FG.ClearCache()
+  local alerts = {}
+  ns71:On("FILL_ALERT", function(p) alerts[#alerts + 1] = p or false end)
+  SOUNDS = {}
+  FG.notifiedSig, FG.pendingSig = nil, nil
+  FG:CheckAutoFill()
+  ok(FG.pendingSig and #alerts == 0 and #SOUNDS == 0, "Auto-fill waits before telling you")
+  RunTimers()
+  ok(FG.notifiedSig and alerts[#alerts] and alerts[#alerts].status == "ready" and SOUNDS[1] == 8960, "then: the sound and the alert")
+  local sig1 = FG.notifiedSig
+  FG:CheckAutoFill(); RunTimers()
+  ok(#SOUNDS == 1, "the same group isn't announced twice")
+  -- The tab dot while you're on another tab.
+  UI71:SetTab("dungeons"); RunTimers()
+  ok(UI71.tabButtons.applicants.dot:IsShown(), "a dot on the Applicants tab while a group passes")
+  UI71:SetTab("applicants"); RunTimers()
+  ok(not UI71.tabButtons.applicants.dot:IsShown(), "no dot on the Applicants tab itself")
+  -- The docked panel turns into the plan (C) while the Group Finder is open.
+  PVEFrame:Show()
+  UI71:UpdateFinderPanel(); RunTimers()
+  local fp = UI71.fp
+  ok(fp and fp.planView:IsShown() and fp.planView.title:GetText():find("Full group ready", 1, true)
+    and fp.planView.fill.text:GetText() == "Fill group (4)" and not fp.rows[1]:IsShown(), "the docked panel shows the plan")
+  ok(fp.planView.side:GetText():find("Musts: Bloodlust", 1, true), "with the musts and the level")
+  fp.planView.back:Click(); RunTimers()
+  ok(not fp.planView:IsShown(), "Back to list shows the applicants again")
+  UI71.fpListFor = nil
+  UI71:QueueFinderRefresh(); RunTimers()
+  ok(fp.planView:IsShown(), "the plan is back for a new alert")
+  -- The pop-up: window and Group Finder both closed.
+  PVEFrame:Hide(); UI71:Hide()
+  UI71:UpdateFillPopup()
+  local pop = UI71.fillPopup
+  ok(pop and pop:IsShown() and pop.title:GetText():find("Full group ready", 1, true) and pop.fill.text:GetText() == "Fill group (4)",
+    "window and Group Finder closed: the pop-up")
+  pop.close:Click()
+  ok(not pop:IsShown(), "x hides it until a different group passes")
+  UI71.fillPopupDismissed = nil
+  ns71.db.settings.fill.popup = false
+  UI71:UpdateFillPopup()
+  ok(not pop:IsShown(), "no pop-up when that's turned off")
+  ns71.db.settings.fill.popup = true
+  UI71:UpdateFillPopup()
+  ok(pop:IsShown(), "pop-up on again")
+  UI71:Show("applicants"); RunTimers()
+  ok(not pop:IsShown(), "opening the window hides the pop-up")
+  -- The plan stops passing: the alert ends by itself.
+  local saved = APPLICANTS
+  APPLICANTS = { [1] = saved[1] }
+  ns71.Tracker:Rescan(); ns71.ApplicantFit.ClearCache(); FG.ClearCache()
+  FG:CheckAutoFill(); RunTimers()
+  ok(FG.notifiedSig == nil and alerts[#alerts] == false, "no group passes any more: the alert goes away")
+  APPLICANTS = saved
+  -- The listing ends: Auto-fill turns off.
+  LISTING = nil; UI71:OnListingUpdate("LFG_LIST_ACTIVE_ENTRY_UPDATE")
+  ok(not FG.armed and not ns71.Tracker:IsHeldBy("autofill"), "listing gone: Auto-fill off")
+  LISTING = "Den of Nalorakk (Mythic Keystone)"; UI71:OnListingUpdate("LFG_LIST_ACTIVE_ENTRY_UPDATE")
+  ns71.Tracker:Rescan()
+
+  -- Settings > Fill group.
+  UI71:OpenSettings("fill"); RunTimers()
+  ok(UI71.settingsFrames.fill:IsShown() and UI71.settingsNav.fill, "Settings has a Fill group section")
+  local order = {}
+  for _, sec in ipairs(UI71.SETTINGS_SECTIONS) do order[#order + 1] = sec.key end
+  ok(table.concat(order, ","):find("finder,fill,chat", 1, true), "between Group Finder and Party chat")
+  local rows = UI71.fillMustRows
+  ok(rows[1].check.label:GetText():find("^Bloodlust") and UI71.fillMustsPick.text:GetText():find("Den of Nalorakk", 1, true),
+    "musts for the key being run, Bloodlust first")
+  local freedomRow
+  for _, r in ipairs(rows) do if r.check:IsShown() and r.check.label:GetText():find("Rimeshatter", 1, true) then freedomRow = r end end
+  ok(freedomRow and freedomRow.get() == true, "boss needs ticked by default, with the boss's cast")
+  freedomRow.check:Click(); RunTimers()
+  ok(ns71.db.fillMusts.DenOfNalorakk.on.DN_FREEDOM == false, "unticking saves for this dungeon")
+  ns71.FillGroup:ResetMusts("DenOfNalorakk"); RunTimers()
+  local fr = UI71.fillFilterRows.rating
+  ok(fr.src.text:GetText() == "Suggested for the key" and fr.note:GetText():find("In force for +10: 2200", 1, true), "rating filter: suggested, the value for the key")
+  ns71.db.settings.fill.rating.source = "custom"; ns71.db.settings.fill.rating.value = 3000
+  UI71:RefreshSettings()
+  ok(fr.val:GetText() == "3000" and fr.src.text:GetText() == "Custom", "a custom minimum")
+  UI71:ResetSettingsSection("fill")
+  ok(ns71.db.settings.fill.rating.source == "suggested" and ns71.db.settings.fill.autoArm == false, "Reset section puts Fill group back")
+  UI71:Hide()
+
+  -- /ens verify: the Fill group section.
+  local report = ns71.Verify:Run()
+  ok(report:find("== Fill group ==", 1, true) and report:find("reward item level for +10: end of run 300", 1, true)
+    and report:find("leaver flag (17th applicant return) readable", 1, true) and report:find("plan now: ready", 1, true),
+    "verify: reward API, leaver flag, the plan")
+  ok(report:find("invites sent", 1, true), "verify: the last fill")
+
+  -- Saved data: bad musts and settings are cleaned.
+  EnsembleDB = { schema = 4, fillMusts = { DenOfNalorakk = { lust = "yes", on = { DN_FREEDOM = 1, [3] = true, DN_TOXIC_SPORES = false } },
+    NotADungeon = { on = {} }, MurderRow = "x" }, fillInvite = { oneAtATime = true },
+    settings = { fill = { level = "max", rating = { source = "web", value = "a" }, ilvl = 7, wait = 999 } } }
+  local nsS = boot()
+  local fm = nsS.db.fillMusts
+  ok(fm.DenOfNalorakk and fm.DenOfNalorakk.lust == nil and fm.DenOfNalorakk.on.DN_FREEDOM == nil and fm.DenOfNalorakk.on.DN_TOXIC_SPORES == false
+    and fm.NotADungeon == nil and fm.MurderRow == nil, "saved musts cleaned")
+  local fs = nsS.db.settings.fill
+  ok(fs.level == "auto" and fs.rating.source == "suggested" and fs.rating.value == 2500 and type(fs.ilvl) == "table" and fs.wait == 120
+    and nsS.db.fillInvite == nil, "Fill group settings cleaned")
+  ok(nsS.RESET_WIPES:find("Fill group musts", 1, true), "a full reset names the musts")
+
+  C_LFGList.InviteApplicant = nil
+  GetBuildInfo, PlaySound, SOUNDKIT = nil, nil, nil
+  APPLICANTS, LISTING, ROSTER, APPLICANT_STATUS = {}, nil, {}, nil
+  PVEFrame._shown = false
+end
+
 print(string.format("%d passed, %d failed", passes, fails))
 return fails

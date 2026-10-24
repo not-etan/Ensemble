@@ -392,7 +392,7 @@ local function CheckGroupFinder()
   local okA, apps = pcall(C_LFGList.GetApplicants)
   if not okA or type(apps) ~= "table" then Add("FAIL", "GetApplicants failed"); return end
   if #apps == 0 then Add("WARN", "no applicants right now - re-run once someone applies to test spec detection"); return end
-  local withSpec, total = 0, 0
+  local withSpec, total, leaverRead = 0, 0, 0
   for _, aid in ipairs(apps) do
     local okI, info = pcall(C_LFGList.GetApplicantInfo, aid)
     for m = 1, (okI and type(info) == "table" and info.numMembers or 0) do
@@ -401,6 +401,7 @@ local function CheckGroupFinder()
         total = total + 1
         local spec = res[17]
         if type(spec) == "number" and spec > 0 then withSpec = withSpec + 1 end
+        if type(res[18]) == "boolean" then leaverRead = leaverRead + 1 end
         if total == 1 then
           -- The first return is the applicant's name: never in a report people paste in public.
           local shown = { "<name>" }
@@ -412,6 +413,9 @@ local function CheckGroupFinder()
   end
   Add(withSpec > 0 and "OK" or "WARN", string.format("applicants with a spec ID: %d of %d%s", withSpec, total,
     withSpec == 0 and " (spec not exposed: applicants will be rated on class only)" or ""))
+  -- Fill group's leaver filter reads the 17th return (isLeaver in Blizzard's LFGList.lua).
+  Add(leaverRead > 0 and "OK" or "WARN", string.format("leaver flag (17th applicant return) readable: %d of %d%s", leaverRead, total,
+    leaverRead == 0 and " (Fill group's leaver filter can't skip anyone)" or ""))
   -- Per-dungeon experience (best run of the listed dungeon) for the experience weighting.
   local fnScore = C_LFGList.GetApplicantDungeonScoreForListing
   if not fnScore then
@@ -430,6 +434,57 @@ local function CheckGroupFinder()
       end
     end
     Add("OK", string.format("applicants with a run of this dungeon: %d of %d (experience weighting)", withRun, checked))
+  end
+end
+
+-- Fill group (1.4.0): the APIs its filters and invites use, how invites behave on this game
+-- build, the last fill, and the plan while you host.
+local function CheckFill()
+  Section("Fill group")
+  local FG = ns.FillGroup
+  if not FG then Add("FAIL", "Fill group module missing"); return end
+  local fn = C_MythicPlus and C_MythicPlus.GetRewardLevelForDifficultyLevel
+  if type(fn) ~= "function" then
+    Add("WARN", "C_MythicPlus.GetRewardLevelForDifficultyLevel missing: no suggested item level (set your own or use your listing's)")
+  else
+    local ok, weekly, eor = pcall(fn, 10)
+    Add(ok and tonumber(eor) and "OK" or "WARN", string.format("reward item level for +10: end of run %s, weekly %s (suggested item level reads this)",
+      tostring(ok and eor), tostring(ok and weekly)))
+  end
+  local okH, has = pcall(C_LFGList.HasActiveEntryInfo)
+  if okH and has then
+    local okE, entry = pcall(C_LFGList.GetActiveEntryInfo)
+    if okE and type(entry) == "table" then
+      local r, i = entry.requiredDungeonScore, entry.requiredItemLevel
+      Add((r ~= nil or i ~= nil) and "OK" or "INFO", string.format("listing minimums: rating %s, item level %s%s", tostring(r), tostring(i),
+        (r == nil and i == nil) and " (none set, or the fields are named differently: \"From my listing\" finds nothing)" or ""))
+    end
+  else
+    Add("INFO", "listing minimums: list a group to check the fields \"From my listing\" reads")
+  end
+  Add(C_LFGList.InviteApplicant and "OK" or "FAIL", "C_LFGList.InviteApplicant (Fill group and Invite buttons)")
+  Add(C_LFGList.GetNumInvitedApplicantMembers and "OK" or "INFO",
+    "C_LFGList.GetNumInvitedApplicantMembers" .. (C_LFGList.GetNumInvitedApplicantMembers and "" or " missing: the five-player check counts pending invites itself"))
+  Add((PlaySound and SOUNDKIT and SOUNDKIT.READY_CHECK) and "OK" or "WARN", "PlaySound / SOUNDKIT.READY_CHECK (Auto-fill's sound)")
+  local mode = FG:InviteMode()
+  local learned = ns.db and ns.db.fillInvite
+  if mode == "one" then
+    Add("INFO", "invites: one per click on build " .. tostring(learned and learned.build) .. " (" .. tostring(learned and learned.reason) .. ")")
+  else
+    Add("INFO", "invites: one click sends the whole plan" .. (learned and learned.build ~= FG.GameBuild() and " (re-testing on this build)" or " (untested on this build until the first fill)"))
+  end
+  local last = FG:LastFillText()
+  Add(last and ((last:find("not taken") or last:find("blocked") or last:find("error")) and "WARN" or "OK") or "INFO",
+    last or "no Fill group used since the last reload")
+  if FG.planErrors and FG.planErrors > 0 then Add("FAIL", "plan errors: " .. FG.planErrors .. " (last: " .. tostring(FG.lastPlanError) .. ")") end
+  if ns.Tracker and ns.Tracker.hosting then
+    local plan = FG:Current()
+    if plan then
+      Add("INFO", string.format("plan now: %s at %s, %d group(s) counted, %d full check(s), %d skipped%s", plan.status,
+        tostring(plan.level), plan.leaves or 0, plan.checked or 0, #plan.skipped,
+        plan.status == "ready" and (", " .. #plan.picks .. " to invite") or (plan.blocking and (": " .. plan.blocking) or "")))
+    end
+    Add("INFO", "Auto-fill " .. (FG.armed and "armed for this listing" or "off for this listing"))
   end
 end
 
@@ -764,6 +819,7 @@ function Verify:Build()
   Try("affixes", CheckAffixes)
   Try("history", CheckHistory)
   Try("group finder", CheckGroupFinder)
+  Try("fill group", CheckFill)
   Try("group finder search", CheckSearch)
   Try("party", CheckGroup)
   Try("boss cards", CheckBosses)

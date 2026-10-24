@@ -378,6 +378,7 @@ local function Check(parent, label, getter, setter, tip)
   mark:SetPoint("CENTER"); mark:SetSize(18, 18)
   local t = Text(b, 12, C.text)
   t:SetPoint("LEFT", box, "RIGHT", 8, 0); t:SetText(label)
+  b.label = t   -- rows built once and relabeled (Settings > Fill group's musts)
   function b:Sync() mark:SetShown(getter() and true or false) end
   b:SetScript("OnClick", function(self) setter(not getter()); self:Sync(); ns:Fire("SETTINGS_CHANGED") end)
   b:Sync()
@@ -710,6 +711,14 @@ function UI:Build()
     tabList[#tabList + 1] = b
     prev = b
   end
+  -- Fill group: a dot on the Applicants tab while a full group passes and you're elsewhere.
+  do
+    local ab = self.tabButtons.applicants
+    ab.dot = ab:CreateTexture(nil, "OVERLAY")
+    ab.dot:SetSize(7, 7); ab.dot:SetPoint("TOPRIGHT", -5, -10)
+    ab.dot:SetColorTexture(unpack(C.good))
+    ab.dot:Hide()
+  end
   -- Fit the brand and the tab row beside the title-bar buttons (~140px on the right) at
   -- the narrowest window: first tighten the tabs' padding, and only if a client font is
   -- still too wide, drop the subtitle (the tabs always stay).
@@ -801,10 +810,12 @@ function UI:Build()
 
   f:SetScript("OnShow", function()
     UI:SetTab(UI.currentTab or ns.db.lastTab or "composition")
+    UI:UpdateFillPopup()
   end)
   f:SetScript("OnHide", function()
     UI:HideMenu()
     if ns.Tracker then ns.Tracker:Disable() end
+    UI:UpdateFillPopup()
   end)
 end
 
@@ -1006,6 +1017,7 @@ function UI:Refresh()
     elseif tab == "history" then UI:RefreshHistory()
     elseif tab == "dungeons" then UI:RefreshPrimer()
     elseif tab == "settings" then UI:RefreshSettings() end
+    UI:SyncFillTabDot()
   end)
   if not ok and geterrorhandler then geterrorhandler()(err) end
 end
@@ -2774,6 +2786,284 @@ local function ApplicantSub(m, role)
   return table.concat(bits, "  -  ")
 end
 
+---------------------------------------------------------------------------
+-- Fill group (1.4.0): the band at the top of the Applicants card column, the Fill plan in the
+-- right panel, the button's breathing glow and the tab dot. The planning is FillGroup.lua.
+-- "Ensemble only invites when you click": every invite comes from one of our buttons.
+---------------------------------------------------------------------------
+local FILL_BAND_H = 56
+local FILL_LEVEL_RULE = {
+  relaxed = "no critical need missing",
+  standard = "no critical or high need missing",
+  strict = "nothing medium or worse missing; critical and high needs not thin",
+}
+UI.FILL_LEVEL_RULE = FILL_LEVEL_RULE
+
+-- "Strict (auto: +12 and up)" / "Standard (auto: key level unknown)" / "Relaxed".
+function UI:FillLevelText(plan)
+  local FG = ns.FillGroup
+  local label = FG.LEVEL_LABEL[plan.level] or plan.level
+  if not plan.levelAuto then return label end
+  local H = DD.HEURISTICS
+  local why
+  if plan.levelUnknown then why = "key level unknown"
+  elseif plan.level == "strict" then why = "+" .. H.FILL_STRICT_FROM .. " and up"
+  elseif plan.level == "standard" then why = "+" .. H.FILL_STANDARD_FROM .. " to +" .. (H.FILL_STRICT_FROM - 1)
+  else why = "up to +" .. (H.FILL_STANDARD_FROM - 1) end
+  return label .. " (auto: " .. why .. ")"
+end
+
+-- A breathing glow behind a button (alpha bounce, about every 2 s) while `on`. Animation
+-- groups run on our own textures only. Without them the glow is just shown, steady.
+local function Glow(btn, pad)
+  pad = pad or 4
+  local g = btn:CreateTexture(nil, "BACKGROUND", nil, -8)
+  g:SetPoint("TOPLEFT", -pad, pad); g:SetPoint("BOTTOMRIGHT", pad, -pad)
+  Accent(g, "tex", 0.45)
+  g:Hide()
+  local ag = g.CreateAnimationGroup and g:CreateAnimationGroup()
+  if ag then
+    if ag.SetLooping then ag:SetLooping("BOUNCE") end
+    local a = ag.CreateAnimation and ag:CreateAnimation("Alpha")
+    if a then
+      if a.SetFromAlpha then a:SetFromAlpha(0.15) end
+      if a.SetToAlpha then a:SetToAlpha(0.75) end
+      if a.SetDuration then a:SetDuration(1.0) end
+      if a.SetSmoothing then a:SetSmoothing("IN_OUT") end
+    end
+  end
+  btn.glow, btn.glowAnim = g, ag
+  function btn:SetGlow(on)
+    on = on and true or false
+    if self.glowOn == on then return end
+    self.glowOn = on
+    g:SetShown(on)
+    if ag then
+      if on then ag:Play() else ag:Stop() end
+    end
+  end
+  return g
+end
+UI.Glow = Glow
+
+-- A small boxed tag ("IN PLAN", "SKIPPED") beside an applicant's rating.
+local function Chip(parent)
+  local f = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+  f:SetSize(52, 15)
+  Skin(f, C.btn, C.accent)
+  f.text = Text(f, 9, C.accent, "CENTER"); f.text:SetPoint("CENTER", 0, 0)
+  function f:Set(label, color)
+    self.text:SetText(label)
+    self.text:SetTextColor(unpack(color))
+    self:SetBackdropBorderColor(unpack(color))
+    self:SetWidth(math.max(40, (self.text:GetStringWidth() or 40) + 10))
+    self:Show()
+  end
+  f:Hide()
+  return f
+end
+
+-- Names in their class colors, "A, B, C".
+function UI:FillNames(list)
+  local out = {}
+  for _, ev in ipairs(list or {}) do out[#out + 1] = self:ApplicantNames(ev) end
+  return table.concat(out, HEX.muted .. ", |r")
+end
+
+-- The click on any Fill group button (Applicants band, docked panel, pop-up): re-plans on
+-- fresh data and invites only if the group is the one shown.
+function UI:ClickFill(shownSig)
+  local FG = ns.FillGroup
+  local ok, msg = FG:Fill(shownSig)
+  if msg then ns:Print(msg) end
+  self:QueueRefresh(); self:QueueFinderRefresh(); self:UpdateFillPopup()
+  return ok
+end
+
+-- Sync a Fill group button: label, enabled, tooltip, glow. `plan` from FillGroup:Current().
+function UI:SyncFillButton(b, plan)
+  local FG = ns.FillGroup
+  local ready = plan and plan.status == "ready"
+  b.text:SetText(FG:ButtonText(plan))
+  local can, why = FG:CanInvite(plan)
+  local pause = ready and FG:PauseLeft() or 0
+  if can and pause > 0 then can, why = false, "The plan just changed: check it first." end
+  if can then b:Enable() else b:Disable() end
+  b:SetAlpha(can and 1 or 0.5)
+  b.tooltip = can and (FG:InviteMode() == "one" and "Invite the next player in the plan. The game takes one invite per click here."
+    or "Invite every player in the plan. Nothing is sent until you click.")
+    or (ready and why) or (plan and plan.blocking) or why
+  if b.SetGlow then b:SetGlow(ready) end
+  local sig = ready and plan.sig or nil
+  b:SetScript("OnClick", function() if sig then UI:ClickFill(sig) end end)
+  -- After a change the button waits a moment; refresh when it may be clicked again.
+  if ready and pause > 0 and not self.fillPauseQueued and C_Timer and C_Timer.After then
+    self.fillPauseQueued = true
+    C_Timer.After(pause + 0.05, function()
+      UI.fillPauseQueued = false
+      UI:QueueRefresh(); UI:QueueFinderRefresh(); UI:UpdateFillPopup()
+    end)
+  end
+end
+
+-- The band: line 1 status, Auto-fill, the button; line 2 who and how the group ends up.
+function UI:RenderFillBand(band, plan)
+  local FG = ns.FillGroup
+  local skipped = plan and #plan.skipped or 0
+  local tail = {}
+  if plan and plan.level then tail[#tail + 1] = FG.LEVEL_LABEL[plan.level] end
+  if skipped > 0 then tail[#tail + 1] = skipped .. " skipped" end
+  local tailText = #tail > 0 and (HEX.muted .. "  -  " .. table.concat(tail, "  -  ") .. "|r") or ""
+  local title, line, icon, border
+  if not plan or plan.status == "empty" then
+    icon, title, line, border = TEX_WAIT, HEX.muted .. "Fill group|r", HEX.muted .. "Waiting for applicants.|r", C.border
+  elseif plan.status == "nodungeon" then
+    icon, title, line, border = TEX_WAIT, HEX.muted .. "Fill group|r", HEX.muted .. "Pick the key above to plan a full group.|r", C.border
+  elseif plan.status == "full" then
+    icon, title, line, border = TEX_OK, HEX.good .. "Your group is full|r", HEX.muted .. "Every slot is taken or invited.|r", C.border
+  elseif plan.status == "ready" then
+    local ga = plan.groupAfter
+    icon, border = TEX_OK, C.good
+    title = HEX.good .. "Full group ready|r"
+    line = self:FillNames(plan.picks) .. HEX.muted .. "  -  |r" .. (ga and self:GroupAfterText(ga, "brief", false) or "") .. tailText
+  else
+    icon, border = TEX_WAIT, C.warn
+    title = HEX.warn .. "No full group yet|r"
+    line = HEX.text .. tostring(plan.blocking or "") .. "|r" .. tailText
+  end
+  band.title:SetText(icon .. " " .. title)
+  band.line:SetText(line)
+  band.tip = UI.Plain(line)
+  band:SetBackdropBorderColor(unpack(border))
+  band.auto:Sync()
+  band.auto:SetShown(ns.Tracker.hosting and true or false)
+  self:SyncFillButton(band.fill, plan)
+end
+
+-- The right panel's Fill plan (the band was clicked).
+function UI:RenderFillPlan(list, plan, ctx)
+  local FG = ns.FillGroup
+  list:Clear()
+  if not plan then
+    list:Add(HEX.muted .. "Host a Group Finder listing and Fill group finds a full group among your applicants.|r", { size = 11 })
+    list:Finish(); return
+  end
+  local dname = plan.dungeonKey and DD.list[plan.dungeonKey] and DD.list[plan.dungeonKey].name or "No dungeon"
+  local key = dname .. (plan.keyLevel and (" +" .. plan.keyLevel) or "")
+  local function settingsLink(text)
+    list:Add(HEX.accent .. "> " .. (text or "Open Settings > Fill group") .. "|r", { size = 10, gap = 4,
+      onClick = function() UI:OpenSettings("fill") end, tooltip = "Strictness, musts, filters and Auto-fill" })
+  end
+  if plan.status == "nodungeon" or plan.status == "empty" or plan.status == "full" then
+    list:Add(plan.status == "full" and "Your group is full." or "Pick the key above to plan a full group.", { size = 13, gap = 4 })
+    settingsLink(); list:Finish(); return
+  end
+  local ready = plan.status == "ready"
+  local n = 0
+  for _, ev in ipairs(plan.picks) do n = n + #ev.members end
+  if ready then
+    list:Add(key .. "  -  " .. n .. " invite" .. (n == 1 and "" or "s") .. ", "
+      .. (FG:InviteMode() == "one" and "one per click" or "sent together with one click"), { size = 13, gap = 2 })
+  else
+    list:Add("No full group passes " .. FG.LEVEL_LABEL[plan.level] .. " yet", { size = 13, gap = 2 })
+    list:Add(HEX.muted .. (FG.armed and "Auto-fill is on: you'll hear a sound and see the plan as soon as one does."
+      or "Turn on Auto-fill to be told as soon as one does.") .. "|r", { size = 10, gap = 2 })
+  end
+  list:Add(HEX.muted .. "Strictness: " .. self:FillLevelText(plan) .. " - " .. FILL_LEVEL_RULE[plan.level] .. ".|r", { size = 10, gap = 2 })
+  settingsLink("Settings > Fill group")
+
+  local function memberRow(role, ev, note)
+    local m1 = ev.members[1] or {}
+    local p1 = m1.specID and UD:GetSpec(m1.specID)
+    local spec = p1 and (UD:SpecName(m1.specID) .. " " .. UD:ClassName(p1.class)) or (UD:ClassName(m1.classFile) .. " (spec unknown)")
+    local bits = { spec }
+    if tonumber(m1.score) then bits[#bits + 1] = tostring(m1.score) end
+    if m1.bestHere and m1.bestHere.level > 0 then
+      bits[#bits + 1] = (m1.bestHere.timed and "timed +" or "+") .. m1.bestHere.level .. " here" .. (m1.bestHere.timed and "" or " (over time)")
+    end
+    if tonumber(m1.itemLevel) and tonumber(m1.itemLevel) > 0 then bits[#bits + 1] = math.floor(tonumber(m1.itemLevel) + 0.5) .. " ilvl" end
+    list:Add(HEX.muted .. (ROLE_WORD[role] or "?"):upper() .. "|r   " .. self:ApplicantNames(ev) .. "   " .. self:RatingTag(ev)
+      .. (note and (HEX.muted .. "  " .. note .. "|r") or ""), { size = 12, gap = 0, indent = 4 })
+    list:Add(HEX.muted .. table.concat(bits, "  -  ") .. "|r", { size = 10, gap = 3, indent = 46 })
+  end
+  local function partyRows()
+    for _, m in ipairs(ctx and ctx.base and ctx.base.members or {}) do
+      local _, _, _, hex = Util.ClassColor(m.classFile)
+      list:Add(HEX.muted .. (ROLE_WORD[m.role] or "?"):upper() .. "|r   " .. hex .. tostring(m.label) .. "|r"
+        .. HEX.muted .. (m.isPlayer and "  (you)" or "  (in your group)") .. "|r", { size = 12, gap = 3, indent = 4 })
+    end
+    for _, ev in ipairs(plan.pending) do memberRow(ev.roles[1], ev, "(invited)") end
+  end
+
+  if ready then
+    list:Space(4)
+    partyRows()
+    for _, ev in ipairs(plan.picks) do memberRow(ev.roles[1], ev) end
+    list:Header("Group after")
+    local j = plan.judge
+    local mustOK = {}
+    for _, row in ipairs(j.mustRows) do if row.status ~= "missing" then mustOK[#mustOK + 1] = row.label end end
+    if #j.mustRows > 0 then
+      list:Add(TEX_OK .. " Musts: " .. table.concat(mustOK, ", "), { size = 11, gap = 2, indent = 4 })
+    end
+    list:Add(TEX_OK .. " Passes " .. FG.LEVEL_LABEL[plan.level] .. ": " .. FILL_LEVEL_RULE[plan.level], { size = 11, gap = 2, indent = 4 })
+    if #j.thin > 0 then
+      list:Add(TEX_WAIT .. " " .. #j.thin .. " thin: " .. table.concat(j.thin, ", "), { size = 11, gap = 2, indent = 4 })
+    end
+    if plan.groupAfter then list:Add(self:GroupAfterText(plan.groupAfter, "full"), { size = 11, gap = 2, indent = 4 }) end
+    list:Header("Why this group")
+    local why = "Highest total fit (" .. plan.total .. ") of the full groups that pass."
+    if plan.runnerUp and plan.runnerUp.out and plan.runnerUp.inn then
+      why = why .. " Next best: " .. tostring(plan.runnerUp.inn.members[1].name) .. " instead of "
+        .. tostring(plan.runnerUp.out.members[1].name) .. " (total " .. plan.runnerUp.diff .. " lower)."
+    elseif plan.runnerUp then
+      why = why .. " Next best: total " .. plan.runnerUp.diff .. " lower."
+    end
+    list:Add(why, { size = 11, gap = 2, indent = 4 })
+  else
+    list:Header("What's stopping it")
+    list:Add(TEX_NO .. " " .. tostring(plan.blocking or "No group passes yet."), { size = 11, gap = 2, indent = 4 })
+    for i, g in ipairs(plan.poolGaps) do
+      if i > 1 or not (plan.blocking or ""):find(g.label, 1, true) then
+        list:Add(TEX_NO .. " Nobody applying brings " .. g.label .. (#g.coverers > 0 and (HEX.muted .. ": " .. FG.JoinOr(g.coverers) .. "|r") or ""),
+          { size = 11, gap = 2, indent = 4 })
+      end
+    end
+    if plan.closest then
+      list:Header("Closest group")
+      list:Add(self:FillNames(plan.closest.picks), { size = 11, gap = 2, indent = 4 })
+      local fails, mustFail = {}, nil
+      for _, f in ipairs(plan.closest.judge.fails) do
+        fails[#fails + 1] = (f.status == "missing" and "no " or "thin ") .. f.label
+        if f.must and not mustFail then mustFail = f end
+      end
+      list:Add(HEX.warn .. "Short of: " .. table.concat(fails, ", ") .. "|r", { size = 11, gap = 2, indent = 4 })
+      if mustFail then
+        list:Add(HEX.muted .. mustFail.label .. " is a must, so no level lets this group through. Untick it under Settings > Fill group > Always require to allow it.|r",
+          { size = 10, gap = 2, indent = 4 })
+      end
+    end
+  end
+  if #plan.skipped > 0 then
+    list:Header("Skipped by your filters (" .. #plan.skipped .. ")")
+    for _, x in ipairs(plan.skipped) do
+      list:Add(self:ApplicantNames(x.ev) .. ": " .. x.reason, { size = 11, gap = 2, indent = 4 })
+    end
+  end
+  list:Space(6)
+  list:Add(HEX.muted .. "Ensemble only invites when you click. If someone declines, the slot reopens and the plan picks a replacement by the same rules.|r",
+    { size = 10, gap = 2 })
+  list:Finish()
+end
+
+-- The green dot on the Applicants tab: a full group passes and you're on another tab.
+function UI:SyncFillTabDot()
+  local b = self.tabButtons and self.tabButtons.applicants
+  if not (b and b.dot) then return end
+  local plan = ns.Tracker.enabled and ns.Tracker.hosting and ns.FillGroup:Current() or nil
+  b.dot:SetShown(plan and plan.status == "ready" and self.currentTab ~= "applicants" and true or false)
+end
+
 local CARD_W, CARD_H = 424, 80
 
 local function ApplicantCard(parent)
@@ -2803,8 +3093,12 @@ local function ApplicantCard(parent)
   c.headline:SetWordWrap(false)
   c.after = Text(c, 11, C.text); c.after:SetPoint("BOTTOMLEFT", c.icon, "BOTTOMRIGHT", 8, -35); c.after:SetPoint("RIGHT", c.inv, "LEFT", -6, 0)
   c.after:SetWordWrap(false)
+  -- Fill group: IN PLAN / SKIPPED, left of the rating.
+  c.chip = Chip(c); c.chip:SetPoint("RIGHT", c.badge, "LEFT", -6, 0)
   c:SetScript("OnEnter", function(self) if not self.selected then self:SetBackdropBorderColor(unpack(C.accent)) end end)
-  c:SetScript("OnLeave", function(self) if not self.selected then self:SetBackdropBorderColor(unpack(C.border)) end end)
+  c:SetScript("OnLeave", function(self)
+    if not self.selected then self:SetBackdropBorderColor(unpack(self.inPlan and C.accent or C.border)) end
+  end)
   return c
 end
 
@@ -2988,8 +3282,39 @@ function UI:BuildApplicantsPage()
   local top, colH = -72, H - 41 - 72 - 12
   local left = Panel(page)
   left:SetPoint("TOPLEFT", 12, top); left:SetPoint("BOTTOMLEFT", 12, 12); left:SetWidth(CARD_W + 16)
+  -- Fill group band: at the top of the card column while you host (the cards move down).
+  local band = CreateFrame("Button", nil, left, "BackdropTemplate")
+  band:SetPoint("TOPLEFT", 8, -8); band:SetPoint("RIGHT", left, "RIGHT", -8, 0); band:SetHeight(FILL_BAND_H)
+  Skin(band, C.btn, C.border)
+  band.fill = Button(band, "Fill group", 136, 24)   -- room for "Invite next (2 of 4)"
+  band.fill:SetPoint("TOPRIGHT", -6, -6)
+  if band.fill.SetMotionScriptsWhileDisabled then band.fill:SetMotionScriptsWhileDisabled(true) end
+  Glow(band.fill)
+  band.auto = Check(band, "Auto-fill", function() return ns.FillGroup.armed end,
+    function(v) ns.FillGroup:SetArmed(v) end,
+    "Tell me (sound, and the plan by the Group Finder or a pop-up) when a full group passes. For this listing only; Settings > Fill group can turn it on for every listing. Ensemble only invites when you click.")
+  band.auto:SetSize(84, 20)
+  band.auto:SetPoint("RIGHT", band.fill, "LEFT", -8, 0)
+  band.title = Text(band, 13); band.title:SetPoint("TOPLEFT", 10, -10); band.title:SetPoint("RIGHT", band.auto, "LEFT", -6, 0)
+  band.title:SetWordWrap(false)
+  band.line = Text(band, 11, C.muted); band.line:SetPoint("BOTTOMLEFT", 10, 9); band.line:SetPoint("RIGHT", band, "RIGHT", -8, 0)
+  band.line:SetWordWrap(false)
+  band:SetScript("OnClick", function() ap.showPlan = true; UI:QueueRefresh() end)
+  band:SetScript("OnEnter", function(self)
+    self:SetBackdropColor(unpack(C.btnHot))
+    if GameTooltip then
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:SetText("Fill group", 1, 1, 1)
+      if self.tip and self.tip ~= "" then GameTooltip:AddLine(self.tip, 0.8, 0.8, 0.8, true) end
+      GameTooltip:AddLine("Click for the full plan.", 0.6, 0.6, 0.6, true)
+      GameTooltip:Show()
+    end
+  end)
+  band:SetScript("OnLeave", function(self) self:SetBackdropColor(unpack(C.btn)); if GameTooltip then GameTooltip:Hide() end end)
+  band:Hide()
+  ap.band = band
   local sf = CreateFrame("ScrollFrame", nil, left)
   sf:SetPoint("TOPLEFT", 8, -8); sf:SetPoint("BOTTOMRIGHT", -4, 8)
+  ap.sf = sf
   local content = CreateFrame("Frame", nil, sf); content:SetSize(CARD_W, 1)
   sf:SetScrollChild(content)
   sf:EnableMouseWheel(true)
@@ -3003,6 +3328,7 @@ function UI:BuildApplicantsPage()
   local right = Panel(page)
   right:SetPoint("TOPLEFT", left, "TOPRIGHT", 10, 0); right:SetPoint("BOTTOMRIGHT", -12, 12)
   local dt = AccentText(right); dt:SetPoint("TOPLEFT", 10, -8); dt:SetText("Applicant fit")
+  ap.detailTitle = dt
   ap.detail = LineList(right, W - 24 - (CARD_W + 16) - 10 - 12, colH - 34):Fill(6, -28, -6, 6)
 end
 
@@ -3031,8 +3357,32 @@ function UI:RefreshApplicants()
   for _, r in ipairs({ "TANK", "HEALER", "DAMAGER" }) do
     if open[r] > 0 then openParts[#openParts + 1] = (open[r] > 1 and (open[r] .. " ") or "") .. ROLE_WORD[r] end
   end
+  -- Fill group: the plan (shared with the docked panel and the pop-up), and the pool check.
+  local plan = T.hosting and ns.FillGroup:Current() or nil
+  ap.plan = plan
+  local pool = ""
+  if plan and (plan.status == "ready" or plan.status == "none" or plan.status == "short") then
+    if #plan.poolGaps > 0 then
+      local labels = {}
+      for _, g in ipairs(plan.poolGaps) do labels[#labels + 1] = g.label end
+      pool = "   -   " .. HEX.bad .. "Nobody applying brings: " .. table.concat(labels, ", ") .. "|r"
+    else
+      pool = "   -   " .. HEX.good .. "Pool covers every need|r"
+    end
+  end
   ap.context:SetText(string.format("Your party: %d/5   -   Open: %s", #ctx.base.members,
-    #openParts > 0 and table.concat(openParts, ", ") or "none (group is full)"))
+    #openParts > 0 and table.concat(openParts, ", ") or "none (group is full)") .. pool)
+  local showBand = T.hosting and true or false
+  ap.band:SetShown(showBand)
+  ap.sf:ClearAllPoints()
+  ap.sf:SetPoint("TOPLEFT", 8, showBand and -(8 + FILL_BAND_H + 6) or -8); ap.sf:SetPoint("BOTTOMRIGHT", -4, 8)
+  if showBand then self:RenderFillBand(ap.band, plan) end
+  local inPlan, skippedWhy = {}, {}
+  if plan then
+    for _, ev in ipairs(plan.picks) do inPlan[ev.applicantID] = true end
+    for _, x in ipairs(plan.skipped) do skippedWhy[x.ev.applicantID] = x.reason end
+  end
+  if not showBand then ap.showPlan = false end
 
   for _, c in ipairs(ap.cards) do c:Hide() end
   local msg
@@ -3097,7 +3447,21 @@ function UI:RefreshApplicants()
     c.headline:SetText(ev.headline)
     c.after:SetText(ev.roleConflict and "" or self:GroupAfterText(ev.groupAfter, "brief"))
     local id = ev.applicantID
-    c:SetScript("OnClick", function() ap.selected = id; UI:QueueRefresh() end)
+    -- Fill group: in the plan (tag and accent edge), or skipped by a filter (dimmed, tag, reason).
+    c.inPlan = inPlan[id] or false
+    if skippedWhy[id] then
+      c.chip:Set("SKIPPED", C.muted)
+      c.headline:SetText(HEX.muted .. "Skipped: " .. skippedWhy[id] .. "|r")
+      c:SetAlpha(0.55)
+    else
+      c:SetAlpha(1)
+      if c.inPlan then c.chip:Set("IN PLAN", C.accent) else c.chip:Hide() end
+    end
+    -- The name stops before the tag (or the rating when there's none).
+    c.name:ClearAllPoints()
+    c.name:SetPoint("TOPLEFT", c.icon, "TOPRIGHT", 8, 0)
+    c.name:SetPoint("RIGHT", c.chip:IsShown() and c.chip or c.badge, "LEFT", -8, 0)
+    c:SetScript("OnClick", function() ap.selected = id; ap.showPlan = false; UI:QueueRefresh() end)
     if ap.selected == id then selectedEv = ev end
     local pinned = false
     for _, x in ipairs(ap.compare) do if x == id then pinned = true end end
@@ -3109,22 +3473,26 @@ function UI:RefreshApplicants()
   end
   if not selectedEv then selectedEv = evals[1]; ap.selected = selectedEv and selectedEv.applicantID end
   for i, c in ipairs(ap.cards) do
-    local isSel = c:IsShown() and evals[i] and evals[i] == selectedEv
+    local isSel = c:IsShown() and evals[i] and evals[i] == selectedEv and not ap.showPlan
     c.selected = isSel
-    c:SetBackdropBorderColor(unpack(isSel and C.accent or C.border))
+    c:SetBackdropBorderColor(unpack((isSel or c.inPlan) and C.accent or C.border))
   end
   ap.content:SetHeight(math.max(1, #evals * (CARD_H + 6)))
   self:EnsureWaitTicker()
-  if #ap.compare == 2 then
+  ap.detailTitle:SetText(ap.showPlan and "Fill plan" or "Applicant fit")
+  if ap.showPlan then
+    self:RenderFillPlan(ap.detail, plan, ctx)
+  elseif #ap.compare == 2 then
     self:RenderApplicantCompare(ap.detail, ctx, byID[ap.compare[1]], byID[ap.compare[2]])
   else
     self:RenderApplicantDetail(ap.detail, ctx, selectedEv, #ap.compare == 1 and byID[ap.compare[1]] or nil)
   end
 end
 
--- Invite straight from the window. C_LFGList.InviteApplicant has to run from a click (a
--- hardware event), which this button provides; the game refuses automatic invites. A
--- premade group applying together is one application, invited as one.
+-- Invite straight from the window. Ensemble only invites when you click: this button is
+-- that click. (Blizzard doesn't document a hardware-event rule for C_LFGList.InviteApplicant;
+-- it works from our own button, confirmed October 16, 2026.) A premade group applying
+-- together is one application, invited as one.
 -- Returns can (bool), reason (string when it can't).
 function UI:CanInvite(ev, ctx)
   if not (C_LFGList and C_LFGList.InviteApplicant) then return false, "Inviting from here isn't available in this client." end
@@ -3492,6 +3860,210 @@ function UI:BuildFinderPanel()
   fp.needs:SetPoint("RIGHT", fp.open, "LEFT", -6, 0)
   fp.needs.tooltip = "A short line for your listing's description: open roles and what your group still needs, so the right players apply"
   self.fp = fp
+  self:BuildFinderPlanView()
+end
+
+-- Auto-fill's alert by the Group Finder (option C, approved October 23): the docked panel turns
+-- into the plan. The list fades, the border flashes, the plan slides up 12px and fades in
+-- (0.25 s), then a slow breathing glow. "Back to list" or a plan that stops passing switches back.
+local FPP_H = 176
+function UI:BuildFinderPlanView()
+  local fp = self.fp
+  local v = CreateFrame("Frame", nil, fp)
+  v:SetPoint("TOPLEFT", 0, 0); v:SetPoint("BOTTOMRIGHT", 0, 0)
+  v:Hide()
+  v.title = Text(v, 13); v.title:SetPoint("TOPLEFT", 10, -10); v.title:SetWordWrap(false)
+  v.back = Button(v, "Back to list", 90, 20, function()
+    UI.fpListFor = ns.FillGroup.notifiedSig
+    UI:QueueFinderRefresh()
+  end)
+  v.back:SetPoint("TOPRIGHT", -8, -8)
+  v.back.tooltip = "Show the applicant list. The plan comes back when a different group passes."
+  v.title:SetPoint("RIGHT", v.back, "LEFT", -8, 0)
+  v.rows = {}
+  for i = 1, 4 do
+    local r = Text(v, 11); r:SetPoint("TOPLEFT", 12, -36 - (i - 1) * 18); r:SetWidth(300); r:SetWordWrap(false)
+    v.rows[i] = r
+  end
+  v.side = Text(v, 11, C.text); v.side:SetPoint("TOPLEFT", 330, -36); v.side:SetPoint("RIGHT", -10, 0)
+  v.side:SetJustifyV("TOP")
+  v.note = Text(v, 10, C.muted); v.note:SetPoint("BOTTOMLEFT", 12, 12); v.note:SetText("Nothing is sent until you click.")
+  v.fill = Button(v, "Fill group", 128, 24)
+  v.fill:SetPoint("BOTTOMRIGHT", -10, 8)
+  if v.fill.SetMotionScriptsWhileDisabled then v.fill:SetMotionScriptsWhileDisabled(true) end
+  Glow(v.fill)
+  v.review = Button(v, "Review", 96, 24, function()
+    UI:Show("applicants"); UI.ap.showPlan = true; UI:QueueRefresh()
+  end)
+  v.review:SetPoint("RIGHT", v.fill, "LEFT", -8, 0)
+  v.review.tooltip = "Open the Applicants tab on the full plan"
+  -- The panel's own glow (around its edge), breathing while the plan shows.
+  local edge = CreateFrame("Frame", nil, fp)
+  edge:SetPoint("TOPLEFT", -3, 3); edge:SetPoint("BOTTOMRIGHT", 3, -3)
+  edge:SetFrameLevel(math.max(0, (fp:GetFrameLevel() or 1) - 1))
+  Glow(edge, 0)
+  v.edge = edge
+  -- Entrance: fade in and slide up 12px over 0.25 s.
+  local ag = v.CreateAnimationGroup and v:CreateAnimationGroup()
+  if ag then
+    local a = ag.CreateAnimation and ag:CreateAnimation("Alpha")
+    if a then
+      if a.SetFromAlpha then a:SetFromAlpha(0) end
+      if a.SetToAlpha then a:SetToAlpha(1) end
+      if a.SetDuration then a:SetDuration(0.25) end
+    end
+    local t = ag.CreateAnimation and ag:CreateAnimation("Translation")
+    if t then
+      if t.SetOffset then t:SetOffset(0, 12) end
+      if t.SetDuration then t:SetDuration(0.25) end
+      if t.SetSmoothing then t:SetSmoothing("OUT") end
+    end
+  end
+  v.enter = ag
+  fp.planView = v
+end
+
+-- Is Auto-fill's alert up (armed, told, and the plan still passing)?
+function UI:FillAlertPlan()
+  local FG = ns.FillGroup
+  if not (FG.armed and FG.notifiedSig) then return nil end
+  local plan = FG:Current()
+  if plan and plan.status == "ready" then return plan end
+  return nil
+end
+
+-- Show the plan in the docked panel; true when it did (the list rows stay hidden then).
+function UI:RenderFinderPlanView(ctx)
+  local fp, v = self.fp, self.fp and self.fp.planView
+  if not v then return false end
+  local plan = self:FillAlertPlan()
+  local show = plan and self.fpListFor ~= plan.sig and true or false
+  if not show then
+    if v:IsShown() then v:Hide(); v.edge:SetGlow(false) end
+    self.fpPlanSig = nil
+    return false
+  end
+  local FG = ns.FillGroup
+  local dname = DD.list[plan.dungeonKey] and DD.list[plan.dungeonKey].name or ""
+  v.title:SetText(TEX_OK .. " " .. HEX.good .. "Full group ready|r" .. HEX.muted .. "  -  " .. dname
+    .. (plan.keyLevel and (" +" .. plan.keyLevel) or "") .. "  -  " .. FG.LEVEL_LABEL[plan.level] .. "|r")
+  for i, r in ipairs(v.rows) do
+    local ev = plan.picks[i]
+    if ev then
+      local m1 = ev.members[1] or {}
+      local p1 = m1.specID and UD:GetSpec(m1.specID)
+      local spec = p1 and UI.ShortLabel(UD:SpecName(m1.specID) .. " " .. UD:ClassName(p1.class)) or UD:ClassName(m1.classFile)
+      r:SetText(HEX.muted .. (ROLE_WORD[ev.roles[1]] or "?"):upper() .. "|r  " .. self:ApplicantNames(ev) .. HEX.muted .. " " .. spec
+        .. "|r   " .. ev.rating.hex .. ev.rating.word .. " " .. ev.score .. "|r")
+      r:Show()
+    else r:Hide() end
+  end
+  local j = plan.judge
+  local side = { HEX.accent .. "GROUP AFTER|r" }
+  local musts = #j.mustRows > 0 and (TEX_OK .. " Musts: " .. (plan.musts.lust and "Bloodlust" or "")
+    .. (#plan.musts.reqs > 0 and ((plan.musts.lust and ", " or "") .. #plan.musts.reqs .. " boss need" .. (#plan.musts.reqs == 1 and "" or "s")) or "")) or nil
+  if musts then side[#side + 1] = musts end
+  side[#side + 1] = TEX_OK .. " Passes " .. FG.LEVEL_LABEL[plan.level]
+  if #j.thin > 0 then side[#side + 1] = TEX_WAIT .. " " .. #j.thin .. " thin: " .. table.concat(j.thin, ", ") end
+  if #plan.skipped > 0 then side[#side + 1] = HEX.muted .. #plan.skipped .. " skipped by your filters|r" end
+  v.side:SetText(table.concat(side, "\n"))
+  self:SyncFillButton(v.fill, plan)
+  local first = not v:IsShown() or self.fpPlanSig ~= plan.sig
+  self.fpPlanSig = plan.sig
+  -- Size: as wide as the panel's layout, tall enough for the plan.
+  local wide = self:FinderPanelLayout() == "below"
+  local width = wide and math.max(2 * FP_COL_W - 20, (PVEFrame and PVEFrame.GetWidth and PVEFrame:GetWidth()) or 0) or math.max(FP_COL_W, 460)
+  fp:SetSize(width, FPP_H)
+  v.side:ClearAllPoints()
+  if width >= 540 then
+    v.side:SetPoint("TOPLEFT", math.floor(width * 0.58), -36); v.side:SetPoint("RIGHT", -10, 0)
+    for _, r in ipairs(v.rows) do r:SetWidth(math.floor(width * 0.58) - 20) end
+  else
+    v.side:SetPoint("TOPLEFT", 12, -36 - 4 * 18 - 4); v.side:SetPoint("RIGHT", -10, 0)
+    for _, r in ipairs(v.rows) do r:SetWidth(width - 24) end
+  end
+  for _, r in ipairs(fp.rows) do r:Hide() end
+  fp.more:Hide(); fp.needs:Hide(); fp.open:Hide(); fp.title:Hide(); fp.sub:Hide()
+  fp.dock:Hide(); fp.side:Hide(); fp.gear:Hide()   -- "Back to list" takes their corner
+  v:Show()
+  v.edge:SetGlow(true)
+  if first then
+    -- The border flashes, then the plan slides in.
+    fp:SetBackdropBorderColor(unpack(C.good))
+    if C_Timer and C_Timer.After then
+      C_Timer.After(0.3, function() if UI.fp then UI.fp:SetBackdropBorderColor(unpack(C.border)) end end)
+    end
+    if v.enter then v.enter:Stop(); v.enter:Play() end
+  end
+  return true
+end
+
+---------------------------------------------------------------------------
+-- Auto-fill's pop-up: shown when it finds a group while the main window and the Group Finder
+-- are closed (none of the other alerts can be seen then). Near the top of the screen.
+---------------------------------------------------------------------------
+function UI:BuildFillPopup()
+  if self.fillPopup then return self.fillPopup end
+  local f = CreateFrame("Frame", "EnsembleFillPopup", UIParent, "BackdropTemplate")
+  f:SetSize(384, 156)
+  f:SetPoint("TOP", UIParent, "TOP", 0, -120)
+  f:SetFrameStrata("DIALOG")
+  f:SetClampedToScreen(true)
+  f:SetMovable(true); f:EnableMouse(true); f:RegisterForDrag("LeftButton")
+  f:SetScript("OnDragStart", function(self) self:StartMoving() end)
+  f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+  Skin(f, C.bg, C.accent)
+  f.logo = f:CreateTexture(nil, "ARTWORK"); f.logo:SetTexture(UI.LOGO); f.logo:SetSize(22, 22); f.logo:SetPoint("TOPLEFT", 10, -9)
+  f.title = Text(f, 13); f.title:SetPoint("LEFT", f.logo, "RIGHT", 6, 0); f.title:SetPoint("RIGHT", -34, 0); f.title:SetWordWrap(false)
+  f.close = FlatButton(f, "x", 22, 20, function() UI.fillPopupDismissed = ns.FillGroup.notifiedSig; f:Hide() end)
+  f.close:SetPoint("TOPRIGHT", -6, -8)
+  f.close.tooltip = "Hide this until a different group passes"
+  f.rows = {}
+  for i = 1, 4 do
+    local r = Text(f, 11); r:SetPoint("TOPLEFT", 12, -38 - (i - 1) * 17); r:SetPoint("RIGHT", -12, 0); r:SetWordWrap(false)
+    f.rows[i] = r
+  end
+  f.after = Text(f, 11); f.after:SetPoint("TOPLEFT", 12, -110); f.after:SetPoint("RIGHT", -12, 0); f.after:SetWordWrap(false)
+  f.fill = Button(f, "Fill group", 150, 24)
+  f.fill:SetPoint("BOTTOMRIGHT", -10, 8)
+  Glow(f.fill)
+  f.review = Button(f, "Review", 110, 24, function()
+    UI:Show("applicants"); UI.ap.showPlan = true; UI:QueueRefresh(); f:Hide()
+  end)
+  f.review:SetPoint("BOTTOMLEFT", 10, 8)
+  f:Hide()
+  self.fillPopup = f
+  return f
+end
+
+function UI:UpdateFillPopup()
+  local plan = self:FillAlertPlan()
+  local want = plan and ns.db and ns.db.settings.fill.popup ~= false
+    and not (self.frame and self.frame:IsShown())
+    and not (PVEFrame and PVEFrame.IsShown and PVEFrame:IsShown())
+    and self.fillPopupDismissed ~= plan.sig
+  if not want then
+    if self.fillPopup then self.fillPopup:Hide() end
+    return
+  end
+  local f = self:BuildFillPopup()
+  local FG = ns.FillGroup
+  local dname = DD.list[plan.dungeonKey] and DD.list[plan.dungeonKey].name or ""
+  f.title:SetText(HEX.good .. "Full group ready|r" .. HEX.muted .. "  -  " .. dname .. (plan.keyLevel and (" +" .. plan.keyLevel) or "") .. "|r")
+  for i, r in ipairs(f.rows) do
+    local ev = plan.picks[i]
+    if ev then
+      local m1 = ev.members[1] or {}
+      local p1 = m1.specID and UD:GetSpec(m1.specID)
+      local spec = p1 and UI.ShortLabel(UD:SpecName(m1.specID) .. " " .. UD:ClassName(p1.class)) or UD:ClassName(m1.classFile)
+      r:SetText(HEX.muted .. (ROLE_WORD[ev.roles[1]] or "?"):upper() .. "|r  " .. self:ApplicantNames(ev) .. HEX.muted .. " " .. spec
+        .. "|r   " .. ev.rating.hex .. ev.rating.word .. " " .. ev.score .. "|r")
+      r:Show()
+    else r:Hide() end
+  end
+  f.after:SetText((plan.groupAfter and self:GroupAfterText(plan.groupAfter, "brief") or "") .. HEX.muted .. "  -  " .. FG.LEVEL_LABEL[plan.level] .. "|r")
+  self:SyncFillButton(f.fill, plan)
+  f:Show()
 end
 
 -- "below" when docked under the Group Finder; otherwise one column.
@@ -3664,6 +4236,7 @@ function UI:UpdateFinderPanel()
     ns.Tracker:Release("finder")
     if self.fp then self.fp:Hide() end
   end
+  self:UpdateFillPopup()
 end
 
 function UI:QueueFinderRefresh()
@@ -3688,6 +4261,9 @@ function UI:RefreshFinderPanel()
   local dname = ctx.dungeonKey and DD.list[ctx.dungeonKey] and DD.list[ctx.dungeonKey].name
   fp.title:SetText("Applicant fit  " .. HEX.muted .. "(drag to move)|r")
   fp.sub:SetText(UI:DungeonLabel(ctx.dungeonKey, 12) .. (ctx.keyLevel and (" +" .. ctx.keyLevel) or ""))
+  fp:Show()
+  if self:RenderFinderPlanView(ctx) then return end
+  fp.title:Show(); fp.sub:Show(); fp.more:Show(); fp.needs:Show(); fp.open:Show(); fp.gear:Show()
   local limit = UI.fpExpanded and FP_ROWS or FP_SHOW
   local shown = math.min(limit, #evals)
   self:LayoutFinderPanel(shown)
@@ -4490,7 +5066,7 @@ end
 
 ---------------------------------------------------------------------------
 -- Settings: one window with a section list on the left.
---   General · What to check · Group Finder · Party chat · Boss cards · Appearance · Data
+--   General · What to check · Group Finder · Fill group · Party chat · Boss cards · Appearance · Data
 -- Every option has hover help; each section has its own Reset. UI:OpenSettings(key) jumps
 -- straight to a section (used by the gear buttons next to the features they affect).
 ---------------------------------------------------------------------------
@@ -4498,6 +5074,7 @@ UI.SETTINGS_SECTIONS = {
   { key = "general",    label = "General" },
   { key = "checks",     label = "What to check" },
   { key = "finder",     label = "Group Finder" },
+  { key = "fill",       label = "Fill group" },
   { key = "chat",       label = "Party chat" },
   { key = "bosses",     label = "Boss cards" },
   { key = "appearance", label = "Appearance" },
@@ -4510,6 +5087,7 @@ UI.SECTION_KEYS = {
   checks = { "ignoredNeeds", "hideLowSeverity", "countTalentSources", "checks", "dungeonCategories" },
   finder = { "applicantPanel", "finderPanel", "compApplicants", "finderTooltip", "applicantView", "listingMarker",
              "listingHidePoor", "listingTooltip", "applyLine" },
+  fill = { "fill" },
   chat = { "chatStyle" },
   bosses = { "bossWindow" },
   appearance = { "theme", "textSize" },
@@ -4772,6 +5350,227 @@ function UI:BuildSettings_finder(f)
 
 end
 
+-- Fill group: how complete the group must be, the musts for the key being run, who can be
+-- invited, and Auto-fill. (Mock-ups round 2, approved October 23, 2026.)
+local function FillS() return S().fill end
+
+-- The dungeon whose musts the section shows: the one picked here, else the key the
+-- Applicants tab follows (your listing, else the dungeon you're in), else your keystone.
+function UI:FillMustsDungeon()
+  local dk = self.fillMustsDk
+  if dk and DD.list[dk] then return dk, "picked" end
+  local live = ns:GetEffectiveDungeon(true)
+  if live and DD.list[live] then return live, "your listing" end
+  local key = ns:OwnKeystoneDungeon()
+  if key and DD.list[key] then return key, "your keystone" end
+  return DD.order[1], "pick one"
+end
+
+function UI:BuildSettings_fill(f)
+  local x1, x2 = 8, 320
+  local FG = ns.FillGroup
+  -- How complete the group must be.
+  SubHead(f, x1, -44, "How complete the group must be")
+  Note(f, x1, -62, 300, "Each level adds to the musts below.")
+  local y = -84
+  for _, def in ipairs({
+    { "auto", "Match the key level", "Relaxed to +6, Standard +7 to +11, Strict from +12" },
+    { "relaxed", "Relaxed", "Your musts, and no critical need missing" },
+    { "standard", "Standard", "Also battle rez and every high need, trash included" },
+    { "strict", "Strict", "Nothing medium+ missing; critical and high not thin" },
+  }) do
+    local c = AddCheck(self, f, x1, y, def[2], function() return (FillS().level or "auto") == def[1] end,
+      function() FillS().level = def[1]; ns:Fire("FILL_SETTINGS_CHANGED"); C_Timer.After(0, function() UI:RefreshSettings() end) end,
+      def[3] .. ". Needs you untick in What to check stay out at every level.")
+    c:SetWidth(290)
+    Note(f, x1 + 22, y - 18, 280, def[3])
+    y = y - 38
+  end
+  -- Always require: the musts for one dungeon.
+  y = y - 4
+  local head = Text(f, 12, C.text); head:SetPoint("TOPLEFT", x1, y); head:SetText("Always require:")
+  local pick = FlatButton(f, "", 170, 18, function(btn)
+    local items = { { text = "Musts for:", header = true } }
+    for _, dk in ipairs(DD.order) do
+      items[#items + 1] = { text = DD.list[dk].name, selected = UI:FillMustsDungeon() == dk,
+        onClick = function() UI.fillMustsDk = dk; UI:RefreshSettings() end }
+    end
+    UI:ShowMenu(btn, items)
+  end)
+  pick:SetPoint("LEFT", head, "RIGHT", 4, 0)
+  pick.text:ClearAllPoints(); pick.text:SetPoint("LEFT", 4, 0); pick.text:SetJustifyH("LEFT")
+  pick.tooltip = "Pick another dungeon to see or change its musts"
+  self.fillMustsPick = pick
+  self.fillMustsNote = Note(f, x1, y - 18, 300, "")
+  -- Rows are built once and relabeled for each dungeon (a scroll area: Kings' Rest lists 7).
+  local box = CreateFrame("ScrollFrame", nil, f)
+  box:SetPoint("TOPLEFT", x1, y - 40); box:SetPoint("BOTTOMLEFT", x1, 44); box:SetWidth(300)
+  local inner = CreateFrame("Frame", nil, box); inner:SetSize(300, 1)
+  box:SetScrollChild(inner)
+  box:EnableMouseWheel(true)
+  box:SetScript("OnMouseWheel", function(sf, d)
+    local max = math.max(0, inner:GetHeight() - sf:GetHeight())
+    sf:SetVerticalScroll(math.min(max, math.max(0, sf:GetVerticalScroll() - d * 22)))
+  end)
+  self.fillMustRows, self.fillMustHeads, self.fillMustInner = {}, {}, inner
+  for i = 1, 16 do
+    local row = {}
+    local c = Check(inner, "", function() return row.get and row.get() end, function(v) if row.set then row.set(v) end end)
+    c:SetWidth(296)
+    c.label:SetPoint("RIGHT", c, "RIGHT", 0, 0); c.label:SetWordWrap(false)
+    row.check = c
+    self.fillMustRows[i] = row
+  end
+  for i = 1, 2 do
+    local h = Text(inner, 10, C.muted); self.fillMustHeads[i] = h
+  end
+  local add = Button(f, "+ Add a need", 120, 22, function(btn)
+    local dk = UI:FillMustsDungeon()
+    local m = FG:Musts(dk)
+    local on = {}
+    for _, q in ipairs(m.reqs) do on[q.id] = true end
+    local items = { { text = "Add a need (" .. DD.list[dk].name .. "):", header = true } }
+    for _, q in ipairs(FG:OtherNeeds(dk)) do
+      if not on[q.id] then
+        items[#items + 1] = { text = UD:CapLabel(q.need) .. " - " .. FG.CastName(q), tooltip = q.source,
+          onClick = function() FG:SetMust(dk, q.id, true); UI:RefreshSettings() end }
+      end
+    end
+    if #items == 1 then items[#items + 1] = { text = "Nothing else to add", header = true } end
+    UI:ShowMenu(btn, items)
+  end)
+  add:SetPoint("BOTTOMLEFT", x1, 14)
+  add.tooltip = "Add one of the dungeon's other needs (trash) to its musts"
+  local back = Button(f, "Back to boss needs", 150, 22, function() FG:ResetMusts(UI:FillMustsDungeon()); UI:RefreshSettings() end)
+  back:SetPoint("LEFT", add, "RIGHT", 8, 0)
+  back.tooltip = "This dungeon's musts back to its defaults: Bloodlust and the boss needs"
+
+  -- Who can be invited.
+  SubHead(f, x2, -44, "Who can be invited")
+  local yy = -66
+  self.fillFilterRows = {}
+  for _, def in ipairs({ { "rating", "Minimum M+ rating", 50 }, { "ilvl", "Minimum item level", 1 } }) do
+    local k, label, step = def[1], def[2], def[3]
+    AddCheck(self, f, x2, yy, label, function() return FillS()[k].on ~= false end, function(v) FillS()[k].on = v; ns:Fire("FILL_SETTINGS_CHANGED") end,
+      k == "rating" and "Skip applicants below this M+ rating. Suggested: what timing every dungeon two levels below the key gives (off up to +6)."
+      or "Skip applicants below this item level. Suggested: what a key two levels lower drops at the end of the run, from the game (off up to +6).")
+    local src = Button(f, "", 150, 20, function(btn)
+      local items = {}
+      for _, s in ipairs({ { "suggested", "Suggested for the key" }, { "listing", "From my listing" }, { "custom", "Custom" } }) do
+        items[#items + 1] = { text = s[2], selected = FillS()[k].source == s[1],
+          onClick = function() FillS()[k].source = s[1]; ns:Fire("FILL_SETTINGS_CHANGED"); UI:RefreshSettings() end }
+      end
+      UI:ShowMenu(btn, items)
+    end)
+    SetFontSize(src.text, 11)
+    src:SetPoint("TOPLEFT", x2 + 22, yy - 22)
+    src.tooltip = "Where the minimum comes from: suggested for the key, your listing's own minimum, or a number you set"
+    local minus = Button(f, "-", 22, 20, function()
+      local c = FillS()[k]; c.source = "custom"; c.value = math.max(0, (tonumber(c.value) or 0) - step); ns:Fire("FILL_SETTINGS_CHANGED"); UI:RefreshSettings()
+    end)
+    minus:SetPoint("LEFT", src, "RIGHT", 8, 0)
+    local val = Text(f, 12, C.text, "CENTER"); val:SetPoint("LEFT", minus, "RIGHT", 2, 0); val:SetWidth(50)
+    local plus = Button(f, "+", 22, 20, function()
+      local c = FillS()[k]; c.source = "custom"; c.value = (tonumber(c.value) or 0) + step; ns:Fire("FILL_SETTINGS_CHANGED"); UI:RefreshSettings()
+    end)
+    plus:SetPoint("LEFT", val, "RIGHT", 2, 0)
+    minus.tooltip = "Lower (sets a custom number)"; plus.tooltip = "Raise (sets a custom number)"
+    local note = Text(f, 10, C.muted); note:SetPoint("TOPLEFT", x2 + 22, yy - 46); note:SetWidth(420); note:SetWordWrap(false)
+    self.fillFilterRows[k] = { src = src, val = val, note = note }
+    yy = yy - 66
+  end
+  AddCheck(self, f, x2, yy, "Skip players with the leaver flag", function() return FillS().skipLeavers ~= false end,
+    function(v) FillS().skipLeavers = v; ns:Fire("FILL_SETTINGS_CHANGED") end,
+    "The game flags players who recently left keys early. They stay on the list, dimmed and tagged SKIPPED."):SetWidth(400); yy = yy - 24
+  AddCheck(self, f, x2, yy, "Skip players the game sends no data for", function() return FillS().skipNoData ~= false end,
+    function(v) FillS().skipNoData = v; ns:Fire("FILL_SETTINGS_CHANGED") end,
+    "With a minimum on, an applicant without a rating or item level from the game is skipped. Off lets them through that filter."):SetWidth(400); yy = yy - 34
+
+  SubHead(f, x2, yy, "Auto-fill"); yy = yy - 22
+  AddCheck(self, f, x2, yy, "Turn Auto-fill on when I list a group", function() return FillS().autoArm == true end,
+    function(v) FillS().autoArm = v end, "Off: turn it on per listing with the Auto-fill box on the Applicants tab."):SetWidth(400); yy = yy - 24
+  AddCheck(self, f, x2, yy, "Play a sound when a full group is ready", function() return FillS().sound ~= false end,
+    function(v) FillS().sound = v end, "The ready-check sound, once per new group."):SetWidth(400); yy = yy - 24
+  AddCheck(self, f, x2, yy, "Show a pop-up when the window is closed", function() return FillS().popup ~= false end,
+    function(v) FillS().popup = v; UI:UpdateFillPopup() end,
+    "With the main window and the Group Finder closed, a small pop-up shows the plan, with Review and Fill group."):SetWidth(400); yy = yy - 30
+  local wl = Text(f, 12, C.text); wl:SetPoint("TOPLEFT", x2, yy); wl:SetText("Wait before telling me")
+  local wm = Button(f, "-", 22, 20, function() FillS().wait = math.max(0, (FillS().wait or 15) - 5); UI:RefreshSettings() end)
+  wm:SetPoint("TOPLEFT", x2 + 230, yy + 3)
+  local wv = Text(f, 12, C.text, "CENTER"); wv:SetPoint("LEFT", wm, "RIGHT", 2, 0); wv:SetWidth(44)
+  local wp = Button(f, "+", 22, 20, function() FillS().wait = math.min(120, (FillS().wait or 15) + 5); UI:RefreshSettings() end)
+  wp:SetPoint("LEFT", wv, "RIGHT", 2, 0)
+  self.fillWaitText = wv
+  Note(f, x2, yy - 24, 440, "Gives more players time to apply, so the first full group isn't the only one seen.")
+  Note(f, x2, yy - 52, 440, "Ensemble only invites when you click: Auto-fill finds the group and tells you; you send the invites.")
+end
+
+-- The parts of the Fill group section that depend on the dungeon and the key.
+function UI:RefreshFillSettings()
+  if not self.fillMustRows then return end
+  local FG = ns.FillGroup
+  local dk, how = self:FillMustsDungeon()
+  self.fillMustsPick.text:SetText(HEX.accent .. DD.list[dk].name .. "|r")
+  self.fillMustsNote:SetText(how == "picked" and "Picked here. Saved per dungeon."
+    or (how == "pick one" and "Pick a dungeon. Saved per dungeon." or ("Follows the key (" .. how .. "). Saved per dungeon.")))
+  local m = FG:Musts(dk)
+  local rows, heads = self.fillMustRows, self.fillMustHeads
+  for _, h in ipairs(heads) do h:Hide() end
+  local y, i = 0, 0
+  local function place(get, set, label, sub, tip)
+    i = i + 1
+    local row = rows[i]
+    if not row then return end
+    row.get, row.set = get, set
+    row.check.label:SetText(label .. (sub and (HEX.muted .. "  -  " .. sub .. "|r") or ""))
+    row.check.tip = tip
+    row.check:ClearAllPoints(); row.check:SetPoint("TOPLEFT", 0, -y)
+    row.check:Sync(); row.check:Show()
+    y = y + 22
+  end
+  local function head(n, text)
+    local h = heads[n]
+    h:ClearAllPoints(); h:SetPoint("TOPLEFT", 0, -y - 2); h:SetText(text); h:Show()
+    y = y + 18
+  end
+  place(function() return FG:Musts(dk).lust end, function(v) FG:SetMust(dk, "lust", v) end,
+    "Bloodlust", "every key", "A group needs Bloodlust. Untick it to let groups without one pass.")
+  local boss, added = {}, {}
+  for _, row in ipairs(m.rows) do if row.boss then boss[#boss + 1] = row else added[#added + 1] = row end end
+  if #boss > 0 then head(1, "BOSS MECHANICS") end
+  for _, row in ipairs(boss) do
+    local id = row.req.id
+    local label, sub = FG:MustLabel(row)
+    place(function()
+      for _, r in ipairs(FG:Musts(dk).rows) do if r.req.id == id then return r.on end end
+      return false
+    end, function(v) FG:SetMust(dk, id, v) end, label, sub,
+      row.req.source .. (row.req.severity == "low" and "\nLow severity: starts unticked." or ""))
+  end
+  if #added > 0 then head(2, "ADDED BY YOU") end
+  for _, row in ipairs(added) do
+    local id = row.req.id
+    local label, sub = FG:MustLabel(row)
+    place(function() return true end, function(v) FG:SetMust(dk, id, v); UI:RefreshSettings() end, label, sub, row.req.source)
+  end
+  for k = i + 1, #rows do rows[k].check:Hide() end
+  self.fillMustInner:SetHeight(math.max(1, y))
+  -- Filters: the value in force for the key.
+  local level = ns.ApplicantFit:GetKeyLevel(dk)
+  local filters = FG:Filters(nil, level)
+  local SRC = { suggested = "Suggested for the key", listing = "From my listing", custom = "Custom" }
+  for k, r in pairs(self.fillFilterRows) do
+    local fl = filters[k]
+    local conf = ns.db.settings.fill[k]
+    r.src.text:SetText(SRC[conf.source] or conf.source)
+    r.val:SetText(conf.source == "custom" and tostring(conf.value) or (fl.on and tostring(fl.value) or "-"))
+    local keyText = level and ("+" .. level) or "the key"
+    r.note:SetText(conf.on == false and "Off." or (fl.on and ("In force for " .. keyText .. ": " .. fl.value .. ".")
+      or ("Not in force: " .. tostring(fl.why) .. ".")))
+  end
+  self.fillWaitText:SetText((ns.db.settings.fill.wait or 15) .. " s")
+end
+
 function UI:BuildSettings_chat(f)
   SubHead(f, 8, -44, "Style of posts")
   AddRadio(self, f, 8, -66, "Full: casts with their mobs, dispels and backups", "chatStyle", "full",
@@ -4865,6 +5664,7 @@ function UI:RefreshSettings()
     self.presetNote:SetText(cur and ("Current: " .. self.PRESETS_SETTINGS[cur].label) or "Current: your own mix")
   end
   self:SyncAppearance()
+  self:RefreshFillSettings()
   if self.bossFontLabel then
     self.bossFontLabel:SetText("Text size: " .. tostring((ns.db.settings.bossWindow or {}).fontSize or 12) .. " px")
   end
@@ -5098,7 +5898,7 @@ function UI:RegisterBlizzardOptions()
   sub:SetText(UI.SUBTITLE)
   local body = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); body:SetPoint("TOPLEFT", logo, "BOTTOMLEFT", 0, -16)
   body:SetWidth(540); body:SetJustifyH("LEFT")
-  body:SetText("Every setting is in the addon's own window: General, What to check, Group Finder, Party chat, Boss cards, Appearance and Data. Type /ens to open the addon, or use the button below.")
+  body:SetText("Every setting is in the addon's own window: General, What to check, Group Finder, Fill group, Party chat, Boss cards, Appearance and Data. Type /ens to open the addon, or use the button below.")
   local b = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
   b:SetSize(260, 26); b:SetPoint("TOPLEFT", body, "BOTTOMLEFT", 0, -14)
   b:SetText("Open Ensemble settings")
@@ -5125,6 +5925,15 @@ modeWatcher:SetScript("OnEvent", function()
   if (tab == "composition" or tab == "plan") and UI:CompMode() ~= ns.state.mode then UI:SetTab(tab) end
 end)
 ns:On("LUST_CHANGED", function() UI:QueueRefresh() end)
+-- Fill group: a new plan, an alert, an invite sent, a must or a filter changed.
+local function FillChanged()
+  UI:QueueRefresh(); UI:QueueFinderRefresh(); UI:UpdateFillPopup()
+  if UI.frame and UI.frame:IsShown() then UI:SyncFillTabDot() end
+end
+ns:On("FILL_ALERT", FillChanged)
+ns:On("FILL_ARMED", FillChanged)
+ns:On("FILL_DONE", FillChanged)
+ns:On("FILL_SETTINGS_CHANGED", FillChanged)
 ns:On("BOSS_ORDER_CHANGED", function() UI:QueueRefresh() end)
 ns:On("ASSIGNMENTS_CHANGED", function() UI:QueueRefresh() end)
 ns:On("HISTORY_CHANGED", function() UI:QueueRefresh() end)

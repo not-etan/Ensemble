@@ -30,7 +30,7 @@ Tour.STEPS = {
     text = "Who takes each kick and dispel (click a line to change it) and Bloodlust timing (click to set your own). Post the assignments to party chat before the key starts: the game may block addon chat during a key, and then the text opens in a copy window instead." },
   { tab = "composition", title = "Hosting a key",
     target = function() return UI.tabButtons.applicants end,
-    text = "Applicants rates each player on what they add to your group and their experience in this dungeon. While you host, the best fits also show under your slots on Composition. \"What we need\" gives you a line for your listing's description." },
+    text = "Applicants rates each player on what they add to your group and their experience in this dungeon. Fill group finds a full group that covers the key and invites it when you click. While you host, the best fits also show under your slots on Composition. \"What we need\" gives you a line for your listing's description." },
   { tab = "composition", title = "Help is close",
     target = function() return UI.helpBtn end,
     text = "\"?\" opens the glossary. Boss cards open by themselves in a Season dungeon. Replay this tour from Settings > General." },
