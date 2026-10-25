@@ -2,7 +2,7 @@
 ## Title: Ensemble
 ## Notes: A Mythic+ Companion. Learn the dungeon. Build the group. Time the key. Type /ens to open.
 ## Author: Ensemble
-## Version: 1.4.1
+## Version: 1.5.0
 ## SavedVariables: EnsembleDB
 ## IconTexture: Interface\AddOns\Ensemble\Media\Logo
 ## AddonCompartmentFunc: Ensemble_OnAddonCompartmentClick

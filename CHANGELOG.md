@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.0
+- **Reserve a slot:** hold an open slot for a friend who's joining. Pick their spec (and, if you like, their name) from the Fill group band or Settings > Fill group: Fill group plans only the rest, the slot counts in Needs and Fill group's checks, and it clears when they join, when you release it, when the group is full or when the listing ends.
+- **Saved players:** a list of the people you play with (Settings > Saved players). Their names are suggested as you type a reservation, and the Composition planner can put one in a slot with their spec; a saved comp keeps who was in each slot. Names stay on your computer: never in `/ens verify`, `/ens report`, party posts or share strings.
+- **Past keys together:** applicant cards and tooltips say how your recorded keys with that player went ("With you: 2 timed, 1 over time"), with a "Past keys" sort. Fill group can prefer players you've timed with and lower or skip players you've failed with, only among groups that already cover the key (all off by default). Optional: show it in pick ratings. Counts keys recorded from this version on.
+- **Boss splits:** History records when each boss died and the deaths in each stretch, compared with your best timed run of that dungeon; an over-time key with no utility gaps now says where the time went.
+- **Faster:** the window rebuilds only the tab that shows what changed, History shows 50 keys at a time ("Show 50 more"), and the boss window redraws once per burst of updates.
+- **Downloads:** Ensemble is no longer published on Wago. Get updates from CurseForge or GitHub.
+
 ## 1.4.1
 Includes everything from the 1.4.0 beta.
 

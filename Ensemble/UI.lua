@@ -2995,6 +2995,7 @@ function UI:BuildReserveDialog()
   d:SetScript("OnDragStart", d.StartMoving); d:SetScript("OnDragStop", d.StopMovingOrSizing)
   d:SetClampedToScreen(true)
   Skin(d, C.bg, C.accent); Accent(d, "border")
+  if UISpecialFrames then table.insert(UISpecialFrames, "EnsembleReserveDialog") end   -- Escape closes it
   d:Hide()
   d.st = { saveOn = true, matches = {} }   -- dialog state: a plain table (fields on frames are the client's)
   d.title = AccentText(d); d.title:SetPoint("TOPLEFT", 12, -10)
