@@ -13,6 +13,13 @@
 -- it. It clears when that player joins (full name), on Release, when the group is full, or
 -- when the listing ends; a /reload while the listing is up keeps it.
 --
+-- A named reservation releases itself when that player's application turns to invited (your
+-- Invite click, Fill group or Blizzard's button), so the slot isn't counted twice; it waits in
+-- db.reserved.pending until the invite resolves. A time-out ("timedout") brings it back while
+-- that listing is up; a declined invite ("invitedeclined") or any other end keeps it released.
+-- No chat message either way: the band's "Reserved (N)" count shows it. What an invite nobody
+-- answers turns into isn't documented; /ens verify lists the statuses seen (1.5.0 review, R3).
+--
 -- Limits: Blizzard's listing can't be changed by addons, so players keep applying for the
 -- reserved role; and an invite you sent your friend outside the Group Finder isn't visible to
 -- addons, so the reservation is set by hand.
@@ -31,12 +38,14 @@ local function DB() return ns.db end
 local function Key(full) return type(full) == "string" and full:lower() or nil end
 P.Key = Key
 
--- "ann", "Ann-Area 52" -> "Ann-Area52"; your own realm when none is given. nil for empty text.
+-- "ann", "Ann-Area 52", "Ann-Azjol-Nerub" -> "Ann-Realm", "Ann-Area52", "Ann-AzjolNerub": the
+-- realm as the game writes it in names (no spaces or hyphens), your own when none is given.
+-- nil for empty text, or an empty name or realm part ("Ann-", "-Realm") (1.5.0 review, R5).
 function P:Normalize(text)
   if type(text) ~= "string" then return nil end
   text = text:gsub("^%s+", ""):gsub("%s+$", "")
   if text == "" then return nil end
-  local name, realm = text:match("^([^%-]+)%-(.+)$")
+  local name, realm = text:match("^([^%-]*)%-(.*)$")
   if not name then name = text end
   name = name:gsub("%s+", "")
   if name == "" then return nil end
@@ -44,12 +53,10 @@ function P:Normalize(text)
   -- letters are kept as typed, since the game's own capitalization isn't known here).
   name = name:sub(1, 1):upper() .. name:sub(2)
   if realm then
-    realm = realm:gsub("%s+", "")
-    if realm == "" then realm = nil end
-  end
-  if not realm then
-    local my = GetNormalizedRealmName and GetNormalizedRealmName()
-    realm = type(my) == "string" and my ~= "" and my or nil
+    realm = ns.Tracker.CleanRealm(realm)
+    if not realm then return nil end
+  else
+    realm = ns.Tracker.CleanRealm(GetNormalizedRealmName and GetNormalizedRealmName())
   end
   return realm and (name .. "-" .. realm) or name
 end
@@ -213,25 +220,99 @@ local function RChanged() ns:Fire("RESERVED_CHANGED") end
 
 function P:Reservations() return DB().reserved.list end
 
--- Party members by role (real players only).
+local UNITS = { "player", "party1", "party2", "party3", "party4" }
+
+-- Party members by role (real players only), and how many there are. The roster tracker's list
+-- while something holds it; otherwise the units directly, since the tracker's list goes stale
+-- with nobody holding it (Settings tab, Group Finder closed, Auto-fill off; 1.5.0 review, R2).
+-- A member whose role can't be read still takes a slot (the count).
 local function PartyRoles()
-  local roles = { TANK = 0, HEALER = 0, DAMAGER = 0 }
-  for _, m in ipairs(ns.Tracker:GetComp()) do
-    local s = m.specID and ns.UD:GetSpec(m.specID)
-    local r = (s and s.role) or m.role
-    if roles[r] then roles[r] = roles[r] + 1 end
+  local roles, n = { TANK = 0, HEALER = 0, DAMAGER = 0 }, 0
+  local Readable = ns.Tracker.Readable
+  if ns.Tracker.enabled then
+    for _, m in ipairs(ns.Tracker:GetComp()) do
+      n = n + 1
+      local s = m.specID and ns.UD:GetSpec(m.specID)
+      local r = (s and s.role) or m.role
+      if roles[r] then roles[r] = roles[r] + 1 end
+    end
+    return roles, n
   end
-  return roles
+  if IsInRaid and IsInRaid() then return roles, ns.NUM_SLOTS end
+  for _, unit in ipairs(UNITS) do
+    local okE, exists = pcall(UnitExists, unit)
+    if okE and Readable(exists) then
+      n = n + 1
+      local okR, r = pcall(UnitGroupRolesAssigned, unit)
+      r = okR and Readable(r) or nil
+      if (r == nil or r == "NONE") and unit == "player" then
+        local s = ns.UD:GetSpec(Readable(ns.API.GetPlayerSpecID()) or 0)
+        r = s and s.role
+      end
+      if roles[r] then roles[r] = roles[r] + 1 end
+    end
+  end
+  return roles, n
+end
+P.PartyRoles = PartyRoles
+
+-- The applicant status as the game reports it (nil when unknown or hidden).
+function P:ApplicantStatus(id)
+  if not (C_LFGList and C_LFGList.GetApplicantInfo) then return nil end
+  local ok, info = pcall(C_LFGList.GetApplicantInfo, id)
+  if not ok or type(info) ~= "table" then return nil end
+  local st = ns.Tracker.Readable(info.applicationStatus)
+  return type(st) == "string" and st or nil
 end
 
--- Free slots of a role after the party and the other reservations.
+-- Each applicant member with their application's status: { { id, status, full, role } }.
+function P:ApplicantMembers()
+  local out = {}
+  if not (self:Listed() and C_LFGList.GetApplicants and C_LFGList.GetApplicantMemberInfo) then return out end
+  local ok, list = pcall(C_LFGList.GetApplicants)
+  if not ok or type(list) ~= "table" then return out end
+  local Readable, NormalizeName = ns.Tracker.Readable, ns.Tracker.NormalizeName
+  for _, id in ipairs(list) do
+    local okI, info = pcall(C_LFGList.GetApplicantInfo, id)
+    if okI and type(info) == "table" then
+      local st = Readable(info.applicationStatus)
+      for m = 1, (tonumber(Readable(info.numMembers)) or 1) do
+        local okM, name, _, _, _, _, _, _, _, _, role = pcall(C_LFGList.GetApplicantMemberInfo, id, m)
+        if okM then
+          out[#out + 1] = { id = id, status = type(st) == "string" and st or nil,
+            full = NormalizeName(Readable(name)), role = Readable(role) }
+        end
+      end
+    end
+  end
+  return out
+end
+
+-- Invited applicants by role: they hold a slot until they join or the invite ends (R3).
+function P:InvitedRoles()
+  local roles, n = { TANK = 0, HEALER = 0, DAMAGER = 0 }, 0
+  for _, a in ipairs(self:ApplicantMembers()) do
+    if a.status == "invited" then
+      n = n + 1
+      if roles[a.role] then roles[a.role] = roles[a.role] + 1 end
+    end
+  end
+  return roles, n
+end
+
+-- Free slots of a role after the party, invited applicants and the other reservations; never
+-- more than the group's free slots overall.
 function P:FreeFor(role)
-  local roles = PartyRoles()
+  local roles, n = PartyRoles()
+  local inv, ninv = self:InvitedRoles()
+  for r, c in pairs(inv) do roles[r] = roles[r] + c end
+  local taken = n + ninv
   for _, r in ipairs(self:Reservations()) do
     local s = ns.UD:GetSpec(r.specID)
     if s and roles[s.role] then roles[s.role] = roles[s.role] + 1 end
+    taken = taken + 1
   end
-  return (self.ROLE_SLOTS[role] or 0) - (roles[role] or 0)
+  return math.min((self.ROLE_SLOTS[role] or 0) - (roles[role] or 0), ns.NUM_SLOTS - taken)
 end
 
 -- Hold a slot. specID required; name optional ("Name" or "Name-Realm"). save: also add the
@@ -250,9 +331,14 @@ function P:Reserve(specID, name, save)
   end
   table.insert(DB().reserved.list, { specID = specID, full = full })
   if self:Listed() then DB().reserved.seenListed = true end
-  if save and full then self:Save(full, specID) end
+  -- Saved players full: the reservation still goes through; the caller says it wasn't saved (N3).
+  local note
+  if save and full then
+    local okS, why = self:Save(full, specID)
+    if not okS and why == "full" then note = "notSaved" end
+  end
   RChanged()
-  return true
+  return true, note
 end
 
 function P:Release(i)
@@ -267,10 +353,11 @@ end
 function P:ClearReservations(why)
   local res = DB() and DB().reserved
   if not res or #res.list == 0 then
-    if res then res.seenListed = false end
+    if res then res.seenListed = false; res.pending = {} end
     return false
   end
   res.list = {}
+  res.pending = {}
   res.seenListed = false
   self.lastCleared = why
   RChanged()
@@ -331,7 +418,7 @@ end
 -- closed); a name the game hides matches nothing.
 function P:OnRoster()
   local res = DB() and DB().reserved
-  if not res or #res.list == 0 then return end
+  if not res or (#res.list == 0 and #res.pending == 0) then return end
   local n = (GetNumGroupMembers and GetNumGroupMembers()) or 0
   if n >= ns.NUM_SLOTS and not (IsInRaid and IsInRaid()) then self:ClearReservations("full"); return end
   local present = {}
@@ -344,6 +431,10 @@ function P:OnRoster()
   for i = #res.list, 1, -1 do
     local k = Key(res.list[i].full)
     if k and present[k] then table.remove(res.list, i); changed = true end
+  end
+  -- An invited friend who joined: their released reservation is done with.
+  for i = #res.pending, 1, -1 do
+    if present[Key(res.pending[i].full)] then table.remove(res.pending, i) end
   end
   if changed then
     if #res.list == 0 then res.seenListed = false end
@@ -362,17 +453,111 @@ function P:OnListing(has, was, baseline)
     if #res.list > 0 then res.seenListed = true end
     return
   end
-  if #res.list == 0 or not res.seenListed then return end
+  -- Waiting: reservations that belong to a listing, or friends' reservations released while
+  -- their invite is out (those end with the listing too).
+  local waiting = (#res.list > 0 and res.seenListed) or #res.pending > 0
+  if not waiting then return end
   if baseline then
     C_Timer.After(self.RECHECK_DELAY, function()
-      if not P:Listed() and DB().reserved.seenListed then P:ClearReservations("listing ended") end
+      if P:Listed() then return end
+      local r = DB().reserved
+      if r.seenListed and #r.list > 0 then P:ClearReservations("listing ended") else r.pending = {} end
     end)
   elseif was then
-    self:ClearReservations("listing ended")
+    if #res.list > 0 and res.seenListed then self:ClearReservations("listing ended") else res.pending = {} end
   end
+end
+
+---------------------------------------------------------------------------
+-- Invites to a reserved friend (1.5.0 review, R3)
+---------------------------------------------------------------------------
+-- What this session saw, for /ens verify (counts and status names only, never names).
+P.inviteLog = { released = 0, restored = 0, stayed = 0, notRestored = 0, statuses = {} }
+
+-- Statuses that put a friend's reservation on hold: the invite went out (or was taken already).
+local RELEASE_ON = { invited = true, inviteaccepted = true }
+
+local function ListingActivity()
+  if not (C_LFGList and C_LFGList.GetActiveEntryInfo) then return nil end
+  local ok, entry = pcall(C_LFGList.GetActiveEntryInfo)
+  if not ok or type(entry) ~= "table" then return nil end
+  return (type(entry.activityIDs) == "table" and entry.activityIDs[1]) or entry.activityID
+end
+
+local function Saw(status)
+  local log = P.inviteLog.statuses
+  log[status] = (log[status] or 0) + 1
+end
+
+-- Applicants changed: release a named reservation whose player is now invited, and settle the
+-- released ones whose invite ended. Unnamed reservations are never touched.
+function P:OnApplicants()
+  local res = DB() and DB().reserved
+  if not res then return end
+  local named = false
+  for _, r in ipairs(res.list) do if r.full then named = true end end
+  if not named and #res.pending == 0 then return end
+  if not self:Listed() then return end   -- the listing ending is OnListing's
+  local activity = ListingActivity()
+  local changed = false
+  -- 1. Released reservations: has the invite ended?
+  for i = #res.pending, 1, -1 do
+    local p = res.pending[i]
+    if p.listing and activity and p.listing ~= activity then
+      table.remove(res.pending, i)   -- a different listing now: that invite is over
+    else
+      local st = self:ApplicantStatus(p.applicantID)
+      if st and st ~= p.status then Saw(st); p.status = st end
+      if st == "timedout" then
+        table.remove(res.pending, i)
+        local s = ns.UD:GetSpec(p.specID)
+        local taken = false
+        for _, r in ipairs(res.list) do if Key(r.full) == Key(p.full) then taken = true end end
+        -- Back only into a slot that's still free (you may have filled the role meanwhile).
+        if s and not taken and self:FreeFor(s.role) > 0 then
+          table.insert(res.list, { specID = p.specID, full = p.full })
+          res.seenListed = true
+          self.inviteLog.restored = self.inviteLog.restored + 1
+          changed = true
+        else
+          self.inviteLog.notRestored = self.inviteLog.notRestored + 1
+        end
+      elseif st and not RELEASE_ON[st] and st ~= "applied" then
+        -- invitedeclined, or any other end: stays released.
+        table.remove(res.pending, i)
+        self.inviteLog.stayed = self.inviteLog.stayed + 1
+      end
+    end
+  end
+  -- 2. Named reservations whose player was just invited.
+  if named then
+    local byName = {}
+    for _, a in ipairs(self:ApplicantMembers()) do
+      if a.full and a.status and RELEASE_ON[a.status] then byName[Key(a.full)] = a end
+    end
+    for i = #res.list, 1, -1 do
+      local r = res.list[i]
+      local a = r.full and byName[Key(r.full)]
+      if a then
+        table.remove(res.list, i)
+        table.insert(res.pending, { specID = r.specID, full = r.full, applicantID = a.id, status = a.status, listing = activity })
+        Saw(a.status)
+        self.inviteLog.released = self.inviteLog.released + 1
+        changed = true
+      end
+    end
+  end
+  if changed then RChanged() end
 end
 
 local watch = CreateFrame("Frame")
 pcall(watch.RegisterEvent, watch, "GROUP_ROSTER_UPDATE")
-watch:SetScript("OnEvent", function() if ns.db then pcall(P.OnRoster, P) end end)
-ns:On("LIVE_ROSTER_CHANGED", function() if ns.db then pcall(P.OnRoster, P) end end)
+pcall(watch.RegisterEvent, watch, "LFG_LIST_APPLICANT_UPDATED")
+pcall(watch.RegisterEvent, watch, "LFG_LIST_APPLICANT_LIST_UPDATED")
+watch:SetScript("OnEvent", function(_, event)
+  if not ns.db then return end
+  if event == "GROUP_ROSTER_UPDATE" then pcall(P.OnRoster, P) else pcall(P.OnApplicants, P) end
+end)
+ns:On("LIVE_ROSTER_CHANGED", function()
+  if ns.db then pcall(P.OnRoster, P); pcall(P.OnApplicants, P) end
+end)

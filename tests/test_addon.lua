@@ -5871,7 +5871,8 @@ do
   fire("PLAYER_ENTERING_WORLD")
   local sp4
   for _, sp in ipairs(nsS.db.activeRun.splits) do if sp.enc == 2127 then sp4 = sp end end
-  ok(nsS.db.activeRun.splits[4] == sp3, "F1: a split without a time sorts last")
+  ok(nsS.db.activeRun.splits[3] == sp3 and nsS.db.activeRun.splits[4] == sp4,
+    "F1: with a split missing its time, splits stay in the order seen (1.5.0 review, R4)")
   ok(sp4 and sp4.enc == 2127 and sp4.approx and sp4.t == 1300, "F1: after a reload, a boss already down is marked approximate")
   fire("PLAYER_ENTERING_WORLD")
   ok(#nsS.db.activeRun.splits == 4, "F1: a second reload adds nothing")
@@ -6434,6 +6435,297 @@ do
   ok(cpp[1].full == "X-Realm" and cpp[2] == false and cpp[3] == false and cpp[4] == false and cpp[9] == nil, "planner people cleaned")
   ok(nsC2.db.savedComps[1].people[1] == false, "saved comp people cleaned")
   ROSTER = {}
+end
+
+-- 79. The 1.5.0 review fixes (R1-R6, N1-N6): planner names on every slot writer, the party read
+-- with the tracker idle, invited applicants holding slots and a reserved friend's invite
+-- (release, back after a time-out, stays released on a decline), split order with the timer
+-- hidden, realm names, Hide Poor and a reserved friend, the report, Saved players full,
+-- Composition after a key, the comparison run's level, the capped past-keys step.
+do
+  EnsembleDB = nil
+  CURRENT_AFFIXES = {}
+  ROSTER = { player = { guid = "P", name = "Faelan", class = "WARRIOR", spec = 73, role = "TANK" } }
+  INSPECT_CACHE = {}
+  APPLICANTS, APPLICANT_STATUS, LISTING = {}, {}, nil
+  local nsF = boot()
+  local P, T, UIf, H = nsF.Players, nsF.Tracker, nsF.UI, nsF.History
+
+  -- R1: the slot's x, Copy party and a suggestion click drop the saved player on that slot.
+  P:Save("Ann-Realm", 262)
+  nsF.db.settings.compMode = "planner"
+  UIf:Show("composition"); RunTimers()
+  P:SetPlannerSlot(3, "Ann-Realm", 262); RunTimers()
+  UIf.cp.slotRows[3].clear:Click(); RunTimers()
+  ok(nsF.db.currentComp[3] == 0 and nsF.db.currentPeople[3] == false, "R1: the slot's x drops the saved player")
+  nsF.db.currentComp[3] = 262; nsF:Fire("COMP_CHANGED", "slot"); RunTimers()
+  ok(P:PlannerPerson(3) == nil, "R1: the same spec written later doesn't bring the name back")
+  -- A suggestion click into a slot that still carries a stale name for the same spec.
+  for s2 = 1, 5 do nsF.db.currentComp[s2] = 0; nsF.db.currentPeople[s2] = false end
+  nsF.db.currentComp[1] = 73
+  UIf:Refresh(); RunTimers()
+  local function suggestion()
+    local side = UIf.cp.sideList
+    for i = 1, side.bused do
+      local b = side.bpool[i]
+      if b.tip and b.tip:find("^Click to put") then return b end
+    end
+  end
+  local sb = suggestion()
+  ok(sb ~= nil, "R1: a suggestion to click")
+  sb:Click(); RunTimers()
+  local slot, spec
+  for s2 = 2, 5 do if nsF.db.currentComp[s2] ~= 0 then slot, spec = s2, nsF.db.currentComp[s2] end end
+  nsF.db.currentComp[slot] = 0
+  nsF.db.currentPeople[slot] = { full = "Ann-Realm", spec = spec }   -- left over from before the fix
+  UIf:Refresh(); RunTimers()
+  suggestion():Click(); RunTimers()
+  ok(nsF.db.currentComp[slot] == spec and P:PlannerPerson(slot) == nil, "R1: a suggestion click drops the name on its slot")
+  -- Copy party labels the real party only.
+  nsF.db.currentPeople[1] = { full = "Ann-Realm", spec = 73 }
+  T:Enable(); T:Rescan()
+  UIf:CopyLiveToBuilder(); RunTimers()
+  local named = false
+  for s2 = 1, 5 do if P:PlannerPerson(s2) then named = true end end
+  ok(nsF.db.currentComp[1] == 73 and not named, "R1: Copy party never carries a saved player's name")
+  T:Disable()
+  UIf:Hide()
+
+  -- R2: a join while on Settings (nothing holds the roster tracker): the reservation sees it.
+  LISTING = "Voidscar Arena (Mythic Keystone)"
+  UIf:OpenSettings("fill"); RunTimers()
+  ok(not T.enabled, "R2: on Settings nothing holds the tracker")
+  ROSTER.party1 = { guid = "D", name = "Dru", class = "DRUID", role = "HEALER" }
+  local okR, why = P:Reserve(257, "Pip")
+  ok(not okR and why == "No open healer slot to reserve.", "R2: the Druid who just joined holds the healer slot")
+  ok(P:FreeFor("DAMAGER") == 3 and P:FreeFor("TANK") == 0, "R2: free slots from the party read directly")
+  UIf:Hide()
+
+  -- R3: invited applicants hold their role; a named reservation releases on its player's invite.
+  T:Enable(); T:Rescan()
+  ok(P:Reserve(262, "Ann") and P:Reserve(63), "R3: Ann (named) and an unnamed DPS reserved")
+  APPLICANTS = {
+    [5] = { { name = "Ann", class = "SHAMAN", role = "DAMAGER", spec = 262 } },
+    [6] = { { name = "Bob-Otherrealm", class = "MAGE", role = "DAMAGER", spec = 63 } },
+  }
+  APPLICANT_STATUS = { [5] = "applied", [6] = "invited" }
+  ok(P:FreeFor("DAMAGER") == 0, "R3: an invited DPS takes the last DPS slot")
+  okR, why = P:Reserve(577)
+  ok(not okR and why == "No open DPS slot to reserve.", "R3: no reservation over an invited player")
+  P.inviteLog = { released = 0, restored = 0, stayed = 0, notRestored = 0, statuses = {} }
+  -- Blizzard's own Invite button: only the status changes; the event comes in with the window closed.
+  T:Disable()
+  local watch
+  for _, fr in ipairs(ALLFRAMES) do
+    if fr._events.LFG_LIST_APPLICANT_UPDATED and fr._events.GROUP_ROSTER_UPDATE and not fr._events.INSPECT_READY then watch = fr end
+  end
+  ok(watch ~= nil, "R3: applicant events are watched with the window closed")
+  APPLICANT_STATUS[5] = "invited"
+  watch._scripts.OnEvent(watch, "LFG_LIST_APPLICANT_UPDATED", 5)
+  local res = nsF.db.reserved
+  ok(#res.list == 1 and res.list[1].full == nil and #res.pending == 1 and res.pending[1].full == "Ann-Realm"
+    and res.pending[1].applicantID == 5, "R3: Ann invited: her reservation releases (the unnamed one stays)")
+  ok(P:FreeFor("DAMAGER") == 0, "R3: her invite still holds the slot (counted once)")
+  -- No chat message.
+  PRINTED = ""
+  -- A time-out brings it back while that listing is up.
+  APPLICANT_STATUS[5] = "timedout"
+  watch._scripts.OnEvent(watch, "LFG_LIST_APPLICANT_UPDATED", 5)
+  ok(#res.list == 2 and #res.pending == 0 and res.list[2].full == "Ann-Realm" and res.list[2].specID == 262,
+    "R3: the invite timed out: Ann's reservation is back")
+  ok(PRINTED == "", "R3: no chat message when it releases or comes back")
+  -- Your own Invite click (she applied again).
+  APPLICANT_STATUS[5] = "applied"
+  T:Enable(); T:Rescan()
+  C_LFGList.InviteApplicant = function(id) APPLICANT_STATUS[id] = "invited" end
+  local fitCtx, evs = nsF.ApplicantFit:ForLiveGroup()
+  local annEv
+  for _, ev in ipairs(evs) do if ev.applicantID == 5 then annEv = ev end end
+  ok(UIf:InviteApplicant(annEv, fitCtx), "R3: your own Invite click")
+  T:Rescan(); RunTimers()
+  ok(#res.pending == 1 and #res.list == 1, "R3: ... releases her reservation too")
+  -- A declined invite keeps it released.
+  APPLICANT_STATUS[5] = "invitedeclined"
+  P:OnApplicants()
+  ok(#res.list == 1 and res.list[1].full == nil and #res.pending == 0, "R3: a declined invite: stays released")
+  -- Unnamed reservations are never released (Bob is invited with the reserved spec).
+  ok(#res.list == 1 and res.list[1].specID == 63, "R3: the unnamed reservation stays")
+  -- The listing ends while the invite is out: no coming back later.
+  P:Reserve(262, "Ann"); APPLICANT_STATUS[5] = "invited"; P:OnApplicants()
+  ok(#res.pending == 1, "R3: released again")
+  LISTING = nil
+  UIf:OnListingUpdate("LFG_LIST_ACTIVE_ENTRY_UPDATE"); RunTimers()
+  ok(#res.pending == 0 and #res.list == 0, "R3: the listing ended: nothing waits for the invite")
+  LISTING = "Voidscar Arena (Mythic Keystone)"
+  APPLICANT_STATUS[5] = "timedout"; P:OnApplicants()
+  ok(#res.list == 0, "R3: a time-out after the listing ended brings nothing back")
+  -- A time-out with the slot taken meanwhile: stays released.
+  APPLICANT_STATUS = { [5] = "applied", [6] = "invited" }
+  ok(P:Reserve(262, "Ann"), "R3: reserved again")
+  APPLICANT_STATUS[5] = "invited"; P:OnApplicants()
+  ROSTER.party2 = { guid = "X", name = "Havi", class = "DEMONHUNTER", role = "DAMAGER" }
+  ROSTER.party3 = { guid = "W", name = "Wari", class = "WARRIOR", role = "DAMAGER" }
+  T:Rescan()
+  APPLICANT_STATUS[5] = "timedout"; P:OnApplicants()
+  ok(#res.list == 0 and P.inviteLog.notRestored == 1, "R3: timed out but the DPS slots filled meanwhile: not restored")
+  ROSTER.party2, ROSTER.party3 = nil, nil
+  T:Rescan()
+  -- Accepted, then joins: done with.
+  APPLICANT_STATUS = { [5] = "applied", [6] = "applied" }
+  P:Reserve(262, "Ann")
+  APPLICANT_STATUS[5] = "inviteaccepted"; P:OnApplicants()
+  ok(#res.pending == 1, "R3: an accepted invite releases it as well")
+  ROSTER.party2 = { guid = "A", name = "Ann", class = "SHAMAN", role = "DAMAGER" }
+  P:OnRoster()
+  ok(#res.pending == 0 and #res.list == 0, "R3: she joined: nothing left waiting")
+  ROSTER.party2 = nil
+  -- Verify: counts and the game's status names, never a name.
+  local vt = nsF.Verify:Build()
+  ok(vt:find("reserved friends' invites: 0 out now; this session", 1, true) and vt:find("timedout", 1, true)
+    and vt:find("invitedeclined", 1, true), "R3: verify shows the statuses seen")
+  ok(not vt:find("Ann", 1, true) and not vt:find("Bob", 1, true), "R3: verify names nobody")
+  -- Saved data: pending entries are cleaned.
+  nsF.db.reserved.pending = { { specID = 262, full = "Ann-Realm", applicantID = 5, status = 3 }, { specID = 9999, full = "X", applicantID = 1 },
+    { specID = 262, applicantID = 2 }, "bad" }
+  EnsembleDB = nsF.db
+  local nsF2 = boot()
+  local pd = nsF2.db.reserved.pending
+  ok(#pd == 1 and pd[1].full == "Ann-Realm" and pd[1].status == nil, "R3: released reservations cleaned on load")
+  C_LFGList.InviteApplicant = nil
+  T:Disable()
+
+  -- R4: with the timer hidden, splits keep the order seen and deaths per stretch stay >= 0.
+  local realKE, realDC = H.KeyElapsed, H.DeathCount
+  local deaths = { 1, 4, 6, 13 }
+  local di = 0
+  H.KeyElapsed = function() return nil end
+  H.DeathCount = function() di = di + 1; return deaths[di] end
+  nsF.db.activeRun = { key = "TempleOfSethraliss", splits = {} }
+  for _, enc in ipairs({ 2124, 2125, 2126, 2127 }) do H:OnEncounterEnd(enc, nil, 1) end
+  local order = {}
+  for _, sp in ipairs(nsF.db.activeRun.splits) do order[#order + 1] = sp.enc end
+  ok(table.concat(order, ",") == "2124,2125,2126,2127", "R4: no times: the order seen (" .. table.concat(order, ",") .. ")")
+  local dd = {}
+  for _, row in ipairs(H:SplitRows(nsF.db.activeRun, nil)) do dd[#dd + 1] = tostring(row.deaths) end
+  ok(table.concat(dd, ",") == "1,3,2,7", "R4: deaths per stretch 1, 3, 2, 7 (" .. table.concat(dd, ",") .. ")")
+  -- With every time known they still sort by time.
+  local times = { 300, 100, 200 }
+  di = 0
+  H.KeyElapsed = function() return times[di + 1] end
+  H.DeathCount = function() di = di + 1; return di end
+  nsF.db.activeRun = { key = "TempleOfSethraliss", splits = {} }
+  for _, enc in ipairs({ 2124, 2125, 2126 }) do H:OnEncounterEnd(enc, nil, 1) end
+  order = {}
+  for _, sp in ipairs(nsF.db.activeRun.splits) do order[#order + 1] = sp.enc end
+  ok(table.concat(order, ",") == "2125,2126,2124", "R4: every time known: by kill time")
+  H.KeyElapsed, H.DeathCount = realKE, realDC
+  nsF.db.activeRun = nil
+
+  -- R5: realms without spaces or hyphens on both sides; empty parts refused.
+  ok(P:Normalize("Ann-Azjol-Nerub") == "Ann-AzjolNerub" and P:Normalize("ann-Area 52") == "Ann-Area52", "R5: typed realms cleaned")
+  ok(P:Normalize("Ann-") == nil and P:Normalize("-Realm") == nil and P:Normalize("-") == nil, "R5: an empty name or realm part is refused")
+  ok(T.NormalizeName("Ann-Area52") == "Ann-Area52" and T.NormalizeName("Ann") == "Ann-Realm" and T.NormalizeName("Ann-") == nil,
+    "R5: applicant names normalized the same way")
+  local origUnitName = UnitName
+  UnitName = function(u)
+    if u == "party1" then return "Ann", "Azjol-Nerub" end
+    if u == "party2" then return "Zed", "Area 52" end
+    return origUnitName(u)
+  end
+  ok(T.FullName("party1") == "Ann-AzjolNerub" and T.FullName("party2") == "Zed-Area52", "R5: party realms cleaned")
+  LISTING = "Voidscar Arena (Mythic Keystone)"
+  ROSTER.party1 = nil
+  ok(P:Reserve(262, "Ann-Azjol-Nerub"), "R5: reserved for Ann of Azjol-Nerub (typed with the hyphen)")
+  ROSTER.party1 = { guid = "A", name = "Ann", class = "SHAMAN", role = "DAMAGER" }
+  ROSTER.party2 = { guid = "Z", name = "Zed", class = "MAGE", role = "DAMAGER" }
+  P:OnRoster()
+  ok(#P:Reservations() == 0, "R5: she joins: the reservation clears")
+  vt = nsF.Verify:Build()
+  ok(vt:find("party names: 2 of 2 from another realm, 2 of those written with spaces or hyphens", 1, true), "R5: verify counts cross-realm names")
+  ok(not vt:find("Zed", 1, true) and not vt:find("Azjol", 1, true), "R5: ... without names")
+  UnitName = origUnitName
+  ROSTER.party1, ROSTER.party2 = nil, nil
+
+  -- R6 / N2: your reserved friend's card survives Hide Poor; the report marks the reserved slot.
+  ROSTER.party1 = { guid = "D", name = "Dru", class = "DRUID", role = "HEALER" }
+  INSPECT_CACHE = { D = 105 }
+  APPLICANTS = { [5] = { { name = "Ann", class = "SHAMAN", role = "DAMAGER", spec = 262 } },
+                 [6] = { { name = "Roguey", class = "ROGUE", role = "DAMAGER", spec = 261 } } }
+  APPLICANT_STATUS = {}
+  P:Reserve(262, "Ann"); P:Reserve(63); P:Reserve(577)
+  nsF.db.settings.applicantView.hidePoor = true
+  UIf:Show("applicants"); T:Rescan(); RunTimers(); UIf:Refresh()
+  local annShown, rogShown = false, false
+  for _, c in ipairs(UIf.ap.cards) do
+    if c:IsShown() then
+      local nm = tostring(c.name:GetText())
+      if nm:find("Ann", 1, true) then annShown = true end
+      if nm:find("Roguey", 1, true) then rogShown = true end
+    end
+  end
+  ok(annShown and not rogShown, "R6: Hide Poor keeps your reserved friend's card (and hides the other Poor one)")
+  nsF.db.settings.compMode = "party"
+  UIf:Show("composition"); RunTimers()
+  local rep = nsF.Report:Build()
+  ok(rep:find("Elemental Shaman (reserved)", 1, true) and not rep:find("Ann", 1, true), "N2: the report marks a reserved slot (spec only)")
+  UIf:Hide()
+  nsF.db.settings.applicantView.hidePoor = false
+  P:ClearReservations("test")
+  ROSTER.party1 = nil
+
+  -- N3: Saved players full: reserved, and the dialog says the player wasn't saved.
+  local realMax = P.MAX_SAVED
+  P.MAX_SAVED = #P:List()
+  UIf:Show("applicants"); RunTimers()
+  UIf:OpenReserveDialog("reserve")
+  local d = UIf.reserveDialog
+  d.name:SetText("Newfriend"); UIf:ReserveNameChanged()
+  d.st.specID = 577; UIf:SyncReserveDialog()
+  d.ok:Click()
+  ok(#P:Reservations() == 1 and not P:Find("Newfriend-Realm") and d:IsShown()
+    and tostring(d.err:GetText()):find("Not saved: Saved players is full", 1, true) and d.ok.text:GetText() == "Close",
+    "N3: reserved, not saved, and the dialog says so")
+  d.ok:Click()
+  ok(not d:IsShown() and #P:Reservations() == 1, "N3: Close closes it (no second reservation)")
+  UIf:OpenReserveDialog("reserve")
+  ok(d.ok.text:GetText() == "Reserve" and d.err:GetText() == "", "N3: the next open starts fresh")
+  d:Hide(); UIf:Hide()
+  P.MAX_SAVED = realMax
+  P:ClearReservations("test")
+
+  -- N4: in party mode Composition refreshes when a key is recorded.
+  nsF.state.mode = "builder"
+  ok(UIf:TabWants("composition", "HISTORY_CHANGED") == false, "N4: planner mode skips it")
+  nsF.state.mode = "live"
+  ok(UIf:TabWants("composition", "HISTORY_CHANGED") == true, "N4: party mode refreshes on HISTORY_CHANGED")
+  nsF.state.mode = "builder"
+
+  -- N5: the comparison run is at the key's own level, else the nearest (higher on a tie).
+  local function tr(level, time)
+    return { key = "TempleOfSethraliss", level = level, result = "timed", time = time, splits = { { enc = 2124, t = 100 } } }
+  end
+  local r8, r12, r14, r12b = tr(8, 1100), tr(12, 1500), tr(14, 1600), tr(12, 1550)
+  local hist = { r8, r12, r14 }
+  local idx = H:BestIndex(hist)
+  ok(H:BestTimed("TempleOfSethraliss", tr(12, 1700), idx) == r12, "N5: same level wins over a faster lower key")
+  ok(H:BestTimed("TempleOfSethraliss", tr(13, 1700), idx) == r14, "N5: a tie between +12 and +14 goes to the higher")
+  ok(H:BestTimed("TempleOfSethraliss", tr(20, 1700), idx) == r14, "N5: the nearest level")
+  ok(H:BestTimed("TempleOfSethraliss", r12, idx) == r14, "N5: never the run itself (nearest other level)")
+  idx = H:BestIndex({ r8, r12, r14, r12b })
+  ok(H:BestTimed("TempleOfSethraliss", r12, idx) == r12b and H:BestTimed("TempleOfSethraliss", tr(12, 1), idx) == r12,
+    "N5: the fastest at that level, the second when the first is the run itself")
+
+  -- N6: the past-keys step says when the cap changed the result.
+  local fake = { roles = { "DAMAGER" }, fitScore = 98, best = 1, worst = 0, gain = 1, blended = 98, pastScore = 100,
+    past = { points = 5, w = 5, timed = 1, failed = 0, parts = { "1 timed" }, level = "relaxed" } }
+  local capText, plainText
+  for _, st in ipairs(nsF.ApplicantFit:ScoreSteps(nil, fake)) do if st.text:find("^Past keys") then capText = st.text end end
+  fake.blended, fake.pastScore = 90, 95
+  for _, st in ipairs(nsF.ApplicantFit:ScoreSteps(nil, fake)) do if st.text:find("^Past keys") then plainText = st.text end end
+  ok(capText and capText:find(": +5, capped at 100.", 1, true), "N6: \"+5, capped at 100\" (" .. tostring(capText) .. ")")
+  ok(plainText and plainText:find(": +5 = 95.", 1, true), "N6: unchanged when the cap doesn't apply")
+
+  APPLICANTS, APPLICANT_STATUS, LISTING, ROSTER, INSPECT_CACHE = {}, {}, nil, {}, {}
 end
 
 print(string.format("%d passed, %d failed", passes, fails))

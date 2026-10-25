@@ -48,7 +48,7 @@ Ensemble is a Mythic+ companion that helps players of every skill level learn du
 
 ### 🎓 Learning and history
 - 💡 **Learning mode:** plain-language explanations throughout, a glossary and a quick tour, or switch it off for a compact expert view.
-- 📈 **Run history:** your keys saved locally, with boss splits against your best run, timed rates with and without each gap and a takeaway from every run.
+- 📈 **Run history:** your keys saved locally, with boss splits against your best timed run, timed rates with and without each gap and a takeaway from every run.
 
 ---
 

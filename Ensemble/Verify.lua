@@ -361,6 +361,33 @@ local function CheckHistory()
   local runs, named, players = H:PastStats()
   Add("INFO", string.format("past keys together: %d of %d recorded keys have full names (1.5.0 on), %d players you've played with; failed = %s",
     named, runs, players, H.FAILED_LABEL[H:FailedMode()]))
+  -- Cross-realm party names (1.5.0 review, R5): counts only, never names. Settles whether the
+  -- game gives party members' realms with spaces or hyphens ("Area 52"), which the addon now
+  -- strips so they match applicant names.
+  do
+    local inParty, xr, raw, hidden = 0, 0, 0, 0
+    for i = 1, 4 do
+      local unit = "party" .. i
+      local okE, exists = pcall(UnitExists, unit)
+      if okE and exists and not (issecretvalue and select(2, pcall(issecretvalue, exists)) == true) then
+        inParty = inParty + 1
+        local okN, name, realm = pcall(UnitName, unit)
+        local secret = issecretvalue and okN and ((select(2, pcall(issecretvalue, name)) == true) or (select(2, pcall(issecretvalue, realm)) == true))
+        if not okN or secret then hidden = hidden + 1
+        elseif type(realm) == "string" and realm ~= "" then
+          xr = xr + 1
+          if realm:find("[%s%-]") then raw = raw + 1 end
+        end
+      end
+    end
+    if inParty > 0 then
+      Add(hidden > 0 and "WARN" or "INFO", string.format(
+        "party names: %d of %d from another realm, %d of those written with spaces or hyphens (matched without them)%s",
+        xr, inParty, raw, hidden > 0 and ("; " .. hidden .. " hidden by the game") or ""))
+    else
+      Add("INFO", "party names: not in a party (re-run with a cross-realm party member to see how realms read)")
+    end
+  end
   if ns.Tracker and ns.Tracker.hosting then
     local ok, _, evals = pcall(ns.ApplicantFit.ForLiveGroup, ns.ApplicantFit)
     local n, with = 0, 0
@@ -510,6 +537,22 @@ local function CheckFill()
     if #res > 0 then
       Add(P:Listed() and "OK" or "INFO", P:Listed() and "reservations are for this listing (they clear when it ends)"
         or "not listed: the reservations wait for your listing")
+    end
+    -- A named reservation releases when that player is invited and comes back after a time-out
+    -- (1.5.0 review, R3). Counts and the game's status names only. Unconfirmed in game: what an
+    -- invite nobody answers turns into; these statuses settle it after the first one.
+    local log = P.inviteLog or { statuses = {} }
+    local st = {}
+    for k, v in pairs(log.statuses or {}) do st[#st + 1] = k .. " " .. v end
+    table.sort(st)
+    local pending = ns.db.reserved and ns.db.reserved.pending or {}
+    if (log.released or 0) + #pending + #st == 0 then
+      Add("INFO", "reserved friends' invites: none seen this session")
+    else
+      Add("INFO", string.format("reserved friends' invites: %d out now; this session %d released on invite, %d back after a time-out, %d stayed released%s; statuses seen: %s",
+        #pending, log.released or 0, log.restored or 0, log.stayed or 0,
+        (log.notRestored or 0) > 0 and (", " .. log.notRestored .. " timed out with no free slot left") or "",
+        #st > 0 and table.concat(st, ", ") or "none"))
     end
   end
   local fn = C_MythicPlus and C_MythicPlus.GetRewardLevelForDifficultyLevel

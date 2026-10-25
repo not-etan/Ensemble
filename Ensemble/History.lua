@@ -160,11 +160,17 @@ local function AddSplit(run, enc, via, name, approx)
   run.splits = run.splits or {}
   local boss = run.key and ns.BossCards and ns.BossCards.IndexForEncounter
     and ns.BossCards:IndexForEncounter(run.key, enc, name) or nil
+  run.seq = (run.seq or 0) + 1
   run.splits[#run.splits + 1] = { enc = enc, boss = boss, t = H:KeyElapsed(), deaths = H:DeathCount(), via = via,
-    approx = approx or nil }
+    approx = approx or nil, n = run.seq }
+  -- By kill time when every split has one; otherwise in the order they were seen. The order is
+  -- always total (seen-order breaks ties), so splits never reorder and deaths per stretch never
+  -- go negative when the timer is hidden or missing (1.5.0 review, R4).
+  local allTimed = true
+  for _, sp in ipairs(run.splits) do if sp.t == nil then allTimed = false end end
   table.sort(run.splits, function(a, b)
-    if (a.t ~= nil) ~= (b.t ~= nil) then return a.t ~= nil end
-    return (a.t or 0) < (b.t or 0)
+    if allTimed and a.t ~= b.t then return a.t < b.t end
+    return (a.n or 0) < (b.n or 0)
   end)
   return true
 end
@@ -195,13 +201,17 @@ function H:BossName(run, sp)
   return b and b.name or ("Boss " .. tostring(sp.boss or "?"))
 end
 
--- The two fastest timed runs with splits per dungeon, in one pass (History draws many runs).
+-- The two fastest timed runs with splits per dungeon and key level, in one pass (History draws
+-- many runs): index[dk][level] = { fastest, second }.
 function H:BestIndex(runs)
   local idx = {}
   for _, r in ipairs(runs or ns.db.history or {}) do
     if r.result == "timed" and r.time and r.splits and #r.splits > 0 and r.key then
-      local e = idx[r.key] or {}
-      idx[r.key] = e
+      local byLevel = idx[r.key] or {}
+      idx[r.key] = byLevel
+      local lvl = tonumber(r.level) or 0
+      local e = byLevel[lvl] or {}
+      byLevel[lvl] = e
       if not e[1] or r.time < e[1].time then e[2] = e[1]; e[1] = r
       elseif not e[2] or r.time < e[2].time then e[2] = r end
     end
@@ -209,13 +219,27 @@ function H:BestIndex(runs)
   return idx
 end
 
--- Your best timed run of this dungeon with splits (fastest finish), other than `run`.
--- index: H:BestIndex() over the whole history, optional.
+-- The run to compare `run` with: your fastest timed run of this dungeon with splits at the
+-- key's own level, else at the nearest level (the higher one on a tie), never `run` itself
+-- (1.5.0 review, N5: a +15 against a +8 mostly measured the level gap). Without a level on
+-- `run`, the fastest at any level. index: H:BestIndex() over the whole history, optional.
 function H:BestTimed(dk, run, index)
-  local e = (index or self:BestIndex(ns.db.history))[dk]
-  if not e then return nil end
-  if e[1] ~= run then return e[1] end
-  return e[2]
+  local byLevel = (index or self:BestIndex(ns.db.history))[dk]
+  if not byLevel then return nil end
+  local target = run and tonumber(run.level)
+  local pick, pickLvl
+  for lvl, e in pairs(byLevel) do
+    local cand = (e[1] ~= run) and e[1] or e[2]
+    if cand then
+      if not target then
+        if not pick or cand.time < pick.time then pick, pickLvl = cand, lvl end
+      else
+        local d, pd = math.abs(lvl - target), pickLvl and math.abs(pickLvl - target)
+        if not pick or d < pd or (d == pd and lvl > pickLvl) then pick, pickLvl = cand, lvl end
+      end
+    end
+  end
+  return pick
 end
 
 -- Each split against the best timed run: { name, t, deaths (in that stretch), delta (cumulative,

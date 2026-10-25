@@ -1120,6 +1120,9 @@ function UI:BuildCompPage()
     row.clear = Button(row, "x", 20, 20, function()
       if ns.state.mode ~= "builder" then return end
       ns.db.currentComp[i] = 0
+      -- Every writer that changes a slot drops the saved player on it, or a later write of the
+      -- same spec would bring their name back (1.5.0 review, R1).
+      ns.db.currentPeople[i] = false
       ns:Fire("COMP_CHANGED", "slot")
     end)
     row.clear:SetPoint("RIGHT", -6, 0)
@@ -1350,6 +1353,7 @@ function UI:CopyLiveToBuilder()
   for s = 1, ns.NUM_SLOTS do
     local m = slots[s]
     ns.db.currentComp[s] = (m and m.specID) or 0
+    ns.db.currentPeople[s] = false   -- the real party, never a saved player's name (R1)
   end
   ns:Fire("COMP_CHANGED", "copy")
   self:SetCompMode("planner")
@@ -1849,6 +1853,7 @@ function UI:RenderSuggestions(side, slotMembers, slotRoles, dungeonKey, settings
         indent = 4, size = 12, gap = 1,
         onClick = (not live) and function()
           ns.db.currentComp[slot] = best
+          ns.db.currentPeople[slot] = false   -- (R1)
           ns:Fire("COMP_CHANGED", "suggest")
         end or nil,
         tooltip = (not live) and ("Click to put " .. UD:SpecName(best) .. " " .. UD:ClassName(c.classFile) .. " in the open slot") or nil,
@@ -3056,7 +3061,7 @@ end
 function UI:OpenReserveDialog(mode)
   local d = self:BuildReserveDialog()
   d.st.mode = mode or "reserve"
-  d.st.specID, d.st.player, d.st.saveOn, d.st.matches = nil, nil, true, {}
+  d.st.specID, d.st.player, d.st.saveOn, d.st.matches, d.st.done = nil, nil, true, {}, nil
   d.name:SetText("")
   d.err:SetText("")
   d.sug:Hide()
@@ -3091,7 +3096,8 @@ function UI:SyncReserveDialog()
   local showSave = d.st.mode == "reserve" and full ~= nil and (not saved or (d.st.specID and not P:HasSpec(saved, d.st.specID)))
   d.save:SetShown(showSave and true or false)
   d.save:Sync()
-  local can = d.st.specID ~= nil and (d.st.mode ~= "save" or full ~= nil)
+  if d.st.done then d.save:Hide() end   -- reserved already; the button closes
+  local can = d.st.done or (d.st.specID ~= nil and (d.st.mode ~= "save" or full ~= nil))
   if can then d.ok:Enable() else d.ok:Disable() end
   d.ok:SetAlpha(can and 1 or 0.5)
   d.ok.tooltip = not can and (d.st.mode == "save" and "Type a name and pick a spec" or "Pick a spec: it decides what the slot brings") or nil
@@ -3173,9 +3179,18 @@ function UI:ConfirmReserveDialog()
     d:Hide()
     return
   end
+  if d.st.done then d:Hide(); return end
   local name = d.name:GetText()
   local ok, why = P:Reserve(d.st.specID, name, d.save:IsShown() and d.st.saveOn)
   if not ok then d.err:SetText(why or "Couldn't reserve."); return end
+  if why == "notSaved" then
+    -- Reserved, but Saved players is full: say so instead of closing (1.5.0 review, N3).
+    d.st.done = true
+    d.err:SetText("Reserved. Not saved: Saved players is full (" .. P.MAX_SAVED .. "). Remove someone in Settings > Saved players.")
+    d.ok.text:SetText("Close")
+    self:SyncReserveDialog()
+    return
+  end
   d:Hide()
 end
 
@@ -3772,8 +3787,10 @@ function UI:RefreshApplicants()
   for _, ev in ipairs(allEvals) do byID[ev.applicantID] = ev end
   local shownList, hidden = {}, 0
   for _, ev in ipairs(allEvals) do
-    -- A player in the Fill plan always shows, so the band never names a hidden card.
-    if view.hidePoor and ev.rating and ev.rating.key == "poor" and not inPlan[ev.applicantID] then hidden = hidden + 1
+    -- A player in the Fill plan always shows, so the band never names a hidden card; so does a
+    -- friend you reserved a slot for (their card says to invite them yourself; R6).
+    if view.hidePoor and ev.rating and ev.rating.key == "poor" and not inPlan[ev.applicantID] and not ev.reservedFriend then
+      hidden = hidden + 1
     else shownList[#shownList + 1] = ev end
   end
   local Avg = ns.ApplicantFit.Avg
@@ -6588,7 +6605,10 @@ local function FillSection() return UI.settingsSection == "fill" end
 local function PlayersSection() return UI.settingsSection == "players" end
 UI.TAB_EVENTS = {
   composition = { COMP_CHANGED = true, DUNGEON_CHANGED = true, LIVE_ROSTER_CHANGED = LiveMode,
-    RESERVED_CHANGED = LiveMode, SAVED_PLAYERS_CHANGED = true },
+    RESERVED_CHANGED = LiveMode, SAVED_PLAYERS_CHANGED = true,
+    -- Party mode: the applicant panel's "With you" and the opt-in past-keys rating follow a
+    -- finished key (1.5.0 review, N4; the simpler of the two approved options).
+    HISTORY_CHANGED = LiveMode },
   plan = { COMP_CHANGED = true, DUNGEON_CHANGED = true, LIVE_ROSTER_CHANGED = LiveMode,
     LUST_CHANGED = true, BOSS_ORDER_CHANGED = true, ASSIGNMENTS_CHANGED = true },
   applicants = { DUNGEON_CHANGED = true, LIVE_ROSTER_CHANGED = true, FILL_ALERT = true,

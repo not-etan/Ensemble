@@ -242,7 +242,7 @@ function Report:Build()
     for _, m in ipairs(r.members) do
       local p = m.profile
       local label = p and SpecLabel(p.id) or (m.classFile and (m.classFile .. " (spec pending)")) or "?"
-      live[#live + 1] = label .. (m.isPlayer and " (you)" or "")
+      live[#live + 1] = label .. (m.isPlayer and " (you)" or "") .. (m.reserved and " (reserved)" or "")
     end
     add("Last checked group: " .. table.concat(live, ", "))
   end

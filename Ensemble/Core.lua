@@ -322,7 +322,9 @@ ns.DEFAULTS = {
   history = {},                 -- recorded runs, newest first (History.lua)
   -- Saved players and reserved slots (SavedPlayers.lua, 1.5.0).
   savedPlayers = {},            -- { { full = "Name-Realm", specs = { specID, ... }, default = specID } }
-  reserved = { seenListed = false, list = {} },   -- list: { { specID, full = "Name-Realm"|nil } }
+  -- list: { { specID, full = "Name-Realm"|nil } }; pending: released while that player's invite is
+  -- out { { specID, full, applicantID, status, listing } } (1.5.0 review, R3).
+  reserved = { seenListed = false, list = {}, pending = {} },
 }
 
 -- Migrations: index N upgrades a DB at schema N-1 to schema N. None are needed yet (schema 4
@@ -444,7 +446,7 @@ local function SanitizeDB(db)
   end
   db.savedPlayers = keptP
   -- Reserved slots (1.5.0): a known spec, an optional name.
-  if type(db.reserved) ~= "table" then db.reserved = { seenListed = false, list = {} } end
+  if type(db.reserved) ~= "table" then db.reserved = { seenListed = false, list = {}, pending = {} } end
   if type(db.reserved.list) ~= "table" then db.reserved.list = {} end
   db.reserved.seenListed = db.reserved.seenListed == true
   for i = #db.reserved.list, 1, -1 do
@@ -453,6 +455,17 @@ local function SanitizeDB(db)
     elseif r.full ~= nil and type(r.full) ~= "string" then r.full = nil end
   end
   while #db.reserved.list > ns.NUM_SLOTS do table.remove(db.reserved.list) end
+  if type(db.reserved.pending) ~= "table" then db.reserved.pending = {} end
+  for i = #db.reserved.pending, 1, -1 do
+    local r = db.reserved.pending[i]
+    if type(r) ~= "table" or not SpecOK(r.specID) or type(r.full) ~= "string" or type(r.applicantID) ~= "number" then
+      table.remove(db.reserved.pending, i)
+    else
+      if type(r.status) ~= "string" then r.status = nil end
+      if type(r.listing) ~= "number" then r.listing = nil end
+    end
+  end
+  while #db.reserved.pending > ns.NUM_SLOTS do table.remove(db.reserved.pending) end
   -- Run history: boss splits (1.5.0) need a numeric encounter; a full name is a string.
   if type(db.history) ~= "table" then db.history = {} end
   local function CleanRun(run)
@@ -463,6 +476,7 @@ local function SanitizeDB(db)
         else
           if sp.t ~= nil and type(sp.t) ~= "number" then sp.t = nil end
           if sp.deaths ~= nil and type(sp.deaths) ~= "number" then sp.deaths = nil end
+          if sp.n ~= nil and type(sp.n) ~= "number" then sp.n = nil end
         end
       end
     elseif run.splits ~= nil then run.splits = nil end

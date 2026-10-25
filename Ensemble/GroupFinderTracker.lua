@@ -53,6 +53,20 @@ local EVENTS = {
 local function Now() return GetTime and GetTime() or 0 end
 local firstSeen = {}   -- applicantID -> GetTime() when first seen
 
+-- Realms as the game writes them in applicant names: no spaces or hyphens ("Area 52" ->
+-- "Area52", "Azjol-Nerub" -> "AzjolNerub"). Both sides go through this, so a party member and
+-- their application match however the realm reached us (1.5.0 review, R5).
+local function CleanRealm(realm)
+  if type(realm) ~= "string" then return nil end
+  realm = realm:gsub("[%s%-]", "")
+  return realm ~= "" and realm or nil
+end
+Tracker.CleanRealm = CleanRealm
+
+local function MyRealm()
+  return CleanRealm(GetNormalizedRealmName and GetNormalizedRealmName())
+end
+
 local function FullName(unit)
   local name, realm = UnitName(unit)
   if not name then return nil end
@@ -62,16 +76,23 @@ local function FullName(unit)
     local okR, sr = pcall(issecretvalue, realm)
     if not okN or sn or not okR or sr then return nil end
   end
-  if realm and realm ~= "" then return name .. "-" .. realm end
-  local myRealm = GetNormalizedRealmName and GetNormalizedRealmName()
-  return myRealm and (name .. "-" .. myRealm) or name
+  if type(name) ~= "string" or name == "" then return nil end
+  realm = CleanRealm(realm) or MyRealm()
+  return realm and (name .. "-" .. realm) or name
 end
 
+-- "Name-Realm" (an applicant's name) or "Name" (your realm). The realm is cleaned the same way
+-- as FullName's; a name or realm part left empty ("Ann-", "-Realm") is no name at all.
 local function NormalizeName(n)
-  if type(n) ~= "string" then return nil end
-  if n:find("-", 1, true) then return n end
-  local myRealm = GetNormalizedRealmName and GetNormalizedRealmName()
-  return myRealm and (n .. "-" .. myRealm) or n
+  if type(n) ~= "string" or n == "" then return nil end
+  local name, realm = n:match("^([^%-]*)%-(.*)$")
+  if not name then
+    local my = MyRealm()
+    return my and (n .. "-" .. my) or n
+  end
+  realm = CleanRealm(realm)
+  if name == "" or not realm then return nil end
+  return name .. "-" .. realm
 end
 Tracker.NormalizeName = NormalizeName
 Tracker.FullName = FullName
@@ -286,7 +307,8 @@ local function ReadApplicants()
                 _, _, _, specID, isLeaver = pcall(C_LFGList.GetApplicantMemberInfo, applicantID, m)
           if okM and name then
             if type(specID) ~= "number" or specID == 0 or not ns.UD:GetSpec(specID) then specID = nil end
-            if specID then specByName[NormalizeName(name)] = specID end
+            local key = NormalizeName(Readable(name))
+            if specID and key then specByName[key] = specID end
             table.insert(out, {
               applicantID = applicantID, name = name, classFile = classFile, specID = specID,
               full = NormalizeName(Readable(name)),   -- "Name-Realm", for past keys together (1.5.0)

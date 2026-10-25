@@ -763,6 +763,7 @@ function Fit:Evaluate(ctx, group)
       end
     end
     if mine then
+      ev.reservedFriend = true   -- Hide Poor keeps this card (1.5.0 review, R6)
       ev.headline = "Your reserved slot is for " .. tostring(mine.name) .. ": invite them yourself"
     elseif held > 0 then
       ev.headline = "No open " .. ROLE_NAME[r] .. " slot - the last " .. (held > 1 and (held .. " ") or "")
@@ -894,7 +895,12 @@ function Fit:ScoreSteps(ctx, ev)
       local bits = {}
       if past.timed > 0 then bits[#bits + 1] = "+" .. past.w .. " per player you've timed with" end
       if past.failed > 0 then bits[#bits + 1] = "-" .. past.w .. " per player you've failed with" end
-      text = text .. table.concat(bits, ", ") .. " at " .. tostring(lvl) .. string.format(": %+d = %d.", past.points, ev.pastScore)
+      -- Say so when the 0-100 clamp changed the result ("+5, capped at 100", not "+5 = 100" from
+      -- 98; 1.5.0 review, N6).
+      local capped = (ev.blended or 0) + past.points ~= ev.pastScore
+      text = text .. table.concat(bits, ", ") .. " at " .. tostring(lvl)
+        .. (capped and string.format(": %+d, capped at %d.", past.points, ev.pastScore)
+          or string.format(": %+d = %d.", past.points, ev.pastScore))
     end
     steps[#steps + 1] = { value = past.w ~= 0 and ev.pastScore or nil, text = text }
   end
