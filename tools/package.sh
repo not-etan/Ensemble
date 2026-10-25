@@ -3,7 +3,8 @@
 # A local test build: the same layout as the release zip that .github/workflows/release.yml
 # uploads (BigWigs packager, .pkgmeta): one Ensemble/ folder with the code, media and
 # LICENSE.txt (a copy of LICENSE, kept identical; the tests check).
-# Also writes the store description dist/overview-bbcode.txt (CurseForge) and regenerates README.md.
+# Also writes the store description dist/overview-curseforge.md (CurseForge, Markdown: the banner, the
+# links line, then the overview) and regenerates README.md.
 set -e
 cd "$(dirname "$0")/.."
 rm -f Ensemble/README.md
@@ -15,7 +16,7 @@ cmp -s LICENSE Ensemble/LICENSE.txt || { echo 'Ensemble/LICENSE.txt differs from
 rm -f "dist/Ensemble-$VER.zip"
 (cd dist/stage && zip -qr "../Ensemble-$VER.zip" Ensemble -x '*.DS_Store')
 rm -rf dist/stage
-python3 tools/md_to_bbcode.py branding/overview.md > dist/overview-bbcode.txt
+python3 tools/make_readme.py --web branding/overview.md > dist/overview-curseforge.md
 python3 tools/make_readme.py branding/overview.md > README.md
 echo "dist/Ensemble-$VER.zip"
-echo "dist/overview-bbcode.txt"
+echo "dist/overview-curseforge.md"
