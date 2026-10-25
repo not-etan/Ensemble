@@ -1,5 +1,5 @@
 <!-- Generated from branding/overview.md by tools/make_readme.py. Edit that file instead. -->
-<p align="center"><img src="branding/banner-1200x300.png" alt="Ensemble" width="100%"></p>
+<p align="center"><img src="branding/header-1600x200.png" alt="Ensemble" width="100%"></p>
 
 📖 **[Full guide](docs/Guide.md)** · 📝 **[Changelog](CHANGELOG.md)** · ⚖️ **[License](LICENSE)**
 

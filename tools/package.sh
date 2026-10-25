@@ -3,7 +3,7 @@
 # A local test build: the same layout as the release zip that .github/workflows/release.yml
 # uploads (BigWigs packager, .pkgmeta): one Ensemble/ folder with the code, media and
 # LICENSE.txt (a copy of LICENSE, kept identical; the tests check).
-# Also writes the store description dist/overview-curseforge.md (CurseForge, Markdown: the banner, the
+# Also writes the store description dist/overview-curseforge.md (CurseForge, Markdown: the header graphic, the
 # links line, then the overview) and regenerates README.md.
 set -e
 cd "$(dirname "$0")/.."
