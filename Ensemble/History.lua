@@ -196,7 +196,27 @@ end
 -- One line on what likely mattered in a run, from its own gaps and your other keys in the
 -- same dungeon. Returns text, tone ("good" / "warn" / "muted").
 local SEV = { critical = 1, high = 2, medium = 3, low = 4 }
-function H:Lesson(run, runs)
+local function RepeatKey(dk, g) return tostring(dk) .. "\0" .. tostring(g.title) .. "\0" .. tostring(g.status) end
+
+-- How many over-time keys in each dungeon had each gap, counted once per run: one pass over
+-- the runs, so drawing every lesson costs O(runs) instead of O(runs^2) (1.5.0, C2).
+function H:RepeatIndex(runs)
+  local idx = { counts = {}, has = {} }
+  for _, run in ipairs(runs or {}) do
+    if run.result == "overtime" then
+      idx.has[run] = true
+      local seen = {}
+      for _, g in ipairs(run.gaps or {}) do
+        local k = RepeatKey(run.key, g)
+        if not seen[k] then seen[k] = true; idx.counts[k] = (idx.counts[k] or 0) + 1 end
+      end
+    end
+  end
+  return idx
+end
+
+-- index: H:RepeatIndex(runs), optional; built here when the caller has none.
+function H:Lesson(run, runs, index)
   if run.result == "abandoned" then return nil end
   local gaps = {}
   for _, g in ipairs(run.gaps or {}) do gaps[#gaps + 1] = g end
@@ -222,14 +242,9 @@ function H:Lesson(run, runs)
   local text = "Over time with " .. Describe(lead)
   if gaps[2] then text = text .. " and " .. Describe(gaps[2]) end
   -- Pattern: the same gap in your other over-time keys in this dungeon.
-  local repeats = 0
-  for _, other in ipairs(runs or {}) do
-    if other ~= run and other.key == run.key and other.result == "overtime" then
-      for _, g in ipairs(other.gaps or {}) do
-        if g.title == lead.title and g.status == lead.status then repeats = repeats + 1; break end
-      end
-    end
-  end
+  -- Other runs only: when the run itself is in the list, it's one of the index's count.
+  index = index or self:RepeatIndex(runs)
+  local repeats = (index.counts[RepeatKey(run.key, lead)] or 0) - (index.has[run] and 1 or 0)
   if repeats > 0 then
     text = text .. ". Also " .. (lead.status == "missing" and "missing" or "thin") .. " in " .. repeats .. " other over-time key" .. (repeats > 1 and "s" or "") .. " here"
   end

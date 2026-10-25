@@ -2498,7 +2498,7 @@ do
   nsB.UI:OpenBossEditor("RubyLifePools", 1)
   local ed = nsB.UI.bossEditor
   ok(ed and ed:IsShown() and ed.edit:GetText():find("^ALL: "), "editor opens with the card's text")
-  ed.edit:SetText("TANK: my note"); ed.save:Click()
+  ed.edit:SetText("TANK: my note"); ed.save:Click(); RunTimers()   -- the window redraws next frame (1.5.0, C3)
   ok(BC:IsEdited("RubyLifePools", 1) and BW.title:GetText():find("(edited)", 1, true), "editor saves; the window marks it edited")
   BC:Reset("RubyLifePools", 1)
   -- Dungeons tab
@@ -5610,6 +5610,175 @@ do
   UI73:Hide()
   ns73.state.keyLevelOverride = nil
   APPLICANTS, LISTING, ROSTER, INSPECT_CACHE, NOTIFIED = {}, nil, {}, {}, {}
+end
+
+-- 74. Efficiency (1.5.0, C1-C3): only the open tab refreshes on the events it shows; History
+-- draws 50 runs at a time and counts repeated gaps in one pass; the boss window coalesces.
+do
+  EnsembleDB = nil
+  ROSTER = { player = { guid = "P", name = "Faelan", class = "WARRIOR", spec = 73, role = "TANK" } }
+  LISTING, APPLICANTS, APPLICANT_STATUS, INSPECT_CACHE = nil, {}, {}, {}
+  local ns74 = boot()
+  local UI74 = ns74.UI
+  ns74.db.settings.bossWindow.autoOpen = false   -- entering a dungeon would open it and hold the roster
+  UI74:Show("history"); RunTimers()
+  local count = 0
+  local origRefresh = UI74.Refresh
+  UI74.Refresh = function(self, ...) count = count + 1; return origRefresh(self, ...) end
+  local function fired(tab, ev)
+    UI74:SetTab(tab); RunTimers(); count = 0
+    ns74:Fire(ev); RunTimers()
+    return count
+  end
+  -- C1: each event refreshes the tabs that show it and skips the rest.
+  local cases = {
+    { "COMP_CHANGED", { composition = 1, plan = 1, applicants = 0, dungeons = 0, history = 0, settings = 0 } },
+    { "LUST_CHANGED", { composition = 0, plan = 1, applicants = 0, dungeons = 1, history = 0, settings = 0 } },
+    { "BOSS_ORDER_CHANGED", { composition = 0, plan = 1, applicants = 0, dungeons = 1, history = 0, settings = 0 } },
+    { "ASSIGNMENTS_CHANGED", { composition = 0, plan = 1, applicants = 0, dungeons = 0, history = 0, settings = 0 } },
+    { "HISTORY_CHANGED", { composition = 0, plan = 0, applicants = 0, dungeons = 0, history = 1, settings = 0 } },
+    { "DUNGEON_CHANGED", { composition = 1, plan = 1, applicants = 1, dungeons = 1, history = 0, settings = 0 } },
+    { "BOSS_DUNGEON_ENTERED", { composition = 0, plan = 0, applicants = 0, dungeons = 1, history = 0, settings = 0 } },
+    { "FILL_ALERT", { composition = 0, plan = 0, applicants = 1, dungeons = 0, history = 0, settings = 0 } },
+    { "SETTINGS_CHANGED", { composition = 1, plan = 1, applicants = 1, dungeons = 1, history = 1, settings = 1 } },
+  }
+  for _, c in ipairs(cases) do
+    for tab, want in pairs(c[2]) do
+      local got = fired(tab, c[1])
+      ok(got == want, "C1: " .. c[1] .. " on " .. tab .. " refreshes " .. want .. " time(s) (got " .. got .. ")")
+    end
+  end
+  -- The roster refreshes the live views only: Applicants always, Composition and Plan in party
+  -- mode, never History or Dungeon (before 1.5.0, any tab while the mode was still "live").
+  ns74.db.settings.compMode = "party"
+  ok(fired("applicants", "LIVE_ROSTER_CHANGED") == 1, "C1: roster refreshes Applicants")
+  ok(fired("composition", "LIVE_ROSTER_CHANGED") == 1, "C1: roster refreshes Composition in party mode")
+  ok(fired("plan", "LIVE_ROSTER_CHANGED") == 1, "C1: roster refreshes Plan in party mode")
+  UI74:SetTab("applicants"); RunTimers()   -- leaves the mode "live", as the old code saw it
+  ok(fired("history", "LIVE_ROSTER_CHANGED") == 0, "C1: roster skips History while hosting")
+  UI74:SetTab("applicants"); RunTimers()
+  ok(fired("dungeons", "LIVE_ROSTER_CHANGED") == 0, "C1: roster skips the Dungeon tab while hosting")
+  ns74.db.settings.compMode = "planner"
+  ok(fired("composition", "LIVE_ROSTER_CHANGED") == 0, "C1: roster skips Composition in planner mode")
+  -- Settings refreshes on roster and dungeon changes only while Fill group's section is open.
+  UI74:SetTab("settings"); UI74:ShowSettingsSection("general")
+  ok(fired("settings", "LIVE_ROSTER_CHANGED") == 0 and fired("settings", "DUNGEON_CHANGED") == 0,
+    "C1: Settings > General skips roster and dungeon changes")
+  UI74:ShowSettingsSection("fill")
+  ok(fired("settings", "DUNGEON_CHANGED") == 1 and fired("settings", "FILL_SETTINGS_CHANGED") == 1,
+    "C1: Settings > Fill group follows the dungeon and its own settings")
+  -- A skipped tab is never stale: showing it refreshes it.
+  UI74:SetTab("history"); RunTimers(); count = 0
+  ns74:Fire("ASSIGNMENTS_CHANGED"); RunTimers()
+  UI74:SetTab("plan")
+  ok(count == 1, "C1: a tab that skipped an event refreshes when shown")
+  -- The Applicants tab dot still follows the roster from another tab.
+  local dotCalls = 0
+  local origDot = UI74.SyncFillTabDot
+  UI74.SyncFillTabDot = function(self) dotCalls = dotCalls + 1; return origDot(self) end
+  UI74:SetTab("history"); RunTimers(); dotCalls = 0
+  ns74:Fire("LIVE_ROSTER_CHANGED"); RunTimers()
+  ok(dotCalls >= 1, "C1: the tab dot follows the roster on other tabs")
+  UI74.SyncFillTabDot = origDot
+  UI74.Refresh = origRefresh
+
+  -- C2: History draws 50 runs, then 50 more per click; nothing stored is out of reach.
+  local seed = 7
+  local function rnd(n) seed = (seed * 1103515245 + 12345) % 2147483648; return math.floor(seed / 65536) % n + 1 end
+  local DD74 = ns74.Dungeons
+  local titles = { "Bloodlust", "Battle resurrection", "Poison dispel", "Magic dispel" }
+  local results = { "timed", "overtime", "overtime", "abandoned" }
+  local runs = {}
+  for i = 1, 130 do
+    local gaps = {}
+    for _ = 1, rnd(3) - 1 do
+      gaps[#gaps + 1] = { title = titles[rnd(#titles)], status = rnd(2) == 1 and "missing" or "thin", severity = "high" }
+    end
+    runs[i] = { key = DD74.order[rnd(3)], level = 10, result = results[rnd(#results)], started = 1000 + i,
+      comp = {}, gaps = gaps, affixes = {} }
+  end
+  ns74.db.history = runs
+  local H74 = ns74.History
+  -- The one-pass count gives the same lessons as the old scan of every run for every run.
+  local function OldRepeats(run, all, lead)
+    local n = 0
+    for _, other in ipairs(all) do
+      if other ~= run and other.key == run.key and other.result == "overtime" then
+        for _, g in ipairs(other.gaps or {}) do
+          if g.title == lead.title and g.status == lead.status then n = n + 1; break end
+        end
+      end
+    end
+    return n
+  end
+  local idx, same, checked = H74:RepeatIndex(runs), true, 0
+  for _, run in ipairs(runs) do
+    local a = H74:Lesson(run, runs, idx)
+    local b = H74:Lesson(run, runs)
+    if a ~= b then same = false end
+    if run.result == "overtime" and #run.gaps > 0 and a then
+      local want = OldRepeats(run, runs, (function()
+        local gs = {}
+        for _, g in ipairs(run.gaps) do gs[#gs + 1] = g end
+        table.sort(gs, function(x, y)
+          if (x.status == "missing") ~= (y.status == "missing") then return x.status == "missing" end
+          return tostring(x.title) < tostring(y.title)
+        end)
+        return gs[1]
+      end)())
+      local got = tonumber(a:match("in (%d+) other over%-time key")) or 0
+      if got ~= want then same = false end
+      checked = checked + 1
+    end
+  end
+  ok(same and checked > 10, "C2: lessons from the one-pass count match the old scan (" .. checked .. " over-time runs)")
+  UI74:Show("history"); RunTimers()
+  local function texts()
+    local out = {}
+    for i = 1, UI74.hp.runs.used do out[#out + 1] = tostring(UI74.hp.runs.pool[i]:GetText()) end
+    return out
+  end
+  local function moreLine()
+    for _, t in ipairs(texts()) do if t:find("Show %d+ more") then return t end end
+  end
+  local function shownRuns()
+    local n = 0
+    for _, t in ipairs(texts()) do if t:find("^|c%x+Gaps: ") or t:find("No gaps%.") then n = n + 1 end end
+    return n
+  end
+  ok(shownRuns() == 50 and moreLine() and moreLine():find("Show 50 more", 1, true) and moreLine():find("80 older", 1, true),
+    "C2: the newest 50 runs, then \"Show 50 more\" (80 older)")
+  local L = UI74.hp.runs
+  local btn
+  for i = 1, L.bused do if L.bpool[i]:IsShown() then btn = L.bpool[i] end end
+  btn:Click(); RunTimers()
+  ok(shownRuns() == 100 and moreLine() and moreLine():find("Show 30 more", 1, true), "C2: one click shows 50 more")
+  for i = 1, L.bused do if L.bpool[i]:IsShown() then btn = L.bpool[i] end end
+  btn:Click(); RunTimers()
+  ok(shownRuns() == 130 and not moreLine(), "C2: every stored run reachable; no more line at the end")
+  UI74.hp.filter = DD74.order[1]; UI74.hp.shown = UI74.HISTORY_PAGE; UI74:Refresh()
+  local n1 = 0
+  for _, r in ipairs(runs) do if r.key == DD74.order[1] then n1 = n1 + 1 end end
+  ok(shownRuns() == math.min(50, n1), "C2: a dungeon filter starts again at 50")
+  UI74.hp.filter = nil
+  ns74.db.history = {}
+  UI74:Hide()
+
+  -- C3: the boss window rebuilds once per frame however many events arrive.
+  local BW = ns74.BossWindow
+  BW:Open(DD74.order[1]); RunTimers()
+  local bwCount = 0
+  local origBW = BW.Refresh
+  BW.Refresh = function(self, ...) bwCount = bwCount + 1; return origBW(self, ...) end
+  for _, ev in ipairs({ "LIVE_ROSTER_CHANGED", "ASSIGNMENTS_CHANGED", "LUST_CHANGED", "SETTINGS_CHANGED",
+    "BOSS_ORDER_CHANGED", "BOSS_CARD_CHANGED", "BOSS_NOTES_CHANGED" }) do ns74:Fire(ev) end
+  ok(bwCount == 0, "C3: nothing redraws inside the burst")
+  RunTimers()
+  ok(bwCount == 1, "C3: seven events, one redraw next frame (got " .. bwCount .. ")")
+  BW:Hide(true); bwCount = 0
+  ns74:Fire("ASSIGNMENTS_CHANGED"); RunTimers()
+  ok(bwCount == 0, "C3: a hidden boss window doesn't redraw")
+  BW.Refresh = origBW
 end
 
 print(string.format("%d passed, %d failed", passes, fails))

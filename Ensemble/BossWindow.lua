@@ -346,17 +346,28 @@ ns:On("BOSS_DUNGEON_LEFT", function()
   BW.closedByUser = nil
   if BW:IsShown() then BW:Hide() end
 end)
-ns:On("BOSS_CARD_CHANGED", function() if BW:IsShown() then BW:Refresh() end end)
+-- Change events arrive in bursts (a roster update, then the plan, then a setting); one rebuild
+-- next frame covers them all, like UI:QueueRefresh. Paging and the window's own buttons still
+-- redraw at once.
+function BW:QueueRefresh()
+  if self.refreshQueued or not self:IsShown() then return end
+  self.refreshQueued = true
+  C_Timer.After(0, function()
+    BW.refreshQueued = false
+    if BW:IsShown() then BW:Refresh() end
+  end)
+end
+ns:On("BOSS_CARD_CHANGED", function() BW:QueueRefresh() end)
 ns:On("BOSS_NOTES_CHANGED", function()
-  if BW:IsShown() then BW:Refresh() end
+  BW:QueueRefresh()
   if UI.currentTab == "dungeons" and UI.QueueRefresh then UI:QueueRefresh() end
 end)
-ns:On("LIVE_ROSTER_CHANGED", function() if BW:IsShown() then BW:Refresh() end end)
-ns:On("SETTINGS_CHANGED", function() if BW:IsShown() then BW:Refresh() end end)
+ns:On("LIVE_ROSTER_CHANGED", function() BW:QueueRefresh() end)
+ns:On("SETTINGS_CHANGED", function() BW:QueueRefresh() end)
 ns:On("BOSS_COMBAT", function(on) BW.inCombat = on; BW:ApplyCombatFade() end)
-ns:On("LUST_CHANGED", function() if BW:IsShown() then BW:Refresh() end end)
-ns:On("BOSS_ORDER_CHANGED", function() if BW:IsShown() then BW:Refresh() end end)
-ns:On("ASSIGNMENTS_CHANGED", function() if BW:IsShown() then BW:Refresh() end end)
+ns:On("LUST_CHANGED", function() BW:QueueRefresh() end)
+ns:On("BOSS_ORDER_CHANGED", function() BW:QueueRefresh() end)
+ns:On("ASSIGNMENTS_CHANGED", function() BW:QueueRefresh() end)
 
 ---------------------------------------------------------------------------
 -- Editor (shared by the window and the Dungeons tab)

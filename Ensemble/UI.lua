@@ -5003,20 +5003,25 @@ end
 
 local function Pct(x) return x and string.format("%d%%", math.floor(x * 100 + 0.5)) or "-" end
 
+-- History draws the newest runs a page at a time (up to 500 are kept, 6-7 lines each);
+-- "Show N more" adds the next page, so nothing stored is out of reach (1.5.0, C2).
+UI.HISTORY_PAGE = 50
+
 function UI:BuildHistoryPage()
   local page = PageFrame(self.frame)
   self.pages.history = page
-  local hp = { filter = nil }
+  local hp = { filter = nil, shown = UI.HISTORY_PAGE }
   self.hp = hp
 
   local bar = CreateFrame("Frame", nil, page)
   bar:SetPoint("TOPLEFT", 12, -10); bar:SetPoint("TOPRIGHT", -12, -10); bar:SetHeight(30)
   local lbl = Text(bar, 12, C.muted); lbl:SetPoint("LEFT", 0, 0); lbl:SetText("Show:")
   hp.filterBtn = Dropdown(bar, 240, 28, function(btn)
-    local items = { { text = "All dungeons", selected = hp.filter == nil, onClick = function() hp.filter = nil; UI:QueueRefresh() end } }
+    local items = { { text = "All dungeons", selected = hp.filter == nil,
+      onClick = function() hp.filter = nil; hp.shown = UI.HISTORY_PAGE; UI:QueueRefresh() end } }
     for _, key in ipairs(DD.order) do
       table.insert(items, { text = DD.list[key].name, icon = UI:DungeonIcon(key), selected = hp.filter == key,
-        onClick = function() hp.filter = key; UI:QueueRefresh() end })
+        onClick = function() hp.filter = key; hp.shown = UI.HISTORY_PAGE; UI:QueueRefresh() end })
     end
     UI:ShowMenu(btn, items)
   end)
@@ -5060,7 +5065,11 @@ function UI:RefreshHistory()
       or "No keys recorded yet. Every Mythic+ key you start is saved here when it ends (timed, over time or abandoned).") .. "|r",
       { size = 12 })
   end
-  for _, run in ipairs(runs) do
+  -- Lessons look for the same gap in your other over-time keys there: one count for all of them.
+  local repeatIndex = ns.History:RepeatIndex(ns.db.history)
+  local shown = math.min(#runs, hp.shown or UI.HISTORY_PAGE)
+  for ri = 1, shown do
+    local run = runs[ri]
     local d = run.key and DD.list[run.key]
     local name = d and self:DungeonLabel(run.key, 16) or ("Unknown dungeon (map " .. tostring(run.mapID) .. ")")
     local upgrade = (run.result == "timed" and run.upgrade and run.upgrade > 0) and (" " .. HEX.good .. "+" .. run.upgrade .. "|r") or ""
@@ -5093,12 +5102,17 @@ function UI:RefreshHistory()
     for _, g in ipairs(run.gaps or {}) do gaps[#gaps + 1] = (g.status == "missing" and HEX.bad or HEX.warn) .. g.title .. "|r" end
     L:Add((#gaps > 0 and (HEX.muted .. "Gaps: |r" .. table.concat(gaps, HEX.muted .. ", |r")) or (HEX.muted .. "No gaps.|r")),
       { indent = 22, size = 11, gap = 2 })
-    local lesson, tone = ns.History:Lesson(run, ns.db.history)
+    local lesson, tone = ns.History:Lesson(run, ns.db.history, repeatIndex)
     if lesson then
       local col = tone == "good" and HEX.good or tone == "warn" and HEX.warn or HEX.muted
       L:Add(col .. "Lesson: " .. lesson .. "|r", { indent = 22, size = 11, gap = 2 })
     end
     L:Space(6)
+  end
+  if #runs > shown then
+    local more = math.min(UI.HISTORY_PAGE, #runs - shown)
+    L:Add(HEX.accent .. "> Show " .. more .. " more|r" .. HEX.muted .. "  (" .. (#runs - shown) .. " older not shown)|r",
+      { size = 12, gap = 2, onClick = function() hp.shown = shown + UI.HISTORY_PAGE; UI:QueueRefresh() end })
   end
   L:Finish()
 
@@ -6052,7 +6066,6 @@ function UI:RegisterBlizzardOptions()
 end
 
 ns:On("LOGIN", function() UI:ApplyTheme(true); UI:CreateMinimapButton(); pcall(UI.RegisterBlizzardOptions, UI) end)
-ns:On("COMP_CHANGED", function() UI:QueueRefresh() end)
 -- Automatic mode: joining or leaving a group, or listing one, switches Composition and Plan
 -- between your party and the planner while the window is open.
 local modeWatcher = CreateFrame("Frame")
@@ -6062,25 +6075,48 @@ modeWatcher:SetScript("OnEvent", function()
   local tab = UI.currentTab
   if (tab == "composition" or tab == "plan") and UI:CompMode() ~= ns.state.mode then UI:SetTab(tab) end
 end)
-ns:On("LUST_CHANGED", function() UI:QueueRefresh() end)
+-- Which events each tab shows. The open tab refreshes on them; every other tab skips the
+-- rebuild: SetTab refreshes a tab each time it's shown (and so does opening the window),
+-- so a tab that missed an event is never shown stale. true = always; a function = only when
+-- it returns true. SETTINGS_CHANGED refreshes every tab (its own handler below).
+local function LiveMode() return ns.state.mode == "live" end
+local function FillSection() return UI.settingsSection == "fill" end
+UI.TAB_EVENTS = {
+  composition = { COMP_CHANGED = true, DUNGEON_CHANGED = true, LIVE_ROSTER_CHANGED = LiveMode },
+  plan = { COMP_CHANGED = true, DUNGEON_CHANGED = true, LIVE_ROSTER_CHANGED = LiveMode,
+    LUST_CHANGED = true, BOSS_ORDER_CHANGED = true, ASSIGNMENTS_CHANGED = true },
+  applicants = { DUNGEON_CHANGED = true, LIVE_ROSTER_CHANGED = true, FILL_ALERT = true,
+    FILL_ARMED = true, FILL_DONE = true, FILL_SETTINGS_CHANGED = true },
+  dungeons = { DUNGEON_CHANGED = true, LUST_CHANGED = true, BOSS_ORDER_CHANGED = true,
+    BOSS_DUNGEON_ENTERED = true, BOSS_DUNGEON_LEFT = true },
+  history = { HISTORY_CHANGED = true },
+  settings = { DUNGEON_CHANGED = FillSection, LIVE_ROSTER_CHANGED = FillSection, FILL_ARMED = FillSection,
+    FILL_SETTINGS_CHANGED = FillSection },
+}
+function UI:TabWants(tab, event)
+  local w = self.TAB_EVENTS[tab] and self.TAB_EVENTS[tab][event]
+  if type(w) == "function" then return w() and true or false end
+  return w and true or false
+end
+function UI:OnTabEvent(event)
+  if self:TabWants(self.currentTab, event) then self:QueueRefresh() end
+end
+for _, ev in ipairs({ "COMP_CHANGED", "LUST_CHANGED", "BOSS_ORDER_CHANGED", "ASSIGNMENTS_CHANGED",
+  "HISTORY_CHANGED", "DUNGEON_CHANGED", "BOSS_DUNGEON_ENTERED", "BOSS_DUNGEON_LEFT" }) do
+  ns:On(ev, function() UI:OnTabEvent(ev) end)
+end
 -- Fill group: a new plan, an alert, an invite sent, a must or a filter changed.
-local function FillChanged()
-  UI:QueueRefresh(); UI:QueueFinderRefresh(); UI:UpdateFillPopup()
+local function FillChanged(ev)
+  UI:OnTabEvent(ev); UI:QueueFinderRefresh(); UI:UpdateFillPopup()
   if UI.frame and UI.frame:IsShown() then UI:SyncFillTabDot() end
 end
-ns:On("FILL_ALERT", FillChanged)
-ns:On("FILL_ARMED", FillChanged)
-ns:On("FILL_DONE", FillChanged)
-ns:On("FILL_SETTINGS_CHANGED", FillChanged)
-ns:On("BOSS_ORDER_CHANGED", function() UI:QueueRefresh() end)
-ns:On("ASSIGNMENTS_CHANGED", function() UI:QueueRefresh() end)
-ns:On("HISTORY_CHANGED", function() UI:QueueRefresh() end)
-ns:On("DUNGEON_CHANGED", function() UI:QueueRefresh() end)
--- Entering or leaving a Season dungeon changes what the Dungeon tab follows on Auto.
-ns:On("BOSS_DUNGEON_ENTERED", function() if UI.currentTab == "dungeons" then UI:QueueRefresh() end end)
-ns:On("BOSS_DUNGEON_LEFT", function() if UI.currentTab == "dungeons" then UI:QueueRefresh() end end)
+for _, ev in ipairs({ "FILL_ALERT", "FILL_ARMED", "FILL_DONE", "FILL_SETTINGS_CHANGED" }) do
+  ns:On(ev, function() FillChanged(ev) end)
+end
 ns:On("LIVE_ROSTER_CHANGED", function()
-  if ns.state.mode == "live" then UI:QueueRefresh() end
+  UI:OnTabEvent("LIVE_ROSTER_CHANGED")
+  -- The Applicants tab's dot shows on other tabs, so it follows the roster on its own.
+  if UI.frame and UI.frame:IsShown() then UI:SyncFillTabDot() end
   UI:QueueFinderRefresh()
 end)
 ns:On("DUNGEON_CHANGED", function() UI:QueueFinderRefresh() end)
