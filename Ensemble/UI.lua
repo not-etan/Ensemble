@@ -1162,7 +1162,7 @@ function UI:BuildCompPage()
   end)
   cp.exportBtn:SetPoint("BOTTOMLEFT", 0, 0)
   cp.clearBtn = Button(actions, "Clear all", ACT_BW, 24, function()
-    for s = 1, ns.NUM_SLOTS do ns.db.currentComp[s] = 0 end
+    for s = 1, ns.NUM_SLOTS do ns.db.currentComp[s] = 0; ns.db.currentPeople[s] = false end
     ns:Fire("COMP_CHANGED", "clear")
   end)
   cp.clearBtn:SetPoint("LEFT", cp.exportBtn, "RIGHT", ACT_GAP, 0)
@@ -1260,17 +1260,37 @@ end
 
 function UI:OpenSpecMenu(anchor, slot)
   local role = ns.SLOT_ROLES[slot]
+  local P = ns.Players
   local items = {
-    { text = "Clear slot", onClick = function() ns.db.currentComp[slot] = 0; ns:Fire("COMP_CHANGED", "slot") end },
+    { text = "Clear slot", onClick = function() ns.db.currentComp[slot] = 0; ns.db.currentPeople[slot] = false; ns:Fire("COMP_CHANGED", "slot") end },
   }
+  -- Saved players (1.5.0) who play this slot's role: their spec fills it, their name shows on it.
+  local saved = P:ForRole(role)
+  if #saved > 0 then
+    items[#items + 1] = { text = "Saved players", header = true }
+    local cur = P:PlannerPerson(slot)
+    for _, x in ipairs(saved) do
+      local p = UD:GetSpec(x.specID)
+      local r, g, b = Util.ClassColor(p.class)
+      local name = x.p.full:match("^([^%-]+)") or x.p.full
+      items[#items + 1] = {
+        text = name .. "  -  " .. UI.ShortLabel(UD:SpecName(x.specID) .. " " .. UD:ClassName(p.class)),
+        specID = x.specID, classFile = p.class, color = { r, g, b, 1 },
+        selected = cur and P.Key(cur.full) == P.Key(x.p.full) and cur.spec == x.specID,
+        onClick = function() P:SetPlannerSlot(slot, x.p.full, x.specID) end,
+        tooltip = function() return x.p.full .. "\n" .. (UI:SpecPreviewText(slot, x.specID) or "") end,
+      }
+    end
+    items[#items + 1] = { text = "Specs", header = true }
+  end
   for _, specID in ipairs(UD:SpecsForRole(role)) do
     local p = UD:GetSpec(specID)
     local r, g, b = Util.ClassColor(p.class)
     table.insert(items, {
       text = UD:SpecName(specID) .. " " .. UD:ClassName(p.class) .. (p.verify and " (?)" or ""),
       specID = specID, classFile = p.class, color = { r, g, b, 1 },
-      selected = ns.db.currentComp[slot] == specID,
-      onClick = function() ns.db.currentComp[slot] = specID; ns:Fire("COMP_CHANGED", "slot") end,
+      selected = ns.db.currentComp[slot] == specID and not P:PlannerPerson(slot),
+      onClick = function() ns.db.currentComp[slot] = specID; ns.db.currentPeople[slot] = false; ns:Fire("COMP_CHANGED", "slot") end,
       tooltip = function() return UI:SpecPreviewText(slot, specID) end,
     })
   end
@@ -1316,7 +1336,7 @@ function UI:SaveCurrent()
   local name = Util.Trim(self.cp.nameBox:GetText())
   if name == "" then name = "Comp " .. (#ns.db.savedComps + 1) end
   local entry = { name = name, slots = Util.DeepCopy(ns.db.currentComp), dungeon = (ns:GetEffectiveDungeon(false)) or "NONE",
-                  created = time and time() or 0 }
+                  created = time and time() or 0, people = ns.Players:PlannerPeopleCopy() }   -- who was in each slot (1.5.0)
   for i, c in ipairs(ns.db.savedComps) do
     if c.name == name then ns.db.savedComps[i] = entry; ns:Print("Updated '" .. name .. "'."); self:QueueRefresh(); return end
   end
@@ -1366,7 +1386,10 @@ function UI:GroupInputs(withReserved)
     for s = 1, ns.NUM_SLOTS do
       local id = db.currentComp[s]
       if id and id ~= 0 and UD:GetSpec(id) then
-        slotMembers[s] = { specID = id }
+        -- person: a saved player picked for this slot (shown on the slot only; the analysis and
+        -- every post keep the spec label, so names never reach chat).
+        local who = ns.Players:PlannerPerson(s)
+        slotMembers[s] = { specID = id, person = who and who.full or nil }
         members[#members + 1] = slotMembers[s]
       end
     end
@@ -1461,10 +1484,15 @@ function UI:RefreshComp()
       row.icon:SetDesaturated(false)
       -- Planner specs as players write them ("Veng Demon Hunter"); party members keep their names.
       local full = UD:SpecName(m.specID) .. " " .. UD:ClassName(p.class)
-      row.name:SetText(select(4, Util.ClassColor(p.class)) .. (m.label or UI.ShortLabel(full)) .. "|r")
+      if m.person then
+        row.name:SetText(select(4, Util.ClassColor(p.class)) .. (m.person:match("^([^%-]+)") or m.person) .. "|r"
+          .. HEX.muted .. "  " .. UI.ShortLabel(full) .. "|r")
+      else
+        row.name:SetText(select(4, Util.ClassColor(p.class)) .. (m.label or UI.ShortLabel(full)) .. "|r")
+      end
       local badges, tip = self:SlotBadges(r, memberIndex[s])
       row.sub:SetText((m.reserved and (HEX.accent .. "held for a friend|r  ") or "") .. badges .. UI:BuffTag(p) .. (p.verify and "  (kit unconfirmed)" or ""))
-      row.tip = (m.reserved and "Reserved slot: counts in Needs and Fill group's checks; suggestions and Fill group leave it open. Release it from the Applicants tab's Fill group band or Settings > Fill group.\n" or "")
+      row.tip = (m.person and (m.person .. " (Saved players)\n") or "") .. (m.reserved and "Reserved slot: counts in Needs and Fill group's checks; suggestions and Fill group leave it open. Release it from the Applicants tab's Fill group band or Settings > Fill group.\n" or "")
         .. full .. "\n" .. (p.range and (p.range .. "\n") or "") .. tip
     elseif m and m.classFile then
       SetSpecIcon(row.icon, nil, m.classFile)
@@ -4693,7 +4721,11 @@ end
 -- Saved comps + comparison + import/export
 ---------------------------------------------------------------------------
 function UI:LoadSavedComp(c)
-  for s = 1, ns.NUM_SLOTS do ns.db.currentComp[s] = c.slots[s] or 0 end
+  for s = 1, ns.NUM_SLOTS do
+    ns.db.currentComp[s] = c.slots[s] or 0
+    local x = c.people and c.people[s]
+    ns.db.currentPeople[s] = type(x) == "table" and { full = x.full, spec = x.spec } or false
+  end
   -- A saved comp's dungeon is a deliberate pick.
   if c.dungeon and c.dungeon ~= "NONE" and DD.list[c.dungeon] then ns.db.selectedDungeon = c.dungeon end
   if self.cp then self.cp.nameBox:SetText(c.name) end

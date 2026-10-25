@@ -305,7 +305,10 @@ ns.DEFAULTS = {
   -- or a dungeon key. Resets to "AUTO" when you get a keystone for a different dungeon.
   selectedDungeon = "AUTO",
   currentComp = { 0, 0, 0, 0, 0 }, -- spec IDs per slot, 0 = empty
-  savedComps = {},              -- array of { name, slots = {5 specIDs}, dungeon, created }
+  -- Who's in each planner slot (1.5.0): false, or { full = "Name-Realm", spec = specID } from
+  -- Saved players. Shown only while the slot still holds that spec. Never in share strings.
+  currentPeople = { false, false, false, false, false },
+  savedComps = {},              -- array of { name, slots = {5 specIDs}, people = {5 people}|nil, dungeon, created }
   lastTab = "composition",
   -- Bloodlust timing per dungeon key: { { at = "b1"|"t2", note }, ... } (boss N, or the trash
   -- before boss N). Missing = the default from DungeonData.LUST.
@@ -332,6 +335,17 @@ local function SanitizeDB(db)
   for i = 1, ns.NUM_SLOTS do
     if type(db.currentComp[i]) ~= "number" then db.currentComp[i] = 0 end
   end
+  -- Planner slot people (1.5.0): false or { full = string, spec = number }.
+  local function CleanPeople(t)
+    if type(t) ~= "table" then t = {} end
+    for i = 1, ns.NUM_SLOTS do
+      local x = t[i]
+      if not (type(x) == "table" and type(x.full) == "string" and x.full ~= "" and type(x.spec) == "number") then t[i] = false end
+    end
+    for k in pairs(t) do if type(k) ~= "number" or k < 1 or k > ns.NUM_SLOTS then t[k] = nil end end
+    return t
+  end
+  db.currentPeople = CleanPeople(db.currentPeople)
   if type(db.savedComps) ~= "table" then db.savedComps = {} end
   for i = #db.savedComps, 1, -1 do
     local c = db.savedComps[i]
@@ -342,6 +356,7 @@ local function SanitizeDB(db)
       for s = 1, ns.NUM_SLOTS do
         if type(c.slots[s]) ~= "number" then c.slots[s] = 0 end
       end
+      if c.people ~= nil then c.people = CleanPeople(c.people) end
     end
   end
   if type(db.selectedDungeon) ~= "string" then db.selectedDungeon = "AUTO" end

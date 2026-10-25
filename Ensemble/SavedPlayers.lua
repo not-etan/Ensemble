@@ -160,6 +160,53 @@ function P:SpecsText(p)
 end
 
 ---------------------------------------------------------------------------
+-- Planner slots (1.5.0): a saved player in a Composition planner slot. A person shows only
+-- while the slot still holds the spec they were picked with.
+---------------------------------------------------------------------------
+function P:PlannerPerson(slot, people, slots)
+  people = people or DB().currentPeople
+  slots = slots or DB().currentComp
+  local x = people and people[slot]
+  if type(x) == "table" and x.full and slots[slot] == x.spec then return x end
+  return nil
+end
+
+function P:SetPlannerSlot(slot, full, specID)
+  if not ValidSpec(specID) then return false end
+  DB().currentComp[slot] = specID
+  DB().currentPeople[slot] = full and { full = full, spec = specID } or false
+  ns:Fire("COMP_CHANGED", "slot")
+  return true
+end
+
+-- Saved players who play `role`: { { p, specID } } (their default first when it fits the role).
+function P:ForRole(role)
+  local out = {}
+  for _, p in ipairs(DB().savedPlayers) do
+    local ids = {}
+    for _, id in ipairs(p.specs) do
+      local s = ns.UD:GetSpec(id)
+      if s and s.role == role then
+        if id == p.default then table.insert(ids, 1, id) else ids[#ids + 1] = id end
+      end
+    end
+    for _, id in ipairs(ids) do out[#out + 1] = { p = p, specID = id } end
+  end
+  return out
+end
+
+-- The planner's people as saved-comp data (nil when nobody is named).
+function P:PlannerPeopleCopy()
+  local out, any = {}, false
+  for s = 1, ns.NUM_SLOTS do
+    local x = self:PlannerPerson(s)
+    out[s] = x and { full = x.full, spec = x.spec } or false
+    if x then any = true end
+  end
+  return any and out or nil
+end
+
+---------------------------------------------------------------------------
 -- Reserved slots
 ---------------------------------------------------------------------------
 local function RChanged() ns:Fire("RESERVED_CHANGED") end

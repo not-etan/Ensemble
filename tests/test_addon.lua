@@ -6359,5 +6359,82 @@ do
   APPLICANTS, LISTING, ROSTER, INSPECT_CACHE = {}, nil, {}, {}
 end
 
+-- 78. Saved players in the Composition planner (1.5.0): a saved player fills a slot with their
+-- spec and their name shows on it; a saved comp keeps who was in each slot; share strings and
+-- posts stay spec-only.
+do
+  EnsembleDB = nil
+  ROSTER = { player = { guid = "P", name = "Faelan", class = "WARRIOR", spec = 73, role = "TANK" } }
+  APPLICANTS, LISTING = {}, nil
+  local nsC = boot()
+  local P, UIc = nsC.Players, nsC.UI
+  P:Save("Ann-Realm", 262); P:Save("Ann-Realm", 264); P:SetDefault("Ann-Realm", 264)
+  P:Save("Mira-Realm", 270)
+  local dps = P:ForRole("DAMAGER")
+  ok(#dps == 1 and dps[1].p.full == "Ann-Realm" and dps[1].specID == 262, "planner: saved players by role (Ann's DPS spec)")
+  local heal = P:ForRole("HEALER")
+  ok(#heal == 2 and heal[1].specID == 264 and heal[2].specID == 270, "planner: Ann's default healer spec, then Mira")
+  nsC.db.settings.compMode = "planner"
+  UIc:Show("composition"); RunTimers()
+  local captured
+  local origMenu = UIc.ShowMenu
+  UIc.ShowMenu = function(_, _, items) captured = items end
+  UIc:OpenSpecMenu(UIc.cp.slotRows[3], 3)   -- a DPS slot
+  UIc.ShowMenu = origMenu
+  local hdr, annItem = false, nil
+  for _, it in ipairs(captured) do
+    if it.header and it.text == "Saved players" then hdr = true end
+    if tostring(it.text):find("^Ann  %-  ") then annItem = it end
+  end
+  ok(hdr and annItem and annItem.specID == 262, "planner: the slot menu lists saved players first")
+  annItem.onClick(); RunTimers()
+  ok(nsC.db.currentComp[3] == 262 and P:PlannerPerson(3) and P:PlannerPerson(3).full == "Ann-Realm", "planner: Ann fills the slot with her spec")
+  ok(tostring(UIc.cp.slotRows[3].name:GetText()):find("Ann", 1, true), "planner: her name shows on the slot")
+  -- Another writer changes the slot's spec: the name no longer applies.
+  nsC.db.currentComp[3] = 63; nsC:Fire("COMP_CHANGED", "suggest"); RunTimers()
+  ok(P:PlannerPerson(3) == nil and not tostring(UIc.cp.slotRows[3].name:GetText()):find("Ann", 1, true), "planner: a different spec drops the name")
+  P:SetPlannerSlot(3, "Ann-Realm", 262)
+  P:SetPlannerSlot(2, "Mira-Realm", 270)
+  -- Plain spec from the menu clears the person.
+  UIc.ShowMenu = function(_, _, items) captured = items end
+  UIc:OpenSpecMenu(UIc.cp.slotRows[2], 2)
+  UIc.ShowMenu = origMenu
+  for _, it in ipairs(captured) do if not it.header and it.specID == 270 and not tostring(it.text):find("Mira", 1, true) then it.onClick() end end
+  ok(nsC.db.currentComp[2] == 270 and P:PlannerPerson(2) == nil, "planner: picking a plain spec clears the name")
+  P:SetPlannerSlot(2, "Mira-Realm", 270)
+  -- Save and load keep the people; share strings don't carry them.
+  UIc.cp.nameBox:SetText("Our usual team"); UIc:SaveCurrent()
+  local saved
+  for _, c in ipairs(nsC.db.savedComps) do if c.name == "Our usual team" then saved = c end end
+  ok(saved and saved.people and saved.people[3].full == "Ann-Realm" and saved.people[2].full == "Mira-Realm" and saved.people[1] == false,
+    "a saved comp keeps who was in each slot")
+  local str = nsC.Share.Encode("Our usual team", nsC.db.currentComp, "NONE")
+  ok(not str:find("Ann", 1, true) and not str:find("Mira", 1, true), "share strings stay spec-only")
+  for s = 1, 5 do nsC.db.currentComp[s] = 0; nsC.db.currentPeople[s] = false end
+  UIc:LoadSavedComp(saved); RunTimers()
+  ok(P:PlannerPerson(3) and P:PlannerPerson(3).full == "Ann-Realm" and nsC.db.currentComp[3] == 262, "loading it puts the usual team back")
+  local okImp = UIc:ImportString(str)
+  local imported
+  for _, c in ipairs(nsC.db.savedComps) do if c.name ~= "Our usual team" then imported = c end end
+  ok(okImp and imported and imported.people == nil, "an imported comp has no names")
+  -- Posts from the planner name specs, not people.
+  local members = UIc:GroupInputs()
+  local rr = nsC.Analysis:Analyze(members, "TempleOfSethraliss", nsC.db.settings)
+  local plan = nsC.Assignments:Build(rr)
+  local got = UIc:PlanChatLines(plan, "TempleOfSethraliss")
+  local lines = table.concat(got, "\n")
+  ok(#got > 0 and not lines:find("Ann", 1, true) and not lines:find("Mira", 1, true), "planner posts never name saved players")
+  UIc:Hide()
+  -- Saved data.
+  EnsembleDB = nsC.db
+  nsC.db.currentPeople = { { full = "X-Realm", spec = 262 }, { full = 3 }, "bad", nil, false, [9] = 1 }
+  nsC.db.savedComps[1].people = { { full = "", spec = 1 } }
+  local nsC2 = boot()
+  local cpp = nsC2.db.currentPeople
+  ok(cpp[1].full == "X-Realm" and cpp[2] == false and cpp[3] == false and cpp[4] == false and cpp[9] == nil, "planner people cleaned")
+  ok(nsC2.db.savedComps[1].people[1] == false, "saved comp people cleaned")
+  ROSTER = {}
+end
+
 print(string.format("%d passed, %d failed", passes, fails))
 return fails
