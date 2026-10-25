@@ -5067,6 +5067,7 @@ function UI:RefreshHistory()
   end
   -- Lessons look for the same gap in your other over-time keys there: one count for all of them.
   local repeatIndex = ns.History:RepeatIndex(ns.db.history)
+  local bestIndex = ns.History:BestIndex(ns.db.history)
   local shown = math.min(#runs, hp.shown or UI.HISTORY_PAGE)
   for ri = 1, shown do
     local run = runs[ri]
@@ -5080,6 +5081,28 @@ function UI:RefreshHistory()
     if run.deaths then bits[#bits + 1] = run.deaths .. " death" .. (run.deaths == 1 and "" or "s") end
     bits[#bits + 1] = date and date("%b %d, %H:%M", run.started or 0) or ""
     L:Add(HEX.muted .. table.concat(bits, "   ") .. "|r", { indent = 22, size = 11, gap = 1 })
+    -- Boss splits (1.5.0): kill time on the key's timer, deaths in that stretch, and the
+    -- difference from your best timed run here.
+    if run.splits and #run.splits > 0 then
+      local best = ns.History:BestTimed(run.key, run, bestIndex)
+      local parts = {}
+      for _, row in ipairs(ns.History:SplitRows(run, best)) do
+        local p = (row.final and "finish " or (row.name .. " ")) .. (row.t and ns.History.Clock(row.t) or "?")
+        if row.approx then p = p .. "*" end
+        if row.delta then
+          p = p .. " " .. (row.delta > 0 and HEX.warn or HEX.good) .. (row.delta > 0 and "+" or "") .. ns.History.Clock(row.delta) .. "|r"
+        end
+        if row.deaths and row.deaths > 0 then p = p .. HEX.muted .. " (" .. row.deaths .. " death" .. (row.deaths == 1 and "" or "s") .. ")|r" end
+        parts[#parts + 1] = p
+      end
+      local tip = { "Boss kills on the key's timer, with the deaths in each stretch." }
+      if best then tip[#tip + 1] = "Colored: the difference from your best timed run here (+" .. tostring(best.level or "?") .. ", " .. Clock(best.time) .. ")." end
+      for _, sp in ipairs(run.splits) do
+        if sp.approx then tip[#tip + 1] = "*: seen after a reload or loading screen, so the time is when it was seen, not the kill."; break end
+      end
+      L:Add(HEX.muted .. "Bosses: |r" .. table.concat(parts, HEX.muted .. "  ·  |r"),
+        { indent = 22, size = 11, gap = 1, tooltip = table.concat(tip, "\n") })
+    end
     -- Group: spec icons + names.
     local icons = {}
     for _, m in ipairs(run.comp or {}) do
@@ -5102,7 +5125,7 @@ function UI:RefreshHistory()
     for _, g in ipairs(run.gaps or {}) do gaps[#gaps + 1] = (g.status == "missing" and HEX.bad or HEX.warn) .. g.title .. "|r" end
     L:Add((#gaps > 0 and (HEX.muted .. "Gaps: |r" .. table.concat(gaps, HEX.muted .. ", |r")) or (HEX.muted .. "No gaps.|r")),
       { indent = 22, size = 11, gap = 2 })
-    local lesson, tone = ns.History:Lesson(run, ns.db.history, repeatIndex)
+    local lesson, tone = ns.History:Lesson(run, ns.db.history, repeatIndex, bestIndex)
     if lesson then
       local col = tone == "good" and HEX.good or tone == "warn" and HEX.warn or HEX.muted
       L:Add(col .. "Lesson: " .. lesson .. "|r", { indent = 22, size = 11, gap = 2 })

@@ -2802,7 +2802,8 @@ do
   local vt = nsR.Verify:Build()
   ok(not vt:find("Mythic Dungeon Tools", 1, true) and not vt:find("== Route", 1, true) and not vt:find("enemy forces", 1, true),
     "verify: no Route section")
-  ok(vt:find("all 20 game events the addon uses accepted", 1, true), "verify: 20 events (the route's scenario event is gone)")
+  -- 21 since 1.5.0: SCENARIO_CRITERIA_UPDATE is back, for History's boss splits (not the route).
+  ok(vt:find("all 21 game events the addon uses accepted", 1, true), "verify: 21 events (boss splits; the route is still gone)")
   -- Dungeon names with or without the apostrophe still find Kings' Rest (the aliases were MDT's).
   ok(nsR.Dungeons:FindKey("King's Rest") == "KingsRest" and nsR.Dungeons:FindKey("Kings Rest") == "KingsRest"
     and nsR.Dungeons:FindKey("Kings' Rest (Mythic Keystone)") == "KingsRest", "Kings' Rest found by any spelling")
@@ -5779,6 +5780,138 @@ do
   ns74:Fire("ASSIGNMENTS_CHANGED"); RunTimers()
   ok(bwCount == 0, "C3: a hidden boss window doesn't redraw")
   BW.Refresh = origBW
+end
+
+-- 75. Boss splits in History (1.5.0, F1): kill times from the key's boss objectives (scenario
+-- criteria), ENCOUNTER_END as the second path, deaths per stretch, hidden values left out, a
+-- /reload mid-key, the comparison with your best timed run, the lesson and verify.
+do
+  EnsembleDB = nil
+  CURRENT_AFFIXES = {}
+  ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" } }
+  INSPECT_CACHE = {}
+  local SECRET = {}
+  local function mark(v) local t = { v = v }; SECRET[t] = true; return t end
+  local ELAPSED = 0
+  CRITERIA = {}
+  C_Scenario = { GetStepInfo = function() return "Temple", "", #CRITERIA end }
+  C_ScenarioInfo = { GetCriteriaInfo = function(i) return CRITERIA[i] end }
+  GetWorldElapsedTime = function() return 1, ELAPSED, true end
+  local function crit(enc, name, done) return { criteriaType = 165, assetID = enc, description = name, completed = done } end
+  local function setCrit(done)
+    CRITERIA = {
+      crit(2124, "Adderis and Aspix", done >= 1), crit(2125, "Merektha", done >= 2),
+      crit(2126, "Galvazzt", done >= 3), crit(2127, "Avatar of Sethraliss", done >= 4),
+      { criteriaType = 0, assetID = 0, description = "Enemy Forces", completed = false },
+    }
+  end
+  local nsS = boot()
+  local Hs = nsS.History
+  local hf
+  for _, fr in ipairs(ALLFRAMES) do if fr._events.CHALLENGE_MODE_COMPLETED then hf = fr end end
+  ok(hf._events.SCENARIO_CRITERIA_UPDATE and hf._events.ENCOUNTER_END, "F1: history listens for objectives and boss kills")
+  local function fire(ev, ...) hf._scripts.OnEvent(hf, ev, ...); RunTimers() end
+  local function kill(n, t, deaths)
+    ELAPSED, DEATHS = t, deaths
+    setCrit(n); fire("SCENARIO_CRITERIA_UPDATE")
+  end
+  local function runKey(level, times, deaths, finish, timed)
+    ACTIVE_CHALLENGE, ACTIVE_KEY_LEVEL, ACTIVE_KEY_AFFIXES = 250, level, {}
+    DEATHS, ELAPSED = 0, 0
+    setCrit(0); fire("CHALLENGE_MODE_START")
+    for i, t in ipairs(times) do kill(i, t, deaths[i]) end
+    ELAPSED = finish
+    COMPLETION = { mapChallengeModeID = 250, level = level, time = finish * 1000, onTime = timed, keystoneUpgradeLevels = timed and 1 or 0 }
+    fire("CHALLENGE_MODE_COMPLETED")
+    ACTIVE_CHALLENGE = nil
+    return nsS.db.history[1]
+  end
+  -- A timed run: four kills in order with their times and the deaths so far.
+  local best = runKey(12, { 300, 700, 1100, 1500 }, { 0, 1, 1, 2 }, 1700, true)
+  ok(best.splits and #best.splits == 4, "F1: four boss splits recorded")
+  ok(best.splits[1].enc == 2124 and best.splits[1].boss == 1 and best.splits[1].t == 300 and best.splits[1].via == "criteria",
+    "F1: a split holds the encounter, our boss, the time and its source")
+  ok(best.splits[2].deaths == 1 and best.splits[4].deaths == 2, "F1: the death count at each kill")
+  -- The same kill's ENCOUNTER_END after the objective adds nothing.
+  ACTIVE_CHALLENGE = 250; setCrit(0); fire("CHALLENGE_MODE_START")
+  kill(1, 280, 0)
+  ELAPSED = 290; fire("ENCOUNTER_END", 2124, "Adderis and Aspix", 8, 5, 1)
+  ok(#nsS.db.activeRun.splits == 1 and nsS.db.activeRun.splits[1].t == 280, "F1: one split per boss, the objective's first")
+  -- ENCOUNTER_END alone (no objectives) still records; a wipe doesn't.
+  local saved = C_ScenarioInfo
+  C_ScenarioInfo = nil
+  ELAPSED, DEATHS = 640, 1
+  fire("ENCOUNTER_END", 2125, "Merektha", 8, 5, 0)
+  ok(#nsS.db.activeRun.splits == 1, "F1: a wipe isn't a split")
+  fire("ENCOUNTER_END", 2125, "Merektha", 8, 5, 1)
+  local sp2 = nsS.db.activeRun.splits[2]
+  ok(sp2 and sp2.enc == 2125 and sp2.boss == 2 and sp2.via == "encounter" and sp2.t == 640, "F1: ENCOUNTER_END is the second path")
+  C_ScenarioInfo = saved
+  -- Hidden values: a hidden timer leaves the time out, a hidden encounter ID records nothing, no error.
+  issecretvalue = function(v) return SECRET[v] == true end
+  local realElapsed = GetWorldElapsedTime
+  GetWorldElapsedTime = function() return 1, mark(900), true end
+  DEATHS = 1
+  setCrit(3); CRITERIA[3].completed = true; fire("SCENARIO_CRITERIA_UPDATE")
+  local sp3 = nsS.db.activeRun.splits[3]
+  ok(sp3 and sp3.enc == 2126 and sp3.t == nil, "F1: a hidden timer leaves the time out")
+  GetWorldElapsedTime = realElapsed
+  CRITERIA[4] = { criteriaType = 165, assetID = mark(2127), description = mark("x"), completed = true }
+  local okHidden = pcall(fire, "SCENARIO_CRITERIA_UPDATE")
+  ok(okHidden and #nsS.db.activeRun.splits == 3, "F1: a hidden encounter ID records nothing and doesn't error")
+  local okEnc = pcall(fire, "ENCOUNTER_END", mark(2127), mark("x"), 8, 5, mark(1))
+  ok(okEnc and #nsS.db.activeRun.splits == 3, "F1: hidden ENCOUNTER_END arguments are ignored")
+  issecretvalue = nil
+  -- A /reload mid-key: bosses already down are recorded once, marked as seen late.
+  ELAPSED = 1300; setCrit(4)
+  fire("PLAYER_ENTERING_WORLD")
+  local sp4
+  for _, sp in ipairs(nsS.db.activeRun.splits) do if sp.enc == 2127 then sp4 = sp end end
+  ok(nsS.db.activeRun.splits[4] == sp3, "F1: a split without a time sorts last")
+  ok(sp4 and sp4.enc == 2127 and sp4.approx and sp4.t == 1300, "F1: after a reload, a boss already down is marked approximate")
+  fire("PLAYER_ENTERING_WORLD")
+  ok(#nsS.db.activeRun.splits == 4, "F1: a second reload adds nothing")
+  COMPLETION = { mapChallengeModeID = 250, level = 12, time = 1750000, onTime = false }
+  ELAPSED = 1750; fire("CHALLENGE_MODE_COMPLETED"); ACTIVE_CHALLENGE = nil
+  -- Splits survive the run and an abandoned key with no kills stores none.
+  ACTIVE_CHALLENGE = 250; setCrit(0); fire("CHALLENGE_MODE_START"); ACTIVE_CHALLENGE = nil; fire("PLAYER_ENTERING_WORLD")
+  ok(nsS.db.history[1].result == "abandoned" and nsS.db.history[1].splits == nil, "F1: no kills, no splits")
+
+  -- Comparison with your best timed run; over-time lesson names the stretch that lost the most.
+  local slow = runKey(13, { 330, 760, 1400, 1820 }, { 0, 1, 5, 6 }, 2050, false)
+  local rows = Hs:SplitRows(slow, Hs:BestTimed("TempleOfSethraliss", slow))
+  ok(rows[1].delta == 30 and rows[1].segLoss == 30, "F1: first boss +0:30 against the best")
+  ok(rows[3].delta == 300 and rows[3].segLoss == 240 and rows[3].deaths == 4, "F1: Galvazzt's stretch lost 4:00, with 4 deaths there")
+  ok(rows[5] and rows[5].final and rows[5].delta == 350 and rows[5].segLoss == 30, "F1: the stretch after the last boss")
+  ok(Hs:BestTimed("TempleOfSethraliss", best) == nil, "F1: the best run isn't compared with itself (no other timed run)")
+  slow.gaps = {}   -- a full group: no utility gaps, so the lesson looks at the time
+  local text = Hs:Lesson(slow, nsS.db.history)
+  ok(text:find("the most time went between Merektha and Galvazzt (+4:00 vs your best timed +12, 4 deaths there)", 1, true),
+    "F1: lesson: " .. text)
+  slow.splits = nil
+  ok(Hs:Lesson(slow, nsS.db.history):find("the time went elsewhere", 1, true), "F1: no splits: the old lesson")
+  -- History shows the splits line with the differences.
+  local UIs = nsS.UI
+  UIs:Show("history"); RunTimers()
+  local found
+  for i = 1, UIs.hp.runs.used do
+    local t = tostring(UIs.hp.runs.pool[i]:GetText())
+    if t:find("Bosses:", 1, true) and t:find("Adderis and Aspix 5:00", 1, true) then found = t end
+  end
+  ok(found ~= nil, "F1: History lists each boss with its kill time")
+  UIs:Hide()
+  -- Verify: outside a key it says where to run it; inside it reads the objectives.
+  local vt = nsS.Verify:Build()
+  ok(vt:find("C_ScenarioInfo.GetCriteriaInfo present", 1, true) and vt:find("GetWorldElapsedTime present", 1, true)
+    and vt:find("run /ens verify inside a key", 1, true), "F1: verify outside a key")
+  ACTIVE_CHALLENGE = 250; ELAPSED = 600; DEATHS = 2; setCrit(2)
+  vt = nsS.Verify:Build()
+  ok(vt:find("boss objectives: 5 criteria read, 4 bosses found, 2 down", 1, true) and vt:find("key timer: 10:00 elapsed", 1, true)
+    and vt:find("death count: 2", 1, true), "F1: verify inside a key")
+  C_ScenarioInfo = nil
+  vt = nsS.Verify:Build()
+  ok(vt:find("C_ScenarioInfo.GetCriteriaInfo missing", 1, true), "F1: verify without the objectives API")
+  ACTIVE_CHALLENGE, C_Scenario, GetWorldElapsedTime, CRITERIA, DEATHS = nil, nil, nil, nil, 0
 end
 
 print(string.format("%d passed, %d failed", passes, fails))

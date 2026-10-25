@@ -129,7 +129,7 @@ local function CheckAPIs()
                    "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "ZONE_CHANGED_NEW_AREA",
                    "CHALLENGE_MODE_START", "CHALLENGE_MODE_COMPLETED", "CHALLENGE_MODE_RESET",
                    "CHALLENGE_MODE_MAPS_UPDATE", "BAG_UPDATE_DELAYED", "MYTHIC_PLUS_CURRENT_AFFIX_UPDATE",
-                   "TRAIT_CONFIG_UPDATED", "ENCOUNTER_START", "ENCOUNTER_END" }
+                   "TRAIT_CONFIG_UPDATED", "ENCOUNTER_START", "ENCOUNTER_END", "SCENARIO_CRITERIA_UPDATE" }
   for _, ev in ipairs(EVENTS) do
     if not pcall(probe.RegisterEvent, probe, ev) then bad[#bad + 1] = ev end
   end
@@ -356,6 +356,42 @@ local function CheckHistory()
   Add(ns.db.settings.history ~= false and "INFO" or "WARN", string.format("%d key(s) recorded; recording %s%s",
     #(ns.db.history or {}), ns.db.settings.history ~= false and "on" or "OFF",
     ns.db.activeRun and (" - a key is in progress (" .. tostring(ns.db.activeRun.key) .. ")") or ""))
+  -- Boss splits (1.5.0).
+  local H = ns.History
+  local SI = rawget(_G, "C_ScenarioInfo")
+  local hasCrit = type(SI) == "table" and type(SI.GetCriteriaInfo) == "function"
+  Add(hasCrit and "OK" or "WARN", "C_ScenarioInfo.GetCriteriaInfo " .. (hasCrit and "present (boss splits)"
+    or "missing: boss splits come from boss kills (ENCOUNTER_END) only"))
+  local hasClock = type(rawget(_G, "GetWorldElapsedTime")) == "function"
+  Add(hasClock and "OK" or "WARN", "GetWorldElapsedTime " .. (hasClock and "present (the key's timer for splits)"
+    or "missing: no split times"))
+  local inKey = false
+  if C_ChallengeMode and C_ChallengeMode.GetActiveChallengeMapID then
+    local ok, id = pcall(C_ChallengeMode.GetActiveChallengeMapID)
+    inKey = ok and id and true or false
+  end
+  if not inKey then
+    Add("INFO", "boss splits: run /ens verify inside a key to check the boss objectives, the timer and the death count")
+  else
+    local before = H.secretReads or 0
+    local list, why = H:BossCriteria()
+    if not list then
+      Add("WARN", "boss objectives: " .. (why == "api" and "the function is missing" or "none read (empty)") .. " - splits come from boss kills only")
+    else
+      local done = 0
+      for _, c in ipairs(list) do if c.completed then done = done + 1 end end
+      Add(#list > 0 and "OK" or "WARN", string.format("boss objectives: %d criteria read, %d bosses found, %d down", why, #list, done)
+        .. (#list == 0 and " (no boss criteria: splits come from boss kills only)" or ""))
+    end
+    local t = H:KeyElapsed()
+    Add(t and "OK" or "WARN", "key timer: " .. (t and (H.Clock(t) .. " elapsed") or "not readable (hidden or missing): splits have no times"))
+    local d = H:DeathCount()
+    Add(d and "OK" or "WARN", "death count: " .. (d and tostring(d) or "not readable (hidden or missing)"))
+    local hidden = (H.secretReads or 0) - before
+    if hidden > 0 then Add("WARN", hidden .. " value(s) hidden by the game in this check (left out of splits)") end
+    local run = ns.db.activeRun
+    Add("INFO", "splits recorded this key: " .. (run and run.splits and #run.splits or 0))
+  end
 end
 
 local function CheckGroupFinder()

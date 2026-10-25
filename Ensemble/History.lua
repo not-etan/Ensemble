@@ -10,6 +10,13 @@
 --     onTime, keystoneUpgradeLevels, practiceRun, ... }  (older: GetCompletionInfo() returns)
 --   C_ChallengeMode.GetDeathCount() -> deaths, timeLost
 --   C_ChallengeMode.GetMapUIInfo(mapID) -> name, id, timeLimit (s), texture
+-- Boss splits (1.5.0), every read through issecretvalue and left out when hidden:
+--   C_ScenarioInfo.GetCriteriaInfo(i) -> { criteriaType, assetID, completed, description }; a
+--     boss is criteriaType 165 with assetID = the DungeonEncounterID (what Blizzard's objective
+--     tracker shows; the same reads WarpDeplete uses in Midnight). Count from
+--     C_Scenario.GetStepInfo()'s third return, else C_ScenarioInfo.GetScenarioStepInfo().numCriteria.
+--   GetWorldElapsedTime(1) -> _, elapsed seconds on the key's timer.
+--   ENCOUNTER_END (encounterID, name, difficulty, size, success) is the second path.
 local _, ns = ...
 
 local H = {}
@@ -20,6 +27,14 @@ H.MIN_SAMPLE = 3          -- runs needed on each side before a gap gets an insig
 H.MAX_GAPS_STORED = 8
 
 local function Now() return (time and time()) or 0 end
+
+-- m:ss for a number of seconds (whole seconds).
+function H.Clock(sec)
+  sec = math.floor((sec or 0) + 0.5)
+  local neg = sec < 0
+  sec = math.abs(sec)
+  return (neg and "-" or "") .. string.format("%d:%02d", math.floor(sec / 60), sec % 60)
+end
 
 local function ActiveMap()
   if not (C_ChallengeMode and C_ChallengeMode.GetActiveChallengeMapID) then return nil end
@@ -48,6 +63,205 @@ function H:Snapshot()
   end
 end
 
+---------------------------------------------------------------------------
+-- Boss splits (1.5.0, F1): when each boss died on the key's timer and how many deaths the
+-- group had by then. The scenario criteria come first (a /reload mid-key still sees every
+-- boss already down); ENCOUNTER_END is the second path. A hidden value is left out.
+---------------------------------------------------------------------------
+H.BOSS_CRITERIA_TYPE = 165
+H.MAX_CRITERIA = 20
+H.secretReads = 0
+
+local function Plain(v)
+  if v == nil or not issecretvalue then return v end
+  local ok, secret = pcall(issecretvalue, v)
+  if ok and not secret then return v end
+  H.secretReads = H.secretReads + 1
+  return nil
+end
+H.Plain = Plain
+
+-- Seconds on the key's timer, or nil.
+function H:KeyElapsed()
+  local fn = rawget(_G, "GetWorldElapsedTime")
+  if type(fn) ~= "function" then return nil end
+  local ok, _, elapsed = pcall(fn, 1)
+  elapsed = ok and Plain(elapsed) or nil
+  return type(elapsed) == "number" and elapsed or nil
+end
+
+function H:DeathCount()
+  local cm = rawget(_G, "C_ChallengeMode")
+  if not (type(cm) == "table" and cm.GetDeathCount) then return nil end
+  local ok, deaths = pcall(cm.GetDeathCount)
+  deaths = ok and Plain(deaths) or nil
+  return type(deaths) == "number" and deaths or nil
+end
+
+local function NumCriteria()
+  local CS = rawget(_G, "C_Scenario")
+  if type(CS) == "table" and CS.GetStepInfo then
+    local ok, _, _, n = pcall(CS.GetStepInfo)
+    n = ok and Plain(n) or nil
+    if type(n) == "number" then return n end
+  end
+  local SI = rawget(_G, "C_ScenarioInfo")
+  if type(SI) == "table" and SI.GetScenarioStepInfo then
+    local ok, t = pcall(SI.GetScenarioStepInfo)
+    local n = ok and type(t) == "table" and Plain(t.numCriteria) or nil
+    if type(n) == "number" then return n end
+  end
+  return nil
+end
+
+-- The key's boss objectives: list of { enc, completed, name }, plus how many criteria were read.
+-- nil, reason when the game can't be asked ("api") or nothing came back ("empty").
+function H:BossCriteria()
+  local SI = rawget(_G, "C_ScenarioInfo")
+  if not (type(SI) == "table" and SI.GetCriteriaInfo) then return nil, "api" end
+  local num = NumCriteria() or H.MAX_CRITERIA
+  local out, read = {}, 0
+  for i = 1, math.min(num, H.MAX_CRITERIA) do
+    local ok, c = pcall(SI.GetCriteriaInfo, i)
+    if not ok or type(c) ~= "table" then break end
+    read = read + 1
+    if Plain(c.criteriaType) == H.BOSS_CRITERIA_TYPE then
+      local enc = Plain(c.assetID)
+      local done = Plain(c.completed)
+      local name = Plain(c.description)
+      if type(enc) == "number" then
+        out[#out + 1] = { enc = enc, completed = done == true, name = type(name) == "string" and name or nil }
+      end
+    end
+  end
+  if read == 0 then return nil, "empty" end
+  return out, read
+end
+
+local function HasSplit(run, enc)
+  for _, sp in ipairs(run.splits or {}) do if sp.enc == enc then return true end end
+  return false
+end
+
+local function AddSplit(run, enc, via, name, approx)
+  if type(enc) ~= "number" or HasSplit(run, enc) then return false end
+  run.splits = run.splits or {}
+  local boss = run.key and ns.BossCards and ns.BossCards.IndexForEncounter
+    and ns.BossCards:IndexForEncounter(run.key, enc, name) or nil
+  run.splits[#run.splits + 1] = { enc = enc, boss = boss, t = H:KeyElapsed(), deaths = H:DeathCount(), via = via,
+    approx = approx or nil }
+  table.sort(run.splits, function(a, b)
+    if (a.t ~= nil) ~= (b.t ~= nil) then return a.t ~= nil end
+    return (a.t or 0) < (b.t or 0)
+  end)
+  return true
+end
+
+-- Record every boss the criteria say is down. approx: kills seen only now (after a /reload or
+-- a loading screen), so their time is when we looked, not when the boss died.
+function H:CheckSplits(approx)
+  local run = ns.db and ns.db.activeRun
+  if not run then return end
+  local list = self:BossCriteria()
+  local added = false
+  for _, c in ipairs(list or {}) do
+    if c.completed and AddSplit(run, c.enc, "criteria", c.name, approx) then added = true end
+  end
+  return added
+end
+
+function H:OnEncounterEnd(encounterID, name, success)
+  local run = ns.db and ns.db.activeRun
+  if not run or not (success == 1 or success == true) then return end
+  AddSplit(run, encounterID, "encounter", type(name) == "string" and name or nil)
+end
+
+-- A boss's name from our cards, else "Boss N".
+function H:BossName(run, sp)
+  local bosses = run.key and ns.BossCards and ns.BossCards:Bosses(run.key) or {}
+  local b = sp.boss and bosses[sp.boss]
+  return b and b.name or ("Boss " .. tostring(sp.boss or "?"))
+end
+
+-- The two fastest timed runs with splits per dungeon, in one pass (History draws many runs).
+function H:BestIndex(runs)
+  local idx = {}
+  for _, r in ipairs(runs or ns.db.history or {}) do
+    if r.result == "timed" and r.time and r.splits and #r.splits > 0 and r.key then
+      local e = idx[r.key] or {}
+      idx[r.key] = e
+      if not e[1] or r.time < e[1].time then e[2] = e[1]; e[1] = r
+      elseif not e[2] or r.time < e[2].time then e[2] = r end
+    end
+  end
+  return idx
+end
+
+-- Your best timed run of this dungeon with splits (fastest finish), other than `run`.
+-- index: H:BestIndex() over the whole history, optional.
+function H:BestTimed(dk, run, index)
+  local e = (index or self:BestIndex(ns.db.history))[dk]
+  if not e then return nil end
+  if e[1] ~= run then return e[1] end
+  return e[2]
+end
+
+-- Each split against the best timed run: { name, t, deaths (in that stretch), delta (cumulative,
+-- vs the same boss in best), seg, segLoss (this stretch vs best's, only where both runs reached
+-- it from the same boss) }, plus the stretch after the last boss when both runs have a time.
+function H:SplitRows(run, best)
+  local rows = {}
+  local byEnc = {}
+  if best then
+    for i, sp in ipairs(best.splits or {}) do byEnc[sp.enc] = { sp = sp, prev = best.splits[i - 1] } end
+  end
+  local prev
+  for _, sp in ipairs(run.splits or {}) do
+    local row = { name = self:BossName(run, sp), t = sp.t, approx = sp.approx }
+    if sp.deaths and (not prev or prev.deaths) then row.deaths = sp.deaths - (prev and prev.deaths or 0) end
+    local b = byEnc[sp.enc]
+    if b and sp.t and b.sp.t then
+      row.delta = sp.t - b.sp.t
+      local samePrev = (prev == nil and b.prev == nil) or (prev and b.prev and prev.enc == b.prev.enc)
+      if samePrev and (not prev or (prev.t and b.prev.t)) and not sp.approx and not (prev and prev.approx) then
+        row.segLoss = (sp.t - (prev and prev.t or 0)) - (b.sp.t - (b.prev and b.prev.t or 0))
+      end
+    end
+    rows[#rows + 1] = row
+    prev = sp
+  end
+  local last = run.splits and run.splits[#run.splits]
+  local bLast = best and best.splits and best.splits[#best.splits]
+  if last and last.t and run.time and run.time >= last.t and not last.approx then
+    local row = { name = "after the last boss", t = run.time, final = true }
+    if last.deaths and run.deaths then row.deaths = run.deaths - last.deaths end
+    if best and bLast and bLast.enc == last.enc and bLast.t and best.time then
+      row.delta = run.time - best.time
+      row.segLoss = (run.time - last.t) - (best.time - bLast.t)
+    end
+    rows[#rows + 1] = row
+  end
+  return rows
+end
+
+-- Where an over-time key lost the most time against your best timed run, or nil.
+function H:WorstStretch(run, index)
+  if not (run.splits and #run.splits > 0) then return nil end
+  local best = self:BestTimed(run.key, run, index)
+  if not best then return nil end
+  local rows = self:SplitRows(run, best)
+  local worst, prevName
+  for _, row in ipairs(rows) do
+    if row.segLoss and row.segLoss > 0 and (not worst or row.segLoss > worst.segLoss) then
+      worst = row
+      worst.from = prevName
+    end
+    prevName = row.final and prevName or row.name
+  end
+  if worst then worst.best = best end
+  return worst
+end
+
 function H:OnStart()
   if not Enabled() then return end
   local mapID = ActiveMap()
@@ -59,7 +273,7 @@ function H:OnStart()
   end
   ns.db.activeRun = {
     mapID = mapID, key = key, level = level, affixes = type(affixes) == "table" and affixes or {},
-    started = Now(), comp = {},
+    started = Now(), comp = {}, splits = {},
   }
   ns.Tracker:Acquire("history")
   self:Snapshot()
@@ -91,6 +305,9 @@ function H:Finish(result, info)
   local run = ns.db and ns.db.activeRun
   if not run then return end
   self:Snapshot()
+  -- The last boss's objective can complete in the same moment as the key.
+  if result ~= "abandoned" then pcall(self.CheckSplits, self) end
+  if run.splits and #run.splits == 0 then run.splits = nil end
   ns.db.activeRun = nil
   ns.Tracker:Release("history")
   if info and info.practiceRun then return end
@@ -156,6 +373,8 @@ function H:OnEnteringWorld(attempt)
   if not run then return end
   if ActiveMap() then
     ns.Tracker:Acquire("history")
+    -- Bosses that died while the screen was loading: their time is now, not the kill.
+    pcall(self.CheckSplits, self, true)
     return
   end
   if InKeystoneInstance() then
@@ -168,12 +387,17 @@ function H:OnEnteringWorld(attempt)
 end
 
 local f = CreateFrame("Frame")
-for _, ev in ipairs({ "CHALLENGE_MODE_START", "CHALLENGE_MODE_COMPLETED", "CHALLENGE_MODE_RESET", "PLAYER_ENTERING_WORLD" }) do
+for _, ev in ipairs({ "CHALLENGE_MODE_START", "CHALLENGE_MODE_COMPLETED", "CHALLENGE_MODE_RESET", "PLAYER_ENTERING_WORLD",
+  "SCENARIO_CRITERIA_UPDATE", "ENCOUNTER_END" }) do
   pcall(f.RegisterEvent, f, ev)
 end
-f:SetScript("OnEvent", function(_, event)
+f:SetScript("OnEvent", function(_, event, a1, a2, a3, a4, a5)
   if not ns.db or not C_ChallengeMode then return end
-  if event == "CHALLENGE_MODE_START" then H:OnStart()
+  if event == "SCENARIO_CRITERIA_UPDATE" then
+    if ns.db.activeRun then pcall(H.CheckSplits, H) end
+  elseif event == "ENCOUNTER_END" then
+    if ns.db.activeRun then pcall(H.OnEncounterEnd, H, Plain(a1), Plain(a2), Plain(a5)) end
+  elseif event == "CHALLENGE_MODE_START" then H:OnStart()
   elseif event == "CHALLENGE_MODE_COMPLETED" then H:OnCompleted()
   elseif event == "CHALLENGE_MODE_RESET" then H:Finish("abandoned")
   elseif event == "PLAYER_ENTERING_WORLD" then
@@ -215,8 +439,9 @@ function H:RepeatIndex(runs)
   return idx
 end
 
--- index: H:RepeatIndex(runs), optional; built here when the caller has none.
-function H:Lesson(run, runs, index)
+-- index: H:RepeatIndex(runs), optional; built here when the caller has none. bestIndex:
+-- H:BestIndex(), optional, for the over-time lesson that names where the time went.
+function H:Lesson(run, runs, index, bestIndex)
   if run.result == "abandoned" then return nil end
   local gaps = {}
   for _, g in ipairs(run.gaps or {}) do gaps[#gaps + 1] = g end
@@ -236,6 +461,15 @@ function H:Lesson(run, runs, index)
   end
   -- Over time
   if #gaps == 0 then
+    local w = self:WorstStretch(run, bestIndex)
+    if w then
+      local where = w.final and ("after " .. (w.from or "the last boss"))
+        or (w.from and ("between " .. w.from .. " and " .. w.name) or ("up to " .. w.name))
+      return "Over time with no utility gaps: the most time went " .. where .. " (+" .. H.Clock(w.segLoss)
+        .. " vs your best timed +" .. tostring(w.best.level or "?")
+        .. ((w.deaths and w.deaths > 0) and (", " .. w.deaths .. " death" .. (w.deaths == 1 and "" or "s") .. " there") or "")
+        .. ").", "muted"
+    end
     return "Over time with no utility gaps: the time went elsewhere" .. (run.deaths and run.deaths > 0 and (" (" .. run.deaths .. " deaths)") or "") .. ".", "muted"
   end
   local lead = gaps[1]
