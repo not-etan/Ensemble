@@ -1353,12 +1353,14 @@ end
 
 -- The group Composition and Plan work on: your party, or the planner's slots.
 -- Returns members, slotMembers, slotRoles, live.
-function UI:GroupInputs()
+-- withReserved: Composition counts reserved slots (1.5.0) like members; the Plan tab doesn't
+-- (assignments are for the players who are here).
+function UI:GroupInputs(withReserved)
   local db = ns.db
   local live = ns.state.mode == "live"
   local members, slotMembers, slotRoles = {}, {}, ns.SLOT_ROLES
   if live then
-    slotMembers = Analysis:RosterToSlots(ns.Tracker:GetComp())
+    slotMembers = Analysis:RosterToSlots(withReserved and ns.Players:LiveComp() or ns.Tracker:GetComp())
     for s = 1, ns.NUM_SLOTS do if slotMembers[s] then members[#members + 1] = slotMembers[s] end end
   else
     for s = 1, ns.NUM_SLOTS do
@@ -1384,7 +1386,7 @@ function UI:RefreshComp()
   local cp = self.cp
   local db = ns.db
   local settings = db.settings
-  local members, slotMembers, slotRoles, live = self:GroupInputs()
+  local members, slotMembers, slotRoles, live = self:GroupInputs(true)
   cp.modeBtn.text:SetText(self:ModeLabel())
   local dungeonKey, source = ns:GetEffectiveDungeon()
   local r = Analysis:Analyze(members, dungeonKey, settings)
@@ -1461,9 +1463,9 @@ function UI:RefreshComp()
       local full = UD:SpecName(m.specID) .. " " .. UD:ClassName(p.class)
       row.name:SetText(select(4, Util.ClassColor(p.class)) .. (m.label or UI.ShortLabel(full)) .. "|r")
       local badges, tip = self:SlotBadges(r, memberIndex[s])
-      row.sub:SetText(badges .. UI:BuffTag(p) .. (p.verify and "  (kit unconfirmed)" or ""))
-      row.tip = full .. "\n"
-        .. (p.range and (p.range .. "\n") or "") .. tip
+      row.sub:SetText((m.reserved and (HEX.accent .. "held for a friend|r  ") or "") .. badges .. UI:BuffTag(p) .. (p.verify and "  (kit unconfirmed)" or ""))
+      row.tip = (m.reserved and "Reserved slot: counts in Needs and Fill group's checks; suggestions and Fill group leave it open. Release it from the Applicants tab's Fill group band or Settings > Fill group.\n" or "")
+        .. full .. "\n" .. (p.range and (p.range .. "\n") or "") .. tip
     elseif m and m.classFile then
       SetSpecIcon(row.icon, nil, m.classFile)
       row.icon:SetDesaturated(true)
@@ -2119,7 +2121,7 @@ end
 
 -- The live group's analysis (party + the dungeon being run), for the listing text.
 function UI:LiveAnalysis()
-  local comp = ns.Tracker:GetComp()
+  local comp = ns.Players:LiveComp()   -- reserved slots count (their utility, their role)
   local dk = ns:GetEffectiveDungeon(true)
   local level = ns.ApplicantFit:GetKeyLevel(dk)
   return Analysis:Analyze(comp, dk, ns.db.settings, level and { keyLevel = level } or nil), comp
@@ -2946,6 +2948,241 @@ function UI:SyncFillButton(b, plan)
 end
 
 -- The band: line 1 status, Auto-fill, the button; line 2 who and how the group ends up.
+---------------------------------------------------------------------------
+-- Reserve a slot and Saved players (1.5.0): one small dialog for both. Reserve: spec required
+-- (the role follows it), name optional, typing suggests Saved players; "Save this player"
+-- (ticked) adds a new name, or a spec picked by hand, to Saved players. Save: add a saved
+-- player from Settings > Saved players. Our own frame; nothing is typed into Blizzard's UI.
+---------------------------------------------------------------------------
+local ROLE_TEXT = { TANK = "Tank", HEALER = "Healer", DAMAGER = "DPS" }
+UI.RESERVE_SUGGEST_ROWS = 6
+
+function UI:BuildReserveDialog()
+  if self.reserveDialog then return self.reserveDialog end
+  local d = CreateFrame("Frame", "EnsembleReserveDialog", UIParent, "BackdropTemplate")
+  d:SetSize(392, 214)
+  d:SetPoint("CENTER", UIParent, "CENTER", 0, 80)
+  d:SetFrameStrata("DIALOG")
+  d:EnableMouse(true); d:SetMovable(true); d:RegisterForDrag("LeftButton")
+  d:SetScript("OnDragStart", d.StartMoving); d:SetScript("OnDragStop", d.StopMovingOrSizing)
+  d:SetClampedToScreen(true)
+  Skin(d, C.bg, C.accent); Accent(d, "border")
+  d:Hide()
+  d.st = { saveOn = true, matches = {} }   -- dialog state: a plain table (fields on frames are the client's)
+  d.title = AccentText(d); d.title:SetPoint("TOPLEFT", 12, -10)
+  local nl = Text(d, 12, C.text); nl:SetPoint("TOPLEFT", 12, -36); nl:SetText("Name")
+  d.nameLabel = nl
+  d.name = EditBox(d, 230, 24); d.name:SetPoint("TOPLEFT", 74, -32)
+  d.nameNote = Text(d, 10, C.muted); d.nameNote:SetPoint("LEFT", d.name, "RIGHT", 8, 0); d.nameNote:SetWidth(70)
+  d.nameNote:SetText("optional")
+  local sl = Text(d, 12, C.text); sl:SetPoint("TOPLEFT", 12, -70); sl:SetText("Spec")
+  d.spec = Dropdown(d, 230, 24, function(btn) UI:OpenReserveSpecMenu(btn) end)
+  d.spec:SetPoint("TOPLEFT", 74, -66)
+  d.role = Text(d, 11, C.muted); d.role:SetPoint("TOPLEFT", 74, -94); d.role:SetWidth(300); d.role:SetWordWrap(false)
+  d.save = Check(d, "Save this player", function() return d.st.saveOn end, function(v) d.st.saveOn = v end,
+    "Adds them, or this spec, to Settings > Saved players. Their default spec doesn't change.")
+  d.save:SetScript("OnClick", function(self) d.st.saveOn = not d.st.saveOn; self:Sync() end)   -- no settings refresh
+  d.save:SetPoint("TOPLEFT", 74, -114)
+  d.err = Text(d, 11, C.bad); d.err:SetPoint("TOPLEFT", 12, -140); d.err:SetPoint("RIGHT", -12, 0)
+  d.note = Text(d, 10, C.muted); d.note:SetPoint("TOPLEFT", 12, -160); d.note:SetPoint("RIGHT", -12, 0)
+  d.cancel = Button(d, "Cancel", 80, 22, function() d:Hide() end); d.cancel:SetPoint("BOTTOMRIGHT", -10, 10)
+  d.ok = Button(d, "Reserve", 96, 22, function() UI:ConfirmReserveDialog() end)
+  d.ok:SetPoint("RIGHT", d.cancel, "LEFT", -6, 0)
+  if d.ok.SetMotionScriptsWhileDisabled then d.ok:SetMotionScriptsWhileDisabled(true) end
+  -- Suggestions under the name box (our own rows; up to six).
+  local sug = CreateFrame("Frame", nil, d, "BackdropTemplate")
+  sug:SetPoint("TOPLEFT", d.name, "BOTTOMLEFT", 0, -2); sug:SetWidth(230)
+  sug:SetFrameLevel((d:GetFrameLevel() or 1) + 20)
+  Skin(sug, C.bg, C.border)
+  sug:Hide()
+  sug.rows = {}
+  for i = 1, UI.RESERVE_SUGGEST_ROWS do
+    local b = CreateFrame("Button", nil, sug)
+    b:SetHeight(20); b:SetPoint("TOPLEFT", 2, -2 - (i - 1) * 20); b:SetPoint("RIGHT", sug, "RIGHT", -2, 0)
+    local hl = b:CreateTexture(nil, "BACKGROUND"); hl:SetAllPoints(); Accent(hl, "tex", 0.15); b:SetHighlightTexture(hl)
+    b.text = Text(b, 11, C.text); b.text:SetPoint("LEFT", 4, 0); b.text:SetPoint("RIGHT", -4, 0); b.text:SetWordWrap(false)
+    b:SetScript("OnClick", function(self) if self.player then UI:PickReservePlayer(self.player) end end)
+    sug.rows[i] = b
+  end
+  d.sug = sug
+  d.name:SetScript("OnTextChanged", function(box, user) if user ~= false then UI:ReserveNameChanged() end end)
+  d.name:SetScript("OnEnterPressed", function(box)
+    local first = d.st.matches and d.st.matches[1]
+    if first and sug:IsShown() then UI:PickReservePlayer(first) else box:ClearFocus() end
+  end)
+  d.name:SetScript("OnTabPressed", function()
+    local first = d.st.matches and d.st.matches[1]
+    if first and sug:IsShown() then UI:PickReservePlayer(first) end
+  end)
+  d.name:SetScript("OnEscapePressed", function(box)
+    if sug:IsShown() then sug:Hide() else box:ClearFocus(); d:Hide() end
+  end)
+  d.name:SetScript("OnEditFocusLost", function() C_Timer.After(0.2, function() if not d.name:HasFocus() then sug:Hide() end end) end)
+  d:SetScript("OnHide", function() sug:Hide() end)
+  self.reserveDialog = d
+  return d
+end
+
+-- mode: "reserve" (Fill group) or "save" (Settings > Saved players).
+function UI:OpenReserveDialog(mode)
+  local d = self:BuildReserveDialog()
+  d.st.mode = mode or "reserve"
+  d.st.specID, d.st.player, d.st.saveOn, d.st.matches = nil, nil, true, {}
+  d.name:SetText("")
+  d.err:SetText("")
+  d.sug:Hide()
+  if d.st.mode == "save" then
+    d.title:SetText("Add a saved player")
+    d.ok.text:SetText("Save")
+    d.nameNote:SetText("required")
+    d.note:SetText("Name-Realm (your realm when none is given). Kept on this computer for all your characters.")
+  else
+    d.title:SetText("Reserve a slot")
+    d.ok.text:SetText("Reserve")
+    d.nameNote:SetText("optional")
+    d.note:SetText("Fill group plans only the other slots. Players still apply for this role: addons can't change your listing.")
+  end
+  self:SyncReserveDialog()
+  d:Show()
+  if d.name.SetFocus then d.name:SetFocus() end
+end
+
+function UI:SyncReserveDialog()
+  local d = self.reserveDialog
+  if not d then return end
+  local P = ns.Players
+  local p = d.st.specID and UD:GetSpec(d.st.specID)
+  d.spec.text:SetText(p and (select(4, Util.ClassColor(p.class)) .. UD:SpecName(d.st.specID) .. " " .. UD:ClassName(p.class) .. "|r")
+    or (HEX.muted .. "Pick a spec (required)|r"))
+  d.role:SetText(p and ("Role: " .. ROLE_TEXT[p.role] .. " (follows the spec)") or "The role follows the spec.")
+  local full = P:Normalize(d.name:GetText())
+  local saved = full and P:Find(full)
+  d.st.player = saved or nil
+  -- "Save this player": a new name, or a spec not on their list.
+  local showSave = d.st.mode == "reserve" and full ~= nil and (not saved or (d.st.specID and not P:HasSpec(saved, d.st.specID)))
+  d.save:SetShown(showSave and true or false)
+  d.save:Sync()
+  local can = d.st.specID ~= nil and (d.st.mode ~= "save" or full ~= nil)
+  if can then d.ok:Enable() else d.ok:Disable() end
+  d.ok:SetAlpha(can and 1 or 0.5)
+  d.ok.tooltip = not can and (d.st.mode == "save" and "Type a name and pick a spec" or "Pick a spec: it decides what the slot brings") or nil
+end
+
+function UI:ReserveNameChanged()
+  local d = self.reserveDialog
+  local P = ns.Players
+  local text = d.name:GetText() or ""
+  d.st.matches = P:Matches(text, UI.RESERVE_SUGGEST_ROWS)
+  -- An exact saved name needs no list.
+  local full = P:Normalize(text)
+  local exact = full and P:Find(full)
+  if exact and #d.st.matches == 1 and d.st.matches[1] == exact then d.st.matches = {} end
+  local n = #d.st.matches
+  for i, b in ipairs(d.sug.rows) do
+    local p = d.st.matches[i]
+    b.player = p
+    b:SetShown(p ~= nil)
+    if p then
+      local name, realm = p.full:match("^([^%-]+)%-?(.*)$")
+      local def = UD:GetSpec(p.default)
+      b.text:SetText(tostring(name) .. HEX.muted .. (realm ~= "" and ("-" .. realm) or "") .. "   "
+        .. (def and (UD:SpecName(p.default) .. " " .. UD:ClassName(def.class)) or "") .. "|r")
+    end
+  end
+  d.sug:SetHeight(4 + n * 20)
+  d.sug:SetShown(n > 0)
+  -- A saved player typed out in full: their default spec, unless one was picked already.
+  if exact and not d.st.specID then d.st.specID = exact.default end
+  self:SyncReserveDialog()
+end
+
+-- A suggestion picked: their name and default spec (still changeable, their specs listed first).
+function UI:PickReservePlayer(p)
+  local d = self.reserveDialog
+  d.name:SetText(p.full)
+  d.st.specID = p.default
+  d.st.player = p
+  d.st.matches = {}
+  d.sug:Hide()
+  if d.name.ClearFocus then d.name:ClearFocus() end
+  self:SyncReserveDialog()
+end
+
+function UI:OpenReserveSpecMenu(anchor)
+  local d = self.reserveDialog
+  local P = ns.Players
+  local items = {}
+  local function add(specID, suffix)
+    local p = UD:GetSpec(specID)
+    local r, g, b = Util.ClassColor(p.class)
+    items[#items + 1] = { text = UD:SpecName(specID) .. " " .. UD:ClassName(p.class) .. (suffix or ""),
+      specID = specID, classFile = p.class, color = { r, g, b, 1 }, selected = d.st.specID == specID,
+      onClick = function() d.st.specID = specID; d.err:SetText(""); UI:SyncReserveDialog() end }
+  end
+  local saved = d.st.player
+  if saved then
+    items[#items + 1] = { text = (saved.full:match("^([^%-]+)") or saved.full) .. "'s specs", header = true }
+    for _, id in ipairs(saved.specs) do if UD:GetSpec(id) then add(id, id == saved.default and " (default)" or nil) end end
+  end
+  for _, role in ipairs({ "TANK", "HEALER", "DAMAGER" }) do
+    local full = d.st.mode == "reserve" and P:FreeFor(role) <= 0
+    items[#items + 1] = { text = ({ TANK = "Tanks", HEALER = "Healers", DAMAGER = "DPS" })[role] .. (full and " (no open slot)" or ""), header = true }
+    for _, id in ipairs(UD:SpecsForRole(role)) do add(id) end
+  end
+  self:ShowMenu(anchor, items)
+end
+
+function UI:ConfirmReserveDialog()
+  local d = self.reserveDialog
+  local P = ns.Players
+  if d.st.mode == "save" then
+    local full = P:Normalize(d.name:GetText())
+    if not full then d.err:SetText("Type their name."); return end
+    if not d.st.specID then d.err:SetText("Pick a spec."); return end
+    local ok, why = P:Save(full, d.st.specID)
+    if not ok then d.err:SetText(why == "full" and ("Saved players is full (" .. P.MAX_SAVED .. ").") or "Couldn't save."); return end
+    d:Hide()
+    return
+  end
+  local name = d.name:GetText()
+  local ok, why = P:Reserve(d.st.specID, name, d.save:IsShown() and d.st.saveOn)
+  if not ok then d.err:SetText(why or "Couldn't reserve."); return end
+  d:Hide()
+end
+
+-- The band's and Settings' button: no reservations -> the dialog; otherwise a menu to reserve
+-- another or release one ("back to Fill group").
+function UI:OpenReserveMenu(anchor)
+  local P = ns.Players
+  local list = P:Reservations()
+  if #list == 0 then self:OpenReserveDialog("reserve"); return end
+  local items = { { text = "Reserved slots", header = true } }
+  for i, r in ipairs(list) do
+    items[#items + 1] = { text = "Release: " .. P:ReservationLabel(r),
+      tooltip = "Back to Fill group: it plans this slot again",
+      onClick = function() P:Release(i) end }
+  end
+  items[#items + 1] = { text = "Reserve another slot...", onClick = function() UI:OpenReserveDialog("reserve") end }
+  self:ShowMenu(anchor, items)
+end
+
+-- "Reserved: Holy Priest (Ann)", or nil.
+function UI:ReservedText()
+  local P = ns.Players
+  local parts = {}
+  for _, r in ipairs(P:Reservations()) do parts[#parts + 1] = P:ReservationLabel(r) end
+  if #parts == 0 then return nil end
+  return "Reserved: " .. table.concat(parts, ", ")
+end
+
+-- "Full group ready", or "Group ready (1 slot reserved for Ann)" with reserved slots (1.5.0).
+function UI:ReadyTitle()
+  local n, names = ns.Players:ReservedFor()
+  if n == 0 then return "Full group ready" end
+  return "Group ready (" .. n .. " slot" .. (n > 1 and "s" or "") .. " reserved"
+    .. (#names > 0 and (" for " .. table.concat(names, ", ")) or "") .. ")"
+end
+
 function UI:RenderFillBand(band, plan)
   local FG = ns.FillGroup
   local skipped = plan and #plan.skipped or 0
@@ -2958,12 +3195,15 @@ function UI:RenderFillBand(band, plan)
     icon, title, line, border = TEX_WAIT, HEX.muted .. "Fill group|r", HEX.muted .. "Waiting for applicants.|r", C.border
   elseif plan.status == "nodungeon" then
     icon, title, line, border = TEX_WAIT, HEX.muted .. "Fill group|r", HEX.muted .. "Pick the key above to plan a full group.|r", C.border
+  elseif plan.status == "full" and plan.reservedAll then
+    icon, title, line, border = TEX_OK, HEX.good .. "Every open slot is reserved|r",
+      HEX.muted .. "Nothing to fill: the rest are taken, invited or held for a friend.|r", C.border
   elseif plan.status == "full" then
     icon, title, line, border = TEX_OK, HEX.good .. "Your group is full|r", HEX.muted .. "Every slot is taken or invited.|r", C.border
   elseif plan.status == "ready" then
     local ga = plan.groupAfter
     icon, border = TEX_OK, C.good
-    title = HEX.good .. "Full group ready|r"
+    title = HEX.good .. self:ReadyTitle() .. "|r"
     line = self:FillNames(plan.picks) .. HEX.muted .. "  -  |r" .. (ga and self:GroupAfterText(ga, "brief", false) or "") .. tailText
   else
     icon, border = TEX_WAIT, C.warn
@@ -2972,7 +3212,12 @@ function UI:RenderFillBand(band, plan)
   end
   band.title:SetText(icon .. " " .. title)
   band.line:SetText(line)
-  band.tip = UI.Plain(line)
+  local reserved = self:ReservedText()
+  band.tip = UI.Plain(line) .. (reserved and ("\n" .. reserved) or "")
+  local nRes = #ns.Players:Reservations()
+  band.reserve.text:SetText(nRes > 0 and ("Reserved (" .. nRes .. ")") or "Reserve a slot")
+  band.reserve.tooltip = nRes > 0 and (reserved .. "\nClick to release one or reserve another.")
+    or "Hold an open slot for a friend who's joining: Fill group plans only the rest."
   band:SetBackdropBorderColor(unpack(border))
   band.auto:Sync()
   band.auto:SetShown(ns.Tracker.hosting and true or false)
@@ -2994,7 +3239,8 @@ function UI:RenderFillPlan(list, plan, ctx)
       onClick = function() UI:OpenSettings("fill") end, tooltip = "Strictness, musts, filters and Auto-fill" })
   end
   if plan.status == "nodungeon" or plan.status == "empty" or plan.status == "full" then
-    list:Add(plan.status == "full" and "Your group is full." or "Pick the key above to plan a full group.", { size = 13, gap = 4 })
+    list:Add(plan.status == "full" and (plan.reservedAll and "Every open slot is reserved: nothing to fill." or "Your group is full.")
+      or "Pick the key above to plan a full group.", { size = 13, gap = 4 })
     settingsLink(); list:Finish(); return
   end
   local ready = plan.status == "ready"
@@ -3031,7 +3277,7 @@ function UI:RenderFillPlan(list, plan, ctx)
     for _, m in ipairs(ctx and ctx.base and ctx.base.members or {}) do
       local _, _, _, hex = Util.ClassColor(m.classFile)
       list:Add(HEX.muted .. (ROLE_WORD[m.role] or "?"):upper() .. "|r   " .. hex .. tostring(m.label) .. "|r"
-        .. HEX.muted .. (m.isPlayer and "  (you)" or "  (in your group)") .. "|r", { size = 12, gap = 3, indent = 4 })
+        .. HEX.muted .. (m.isPlayer and "  (you)" or m.reserved and "" or "  (in your group)") .. "|r", { size = 12, gap = 3, indent = 4 })
     end
     for _, ev in ipairs(plan.pending) do memberRow(ev.roles[1], ev, "(invited)") end
   end
@@ -3390,7 +3636,10 @@ function UI:BuildApplicantsPage()
   band.auto:SetPoint("RIGHT", band.fill, "LEFT", -8, 0)
   band.title = Text(band, 13); band.title:SetPoint("TOPLEFT", 10, -10); band.title:SetPoint("RIGHT", band.auto, "LEFT", -6, 0)
   band.title:SetWordWrap(false)
-  band.line = Text(band, 11, C.muted); band.line:SetPoint("BOTTOMLEFT", 10, 9); band.line:SetPoint("RIGHT", band, "RIGHT", -8, 0)
+  -- Reserve a slot (1.5.0): bottom right, under the Fill group button.
+  band.reserve = FlatButton(band, "Reserve a slot", 100, 16, function(btn) UI:OpenReserveMenu(btn) end)
+  band.reserve:SetPoint("BOTTOMRIGHT", -6, 6)
+  band.line = Text(band, 11, C.muted); band.line:SetPoint("BOTTOMLEFT", 10, 9); band.line:SetPoint("RIGHT", band.reserve, "LEFT", -6, 0)
   band.line:SetWordWrap(false)
   band:SetScript("OnClick", function() ap.showPlan = true; UI:QueueRefresh() end)
   band:SetScript("OnEnter", function(self)
@@ -3617,6 +3866,9 @@ function UI:CanInvite(ev, ctx)
   end
   local open = 0
   for _, n in pairs((ctx and ctx.open) or {}) do open = open + n end
+  -- A reserved slot (1.5.0) is still open in the game: your own click can fill it (your friend
+  -- may apply through the listing).
+  for _, n in pairs((ctx and ctx.reservedRoles) or {}) do open = open + n end
   if ctx and ctx.open and #(ev.members or {}) > open then
     return false, open == 0 and "Your group is full." or ("Only " .. open .. " open spot" .. (open > 1 and "s" or "") .. " for " .. #ev.members .. " players.")
   end
@@ -3902,6 +4154,8 @@ function UI:OnListingUpdate(event)
   self.wasListed = has
   -- Auto-fill is armed per listing (Settings > Fill group decides whether a new one arms it).
   if ns.db and ns.FillGroup and has ~= (was == true) then ns.FillGroup:OnListingChanged(has, was == true) end
+  -- Reserved slots end with the listing they were made for (1.5.0).
+  if ns.db and ns.Players then ns.Players:OnListing(has, was == true, was == nil) end
   if event == "PLAYER_ENTERING_WORLD" or was == nil then return end   -- baseline only
   if not has or was then return end
   if not ns.db or ns.db.settings.autoOpenOnListing == false then return end
@@ -4068,7 +4322,7 @@ function UI:RenderFinderPlanView(ctx)
   end
   local FG = ns.FillGroup
   local dname = DD.list[plan.dungeonKey] and DD.list[plan.dungeonKey].name or ""
-  v.title:SetText(TEX_OK .. " " .. HEX.good .. "Full group ready|r" .. HEX.muted .. "  -  " .. dname
+  v.title:SetText(TEX_OK .. " " .. HEX.good .. UI:ReadyTitle() .. "|r" .. HEX.muted .. "  -  " .. dname
     .. (plan.keyLevel and (" +" .. plan.keyLevel) or "") .. "  -  " .. FG.LEVEL_LABEL[plan.level] .. "|r")
   for i, r in ipairs(v.rows) do
     local ev = plan.picks[i]
@@ -4182,7 +4436,7 @@ function UI:UpdateFillPopup()
   local f = self:BuildFillPopup()
   local FG = ns.FillGroup
   local dname = DD.list[plan.dungeonKey] and DD.list[plan.dungeonKey].name or ""
-  f.title:SetText(HEX.good .. "Full group ready|r" .. HEX.muted .. "  -  " .. dname .. (plan.keyLevel and (" +" .. plan.keyLevel) or "") .. "|r")
+  f.title:SetText(HEX.good .. UI:ReadyTitle() .. "|r" .. HEX.muted .. "  -  " .. dname .. (plan.keyLevel and (" +" .. plan.keyLevel) or "") .. "|r")
   for i, r in ipairs(f.rows) do
     local ev = plan.picks[i]
     if ev then
@@ -5241,7 +5495,8 @@ end
 
 ---------------------------------------------------------------------------
 -- Settings: one window with a section list on the left.
---   General · What to check · Group Finder · Fill group · Party chat · Boss cards · Appearance · Data
+--   General · What to check · Group Finder · Fill group · Saved players · Party chat · Boss cards ·
+--   Appearance · Data
 -- Every option has hover help; each section has its own Reset. UI:OpenSettings(key) jumps
 -- straight to a section (used by the gear buttons next to the features they affect).
 ---------------------------------------------------------------------------
@@ -5250,6 +5505,7 @@ UI.SETTINGS_SECTIONS = {
   { key = "checks",     label = "What to check" },
   { key = "finder",     label = "Group Finder" },
   { key = "fill",       label = "Fill group" },
+  { key = "players",    label = "Saved players" },
   { key = "chat",       label = "Party chat" },
   { key = "bosses",     label = "Boss cards" },
   { key = "appearance", label = "Appearance" },
@@ -5263,6 +5519,7 @@ UI.SECTION_KEYS = {
   finder = { "applicantPanel", "finderPanel", "compApplicants", "finderTooltip", "applicantView", "listingMarker",
              "listingHidePoor", "listingTooltip", "applyLine", "pastKeys" },
   fill = { "fill" },
+  players = {},   -- Saved players is your list, not settings: no section reset (remove players one by one)
   chat = { "chatStyle" },
   bosses = { "bossWindow" },
   appearance = { "theme", "textSize" },
@@ -5548,6 +5805,75 @@ function UI:BuildSettings_finder(f)
 
 end
 
+-- Saved players (1.5.0): people you play with. Picked when you reserve a slot or fill a
+-- planner slot. Click a row to change their specs or remove them.
+function UI:BuildSettings_players(f)
+  f.reset:Hide()
+  SubHead(f, 8, -44, "People you play with")
+  local note = Note(f, 8, -62, 600, "Pick them when you reserve a slot (Fill group) or fill a planner slot (Composition). Kept on this computer for all your characters. Names never appear in /ens verify, /ens report, party posts or share strings.")
+  local add = Button(f, "+ Add a player", 124, 22, function() UI:OpenReserveDialog("save") end)
+  add:SetPoint("TOPLEFT", note, "BOTTOMLEFT", 0, -10)
+  add.tooltip = "A name (Name-Realm) and the spec they play; add more specs afterward"
+  local box = CreateFrame("Frame", nil, f)
+  box:SetPoint("TOPLEFT", add, "BOTTOMLEFT", 0, -10); box:SetPoint("BOTTOMRIGHT", -16, 12)
+  self.savedList = LineList(box, 600, 300):Fill(0, 0, 0, 0)
+end
+
+function UI:RefreshSavedPlayers()
+  local L = self.savedList
+  if not L then return end
+  local P = ns.Players
+  L:Clear()
+  local list = P:List()
+  if #list == 0 then
+    L:Add(HEX.muted .. "No saved players yet. Add one here, or tick \"Save this player\" when you reserve a slot.|r", { size = 12 })
+  end
+  for _, p in ipairs(list) do
+    local name, realm = p.full:match("^([^%-]+)%-?(.*)$")
+    local def = UD:GetSpec(p.default)
+    local hex = def and select(4, Util.ClassColor(def.class)) or HEX.text
+    L:Add(hex .. tostring(name) .. "|r" .. HEX.muted .. (realm ~= "" and ("-" .. realm) or "") .. "|r", { size = 13, gap = 1,
+      onClick = function(btn) UI:OpenSavedPlayerMenu(btn, p.full) end, tooltip = "Click to change their specs or remove them" })
+    L:Add(HEX.muted .. P:SpecsText(p) .. "|r", { size = 11, gap = 6, indent = 16 })
+  end
+  L:Finish()
+end
+
+function UI:OpenSavedPlayerMenu(anchor, full)
+  local P = ns.Players
+  local p = P:Find(full)
+  if not p then return end
+  local items = { { text = full, header = true } }
+  for _, id in ipairs(p.specs) do
+    local s = UD:GetSpec(id)
+    if s then
+      items[#items + 1] = { text = "Default: " .. UD:SpecName(id) .. " " .. UD:ClassName(s.class), specID = id, classFile = s.class,
+        selected = p.default == id, onClick = function() P:SetDefault(full, id) end }
+    end
+  end
+  items[#items + 1] = { text = "Add a spec...", onClick = function()
+    local add = { { text = "Add a spec for " .. (full:match("^([^%-]+)") or full), header = true } }
+    for _, role in ipairs({ "TANK", "HEALER", "DAMAGER" }) do
+      for _, id in ipairs(UD:SpecsForRole(role)) do
+        if not P:HasSpec(p, id) then
+          local s = UD:GetSpec(id)
+          add[#add + 1] = { text = UD:SpecName(id) .. " " .. UD:ClassName(s.class), specID = id, classFile = s.class,
+            onClick = function() P:Save(full, id) end }
+        end
+      end
+    end
+    UI:ShowMenu(anchor, add)
+  end }
+  if #p.specs > 1 then
+    for _, id in ipairs(p.specs) do
+      local s = UD:GetSpec(id)
+      if s then items[#items + 1] = { text = "Remove spec: " .. UD:SpecName(id) .. " " .. UD:ClassName(s.class), onClick = function() P:RemoveSpec(full, id) end } end
+    end
+  end
+  items[#items + 1] = { text = "Remove " .. (full:match("^([^%-]+)") or full), color = C.bad, onClick = function() P:Remove(full) end }
+  self:ShowMenu(anchor, items)
+end
+
 -- Fill group: how complete the group must be, the musts for the key being run, who can be
 -- invited, and Auto-fill. (Mock-ups round 2, approved October 23, 2026.)
 local function FillS() return S().fill end
@@ -5593,8 +5919,14 @@ function UI:BuildSettings_fill(f)
     n:ClearAllPoints(); n:SetPoint("TOPLEFT", c, "BOTTOMLEFT", 22, 2)
     prev = n
   end
+  -- Reserved slots (1.5.0): one line, with the button that reserves or releases.
+  local resBtn = FlatButton(f, "Reserve a slot", 110, 18, function(btn) UI:OpenReserveMenu(btn) end)
+  resBtn:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", -22, -10)
+  resBtn.tooltip = "Hold an open slot for a friend who's joining: Fill group plans only the rest. Clears when they join, when the group is full or when the listing ends."
+  local resText = Text(f, 11, C.muted); resText:SetPoint("LEFT", resBtn, "RIGHT", 8, 0); resText:SetWidth(176); resText:SetWordWrap(false)
+  self.fillReserveBtn, self.fillReserveText = resBtn, resText
   -- Always require: the musts for one dungeon.
-  local head = Text(f, 12, C.text); head:SetPoint("TOPLEFT", prev, "BOTTOMLEFT", -22, -10); head:SetText("Always require:")
+  local head = Text(f, 12, C.text); head:SetPoint("TOPLEFT", resBtn, "BOTTOMLEFT", 0, -10); head:SetText("Always require:")
   local pick = FlatButton(f, "", 170, 18, function(btn)
     local items = { { text = "Musts for:", header = true } }
     for _, dk in ipairs(DD.order) do
@@ -5947,6 +6279,12 @@ function UI:RefreshSettings()
   self:SyncAppearance()
   self:RefreshFillSettings()
   if self.pastFailedBtn then self.pastFailedBtn.text:SetText(ns.History.FAILED_LABEL[ns.History:FailedMode()]) end
+  if self.fillReserveText then
+    local n = #ns.Players:Reservations()
+    self.fillReserveBtn.text:SetText(n > 0 and ("Reserved (" .. n .. ")") or "Reserve a slot")
+    self.fillReserveText:SetText(self:ReservedText() or "No reserved slots.")
+  end
+  if self.RefreshSavedPlayers then self:RefreshSavedPlayers() end
   if self.fillFailedBtn then
     self.fillFailedBtn.text:SetText(({ off = "No change", lower = "Lower priority", skip = "Skip" })[ns.db.settings.fill.failedWith or "off"] or "No change")
   end
@@ -6183,7 +6521,7 @@ function UI:RegisterBlizzardOptions()
   sub:SetText(UI.SUBTITLE)
   local body = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); body:SetPoint("TOPLEFT", logo, "BOTTOMLEFT", 0, -16)
   body:SetWidth(540); body:SetJustifyH("LEFT")
-  body:SetText("Every setting is in the addon's own window: General, What to check, Group Finder, Fill group, Party chat, Boss cards, Appearance and Data. Type /ens to open the addon, or use the button below.")
+  body:SetText("Every setting is in the addon's own window: General, What to check, Group Finder, Fill group, Saved players, Party chat, Boss cards, Appearance and Data. Type /ens to open the addon, or use the button below.")
   local b = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
   b:SetSize(260, 26); b:SetPoint("TOPLEFT", body, "BOTTOMLEFT", 0, -14)
   b:SetText("Open Ensemble settings")
@@ -6214,17 +6552,20 @@ end)
 -- it returns true. SETTINGS_CHANGED refreshes every tab (its own handler below).
 local function LiveMode() return ns.state.mode == "live" end
 local function FillSection() return UI.settingsSection == "fill" end
+local function PlayersSection() return UI.settingsSection == "players" end
 UI.TAB_EVENTS = {
-  composition = { COMP_CHANGED = true, DUNGEON_CHANGED = true, LIVE_ROSTER_CHANGED = LiveMode },
+  composition = { COMP_CHANGED = true, DUNGEON_CHANGED = true, LIVE_ROSTER_CHANGED = LiveMode,
+    RESERVED_CHANGED = LiveMode, SAVED_PLAYERS_CHANGED = true },
   plan = { COMP_CHANGED = true, DUNGEON_CHANGED = true, LIVE_ROSTER_CHANGED = LiveMode,
     LUST_CHANGED = true, BOSS_ORDER_CHANGED = true, ASSIGNMENTS_CHANGED = true },
   applicants = { DUNGEON_CHANGED = true, LIVE_ROSTER_CHANGED = true, FILL_ALERT = true,
-    FILL_ARMED = true, FILL_DONE = true, FILL_SETTINGS_CHANGED = true },
+    FILL_ARMED = true, FILL_DONE = true, FILL_SETTINGS_CHANGED = true, HISTORY_CHANGED = true,
+    RESERVED_CHANGED = true },
   dungeons = { DUNGEON_CHANGED = true, LUST_CHANGED = true, BOSS_ORDER_CHANGED = true,
     BOSS_DUNGEON_ENTERED = true, BOSS_DUNGEON_LEFT = true },
   history = { HISTORY_CHANGED = true },
   settings = { DUNGEON_CHANGED = FillSection, LIVE_ROSTER_CHANGED = FillSection, FILL_ARMED = FillSection,
-    FILL_SETTINGS_CHANGED = FillSection },
+    FILL_SETTINGS_CHANGED = FillSection, RESERVED_CHANGED = FillSection, SAVED_PLAYERS_CHANGED = PlayersSection },
 }
 function UI:TabWants(tab, event)
   local w = self.TAB_EVENTS[tab] and self.TAB_EVENTS[tab][event]
@@ -6243,9 +6584,10 @@ local function FillChanged(ev)
   UI:OnTabEvent(ev); UI:QueueFinderRefresh(); UI:UpdateFillPopup()
   if UI.frame and UI.frame:IsShown() then UI:SyncFillTabDot() end
 end
-for _, ev in ipairs({ "FILL_ALERT", "FILL_ARMED", "FILL_DONE", "FILL_SETTINGS_CHANGED" }) do
+for _, ev in ipairs({ "FILL_ALERT", "FILL_ARMED", "FILL_DONE", "FILL_SETTINGS_CHANGED", "RESERVED_CHANGED" }) do
   ns:On(ev, function() FillChanged(ev) end)
 end
+ns:On("SAVED_PLAYERS_CHANGED", function() UI:OnTabEvent("SAVED_PLAYERS_CHANGED") end)
 ns:On("LIVE_ROSTER_CHANGED", function()
   UI:OnTabEvent("LIVE_ROSTER_CHANGED")
   -- The Applicants tab's dot shows on other tabs, so it follows the roster on its own.

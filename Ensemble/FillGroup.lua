@@ -662,7 +662,10 @@ function FG:Plan(ctx, evals, settings)
   local slots = 0
   for _, r in ipairs(ROLES) do slots = slots + open[r] end
   plan.slots = slots
-  if slots == 0 then plan.status = "full"; return plan end
+  -- Reserved slots (1.5.0) are in ctx.members: Fill group plans only the rest.
+  plan.reserved = 0
+  for _, m in ipairs(ctx.members or {}) do if m.reserved then plan.reserved = plan.reserved + 1 end end
+  if slots == 0 then plan.status = "full"; plan.reservedAll = plan.reserved > 0; return plan end
 
   -- Past keys together (1.5.0, F2): Skip works like a filter; Prefer and Lower priority move
   -- groups only in the order they're tried, so they act among groups that pass: a group that
@@ -1245,3 +1248,5 @@ end
 ns:On("LIVE_ROSTER_CHANGED", function() if FG.armed then FG:CheckAutoFill() end end)
 ns:On("FILL_SETTINGS_CHANGED", function() if FG.armed then FG:CheckAutoFill() end end)
 ns:On("SETTINGS_CHANGED", function() if FG.armed then FG:CheckAutoFill() end end)
+ns:On("RESERVED_CHANGED", function() if FG.armed then FG:CheckAutoFill() end end)   -- 1.5.0
+ns:On("HISTORY_CHANGED", function() if FG.armed then FG:CheckAutoFill() end end)    -- past keys

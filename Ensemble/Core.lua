@@ -317,6 +317,9 @@ ns.DEFAULTS = {
   -- { lust = false|nil, on = { [requirement id] = true|false } }.
   fillMusts = {},
   history = {},                 -- recorded runs, newest first (History.lua)
+  -- Saved players and reserved slots (SavedPlayers.lua, 1.5.0).
+  savedPlayers = {},            -- { { full = "Name-Realm", specs = { specID, ... }, default = specID } }
+  reserved = { seenListed = false, list = {} },   -- list: { { specID, full = "Name-Realm"|nil } }
 }
 
 -- Migrations: index N upgrades a DB at schema N-1 to schema N. None are needed yet (schema 4
@@ -405,6 +408,36 @@ local function SanitizeDB(db)
       if so ~= "fit" and so ~= "rating" and so ~= "ilvl" and so ~= "past" then st.applicantView.sort = "fit" end
     end
   end
+  -- Saved players (1.5.0): a name and at least one known spec; the default one of them.
+  local UD = ns.UD
+  local function SpecOK(id) return type(id) == "number" and UD and UD:GetSpec(id) ~= nil end
+  if type(db.savedPlayers) ~= "table" then db.savedPlayers = {} end
+  local seenP, keptP = {}, {}
+  for _, p in ipairs(db.savedPlayers) do
+    local keep = type(p) == "table" and type(p.full) == "string" and p.full ~= "" and type(p.specs) == "table"
+    if keep then
+      for j = #p.specs, 1, -1 do if not SpecOK(p.specs[j]) then table.remove(p.specs, j) end end
+      keep = #p.specs > 0 and not seenP[p.full:lower()]   -- the first of two same names stays
+    end
+    if keep then
+      seenP[p.full:lower()] = true
+      local okDefault = false
+      for _, id in ipairs(p.specs) do if id == p.default then okDefault = true end end
+      if not okDefault then p.default = p.specs[1] end
+      keptP[#keptP + 1] = p
+    end
+  end
+  db.savedPlayers = keptP
+  -- Reserved slots (1.5.0): a known spec, an optional name.
+  if type(db.reserved) ~= "table" then db.reserved = { seenListed = false, list = {} } end
+  if type(db.reserved.list) ~= "table" then db.reserved.list = {} end
+  db.reserved.seenListed = db.reserved.seenListed == true
+  for i = #db.reserved.list, 1, -1 do
+    local r = db.reserved.list[i]
+    if type(r) ~= "table" or not SpecOK(r.specID) then table.remove(db.reserved.list, i)
+    elseif r.full ~= nil and type(r.full) ~= "string" then r.full = nil end
+  end
+  while #db.reserved.list > ns.NUM_SLOTS do table.remove(db.reserved.list) end
   -- Run history: boss splits (1.5.0) need a numeric encounter; a full name is a string.
   if type(db.history) ~= "table" then db.history = {} end
   local function CleanRun(run)
@@ -455,7 +488,7 @@ function ns:InitDB()
 end
 
 -- What a full reset wipes, in plain words (the /ens reset prompt and Settings > Data say it).
-ns.RESET_WIPES = "saved comps, the planner comp, every setting, run history, boss-card edits, Bloodlust timing, boss order, Fill group musts and the error log"
+ns.RESET_WIPES = "saved comps, the planner comp, every setting, run history, saved players and reserved slots, boss-card edits, Bloodlust timing, boss order, Fill group musts and the error log"
 
 function ns:ResetDB()
   EnsembleDB = Util.DeepCopy(ns.DEFAULTS)

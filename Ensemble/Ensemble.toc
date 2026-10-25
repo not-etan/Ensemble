@@ -30,6 +30,7 @@ Walkthrough.lua
 ApplicantFit.lua
 ListingFit.lua
 FillGroup.lua
+SavedPlayers.lua
 History.lua
 UI.lua
 BossWindow.lua

@@ -494,6 +494,24 @@ local function CheckFill()
   Section("Fill group")
   local FG = ns.FillGroup
   if not FG then Add("FAIL", "Fill group module missing"); return end
+  -- Reserved slots and Saved players (1.5.0): counts and roles only, never names.
+  local P = ns.Players
+  if P then
+    local res = P:Reservations()
+    local roles = {}
+    for _, r in ipairs(res) do
+      local sp = ns.UD:GetSpec(r.specID)
+      roles[#roles + 1] = sp and (sp.role == "TANK" and "tank" or sp.role == "HEALER" and "healer" or "DPS") or "?"
+    end
+    local named = 0
+    for _, r in ipairs(res) do if r.full then named = named + 1 end end
+    Add("INFO", string.format("reserved slots: %d%s%s; saved players: %d", #res,
+      #roles > 0 and (" (" .. table.concat(roles, ", ") .. ")") or "", named > 0 and (", " .. named .. " named") or "", #P:List()))
+    if #res > 0 then
+      Add(P:Listed() and "OK" or "INFO", P:Listed() and "reservations are for this listing (they clear when it ends)"
+        or "not listed: the reservations wait for your listing")
+    end
+  end
   local fn = C_MythicPlus and C_MythicPlus.GetRewardLevelForDifficultyLevel
   if type(fn) ~= "function" then
     Add("WARN", "C_MythicPlus.GetRewardLevelForDifficultyLevel missing: no suggested item level (set your own or use your listing's)")

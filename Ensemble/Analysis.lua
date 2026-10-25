@@ -46,6 +46,7 @@ local function Resolve(members)
         label = label, specID = (not pending) and profile.id or nil,
         applicant = m.applicant or nil,   -- passthrough so applicant-fit can find "their" providers
         isPlayer = m.isPlayer or nil,      -- passthrough so the plan can say "your assignments"
+        reserved = m.reserved or nil,      -- a reserved slot (1.5.0): counts like a member
       })
     end
   end

@@ -5133,7 +5133,8 @@ do
   ok(UI71.settingsFrames.fill:IsShown() and UI71.settingsNav.fill, "Settings has a Fill group section")
   local order = {}
   for _, sec in ipairs(UI71.SETTINGS_SECTIONS) do order[#order + 1] = sec.key end
-  ok(table.concat(order, ","):find("finder,fill,chat", 1, true), "between Group Finder and Party chat")
+  -- 1.5.0: Saved players follows Fill group.
+  ok(table.concat(order, ","):find("finder,fill,players,chat", 1, true), "between Group Finder and Party chat (then Saved players)")
   local rows = UI71.fillMustRows
   ok(rows[1].check.label:GetText():find("^Bloodlust") and UI71.fillMustsPick.text:GetText():find("Den of Nalorakk", 1, true),
     "musts for the key being run, Bloodlust first")
@@ -5210,7 +5211,10 @@ do
   ok(relaxedCheck and pt(relaxedCheck)[1] == "TOPLEFT" and pt(relaxedCheck)[2] == autoNote and pt(relaxedCheck)[3] == "BOTTOMLEFT",
     "Fill group: a level hangs below the previous level's description")
   local head = find("Always require:")
-  ok(head and pt(head)[2] == strictNote and pt(head)[3] == "BOTTOMLEFT", "\"Always require\" hangs below the last level")
+  -- 1.5.0: the Reserve a slot row sits between them, hanging from the last level.
+  local resBtn = UI72.fillReserveBtn
+  ok(resBtn and pt(resBtn)[2] == strictNote and pt(resBtn)[3] == "BOTTOMLEFT", "Reserve a slot hangs below the last level")
+  ok(head and pt(head)[2] == resBtn and pt(head)[3] == "BOTTOMLEFT", "\"Always require\" hangs below the Reserve row")
   local box = UI72.fillMustsBox
   ok(pt(box)[2] == UI72.fillMustsNote and pt(UI72.fillMustsNote)[2] == head, "the musts box hangs below its note")
   local add, reset = UI72.fillMustsAdd, UI72.fillMustsReset
@@ -5637,7 +5641,7 @@ do
     { "LUST_CHANGED", { composition = 0, plan = 1, applicants = 0, dungeons = 1, history = 0, settings = 0 } },
     { "BOSS_ORDER_CHANGED", { composition = 0, plan = 1, applicants = 0, dungeons = 1, history = 0, settings = 0 } },
     { "ASSIGNMENTS_CHANGED", { composition = 0, plan = 1, applicants = 0, dungeons = 0, history = 0, settings = 0 } },
-    { "HISTORY_CHANGED", { composition = 0, plan = 0, applicants = 0, dungeons = 0, history = 1, settings = 0 } },
+    { "HISTORY_CHANGED", { composition = 0, plan = 0, applicants = 1, dungeons = 0, history = 1, settings = 0 } },
     { "DUNGEON_CHANGED", { composition = 1, plan = 1, applicants = 1, dungeons = 1, history = 0, settings = 0 } },
     { "BOSS_DUNGEON_ENTERED", { composition = 0, plan = 0, applicants = 0, dungeons = 1, history = 0, settings = 0 } },
     { "FILL_ALERT", { composition = 0, plan = 0, applicants = 1, dungeons = 0, history = 0, settings = 0 } },
@@ -6139,6 +6143,219 @@ do
   ok(nsK2.db.settings.pastKeys.rating == false, "F2: Settings > Group Finder's reset covers past keys")
   nsK2.UI:Hide()
   UnitName = origUnitName
+  APPLICANTS, LISTING, ROSTER, INSPECT_CACHE = {}, nil, {}, {}
+end
+
+-- 77. Reserve a slot and Saved players (1.5.0): names, the saved list, reservations counting like
+-- a member (Needs, ratings, Fill group), the reason on the reserved role's applicants, every
+-- way a reservation clears, a /reload while listed, the dialog with suggestions, Settings >
+-- Saved players, verify and report without names, saved-data cleaning.
+do
+  EnsembleDB = nil
+  CURRENT_AFFIXES = {}
+  ROSTER = {
+    player = { guid = "P", name = "Faelan", class = "WARRIOR", spec = 73, role = "TANK" },
+    party1 = { guid = "D", name = "Dru", class = "DRUID", role = "HEALER" },
+    party2 = { guid = "X", name = "Havi", class = "DEMONHUNTER", role = "DAMAGER" },
+  }
+  INSPECT_CACHE = { D = 105, X = 577 }
+  APPLICANTS, APPLICANT_STATUS, LISTING = {}, {}, nil
+  local nsR = boot()
+  local P, T, FG, UIr, Fit = nsR.Players, nsR.Tracker, nsR.FillGroup, nsR.UI, nsR.ApplicantFit
+  -- Names.
+  ok(P:Normalize("ann") == "Ann-Realm" and P:Normalize(" Ann-Area 52 ") == "Ann-Area52" and P:Normalize("  ") == nil,
+    "Saved players: names are Name-Realm (your realm when none is given)")
+  -- The saved list.
+  ok(P:Save("ann", 262) and P:Find("ANN-realm") and P:Find("Ann-Realm").default == 262, "Saved players: first spec is the default")
+  P:Save("Ann-Realm", 264)
+  local ann = P:Find("Ann-Realm")
+  ok(#ann.specs == 2 and ann.default == 262, "Saved players: another spec doesn't change the default")
+  P:Save("Anduin-Stormrage", 257); P:Save("Bran-Realm", 73)
+  local m = P:Matches("an")
+  ok(#m == 3 and m[1].full == "Anduin-Stormrage" and m[2].full == "Ann-Realm" and m[3].full == "Bran-Realm",
+    "suggestions: names starting with the text first (A-Z), then names containing it")
+  ok(#P:Matches("storm") == 1 and #P:Matches("") == 0, "suggestions: a realm matches too; nothing for empty text")
+  ok(P:SetDefault("Ann-Realm", 264) and P:Find("Ann-Realm").default == 264, "Saved players: set the default")
+  ok(P:RemoveSpec("Ann-Realm", 264) and P:Find("Ann-Realm").default == 262, "removing the default spec moves the default")
+  ok(not P:RemoveSpec("Ann-Realm", 262), "the last spec stays (remove the player instead)")
+  ok(P:Remove("Bran-Realm") and not P:Find("Bran-Realm"), "Saved players: remove")
+  ok(P:SpecsText(P:Find("Ann-Realm")) == "Elemental Shaman (default)", "specs text")
+
+  -- Reserve: the spec is required, the role follows it, a role with no slot is refused.
+  LISTING = "Voidscar Arena (Mythic Keystone)"
+  T:Enable(); T:Rescan()
+  local okR, why = P:Reserve(nil, "Ann")
+  ok(not okR and why:find("Pick a spec", 1, true), "a reservation needs a spec")
+  okR, why = P:Reserve(105, "Ann")
+  ok(not okR and why == "No open healer slot to reserve.", "no open healer slot")
+  ok(P:Reserve(262, "ann") and #P:Reservations() == 1 and P:Reservations()[1].full == "Ann-Realm", "reserved: Elemental Shaman for Ann")
+  ok(nsR.db.reserved.seenListed == true, "made while listed: ends with this listing")
+  okR, why = P:Reserve(63, "Ann-Realm")
+  ok(not okR and why:find("already has a reserved slot", 1, true), "one reservation per name")
+  -- Counts like a member.
+  local comp = P:LiveComp()
+  local res
+  for _, x in ipairs(comp) do if x.reserved then res = x end end
+  ok(#comp == 4 and res and res.specID == 262 and res.label == "Reserved: Elemental Shaman (Ann)", "the live comp has the reserved slot")
+  ok(#T:GetComp() == 3, "the real party is unchanged (History, boss cards, the Plan tab)")
+  Fit.ClearCache()
+  local ctx = Fit:ForLiveGroup()
+  ok(ctx.open.DAMAGER == 1 and ctx.reservedRoles.DAMAGER == 1, "applicants see one open DPS slot")
+  local hasLust = false
+  for _, x in ipairs(ctx.base.members) do if x.reserved then hasLust = true end end
+  local r = ctx.base
+  local lustOK = true
+  for _, f in ipairs(r.findings or {}) do if tostring(f.text or ""):find("Bloodlust", 1, true) and f.status == "missing" then lustOK = false end end
+  ok(hasLust and lustOK, "Needs count the reserved spec's utility (Bloodlust from the Shaman)")
+  -- One more DPS reservation fills the role: DPS applicants rate Poor, with the reason.
+  ok(P:Reserve(63), "an unnamed reservation")
+  APPLICANTS = {
+    [1] = { { name = "Roguey", class = "ROGUE", role = "DAMAGER", spec = 261, score = 3000, ilvl = 620 } },
+    [2] = { { name = "Ann", class = "SHAMAN", role = "DAMAGER", spec = 262, score = 3000, ilvl = 620 } },
+  }
+  T:Rescan()
+  Fit.ClearCache()
+  local ctx2, evs = Fit:ForLiveGroup()
+  local rog, annEv
+  for _, ev in ipairs(evs) do
+    if ev.members[1].name == "Roguey" then rog = ev elseif ev.members[1].name == "Ann" then annEv = ev end
+  end
+  ok(rog and rog.roleConflict and rog.rating.key == "poor" and rog.headline == "No open DPS slot - the last 2 DPS slots are reserved",
+    "the reserved role's applicant: Poor, \"" .. tostring(rog and rog.headline) .. "\"")
+  ok(annEv and annEv.headline == "Your reserved slot is for Ann: invite them yourself", "your friend applying: named on their card")
+  C_LFGList.InviteApplicant = function() end
+  ok(UIr:CanInvite(annEv, ctx2), "your own click can still invite into a reserved slot")
+  C_LFGList.InviteApplicant = nil
+  -- Fill group: every open slot reserved.
+  FG.ClearCache()
+  local plan = FG:Current()
+  ok(plan and plan.status == "full" and plan.reservedAll, "Fill group: every open slot reserved = nothing to fill")
+  UIr:Show("applicants"); RunTimers()
+  ok(tostring(UIr.ap.band.title:GetText()):find("Every open slot is reserved", 1, true), "the band says so")
+  ok(tostring(UIr.ap.band.reserve.text:GetText()) == "Reserved (2)", "the band's button counts the reservations")
+  -- Release one: Fill group plans that slot again; the ready title names the reservation.
+  P:Release(2)
+  nsR.db.settings.fill.level = "relaxed"
+  nsR.db.settings.fill.rating.on, nsR.db.settings.fill.ilvl.on = false, false
+  APPLICANTS = { [1] = { { name = "Roguey", class = "ROGUE", role = "DAMAGER", spec = 261, score = 3000, ilvl = 620 } } }
+  T:Rescan(); Fit.ClearCache(); FG.ClearCache()
+  plan = FG:Current()
+  ok(plan and plan.status == "ready" and #plan.picks == 1 and plan.picks[1].members[1].name == "Roguey",
+    "Fill group plans only the rest: Roguey passes with the Shaman's Bloodlust reserved (" .. tostring(plan and plan.status) .. ")")
+  UIr:Refresh()
+  ok(tostring(UIr.ap.band.title:GetText()):find("Group ready (1 slot reserved for Ann)", 1, true), "\"Group ready (1 slot reserved for Ann)\"")
+  UIr:Hide()
+  -- Composition shows the slot.
+  nsR.db.settings.compMode = "party"
+  UIr:Show("composition"); RunTimers()
+  local slotText
+  for _, row in ipairs(UIr.cp.slotRows) do
+    if tostring(row.name:GetText()):find("Reserved: Elemental Shaman (Ann)", 1, true) then slotText = row.sub:GetText() end
+  end
+  ok(slotText and slotText:find("held for a friend", 1, true), "Composition: \"Reserved: Elemental Shaman (Ann)\"")
+  UIr:Hide()
+  -- Clears when that player joins (full name).
+  ROSTER.party3 = { guid = "A", name = "Ann", class = "SHAMAN", role = "DAMAGER" }
+  local origUnitName = UnitName
+  UnitName = function(u) if u == "party3" then return "Ann", nil end return origUnitName(u) end
+  nsR.Players:OnRoster()
+  ok(#P:Reservations() == 0, "Ann joined: her reservation clears")
+  ROSTER.party3 = nil
+  UnitName = origUnitName
+  -- Clears when the group is full.
+  P:Reserve(63)
+  ROSTER.party3 = { guid = "Y", name = "Yy", class = "MAGE", role = "DAMAGER" }
+  ROSTER.party4 = { guid = "Z", name = "Zz", class = "PRIEST", role = "DAMAGER" }
+  P:OnRoster()
+  ok(#P:Reservations() == 0, "a full group clears every reservation")
+  ROSTER.party3, ROSTER.party4 = nil, nil
+  -- Clears when the listing ends; a /reload while listed keeps it.
+  P:Reserve(63, "Ann")
+  UIr.wasListed = nil
+  UIr:OnListingUpdate("PLAYER_ENTERING_WORLD"); RunTimers()
+  ok(#P:Reservations() == 1, "a /reload while listed keeps the reservation")
+  LISTING = nil
+  UIr:OnListingUpdate("LFG_LIST_ACTIVE_ENTRY_UPDATE"); RunTimers()
+  ok(#P:Reservations() == 0, "the listing ended: reservations clear")
+  -- Made before listing: waits for the listing (a reload while not listed keeps it).
+  ok(P:Reserve(63, "Ann") and nsR.db.reserved.seenListed == false, "reserved before listing")
+  UIr.wasListed = nil
+  UIr:OnListingUpdate("PLAYER_ENTERING_WORLD"); RunTimers()
+  ok(#P:Reservations() == 1, "... kept until a listing ends")
+  LISTING = "Voidscar Arena (Mythic Keystone)"
+  UIr:OnListingUpdate("LFG_LIST_ACTIVE_ENTRY_UPDATE")
+  ok(nsR.db.reserved.seenListed == true, "... and now it belongs to this listing")
+  -- A /reload after the listing ended while the game was closed: checked again, then cleared.
+  LISTING = nil
+  UIr.wasListed = nil
+  UIr:OnListingUpdate("PLAYER_ENTERING_WORLD")
+  ok(#P:Reservations() == 1, "not listed on login: checked again a few seconds later")
+  RunTimers()
+  ok(#P:Reservations() == 0, "... still not listed: cleared")
+  LISTING = "Voidscar Arena (Mythic Keystone)"
+
+  -- The dialog: suggestions, the default spec, Save this player.
+  UIr:Show("applicants"); RunTimers()
+  UIr:OpenReserveDialog("reserve")
+  local d = UIr.reserveDialog
+  ok(d:IsShown() and not d.ok:IsEnabled(), "dialog: Reserve waits for a spec")
+  d.name:SetText("an"); UIr:ReserveNameChanged()
+  ok(d.sug:IsShown() and d.sug.rows[2].player.full == "Ann-Realm" and d.sug.rows[1]:IsShown() and not d.sug.rows[3]:IsShown(),
+    "dialog: suggestions as you type")
+  d.sug.rows[2]:Click()
+  ok(d.name:GetText() == "Ann-Realm" and d.st.specID == 262 and not d.sug:IsShown() and not d.save:IsShown() and d.ok:IsEnabled(),
+    "dialog: a suggestion fills the name and default spec")
+  -- A spec picked by hand that isn't on their list: Save this player adds it (default unchanged).
+  d.st.specID = 63; UIr:SyncReserveDialog()
+  ok(d.save:IsShown() and d.st.saveOn, "dialog: Save this player shows (ticked) for a new spec")
+  d.ok:Click()
+  ok(not d:IsShown() and #P:Reservations() == 1 and P:HasSpec(P:Find("Ann-Realm"), 63) and P:Find("Ann-Realm").default == 262,
+    "dialog: reserved, and the spec added to Ann's list")
+  P:Release(1)
+  -- A new name: saved when ticked, not when unticked.
+  UIr:OpenReserveDialog("reserve")
+  d.name:SetText("Zed"); UIr:ReserveNameChanged()
+  d.st.specID = 73; UIr:SyncReserveDialog()
+  ok(not d.sug:IsShown() and d.save:IsShown(), "dialog: a new name offers Save this player")
+  d.save:Click()
+  ok(d.st.saveOn == false, "dialog: untick")
+  d.ok:Click()
+  ok(#P:Reservations() == 0 and d.err:GetText() == "No open tank slot to reserve.", "dialog: the reason when the role is full")
+  d.st.specID = 577; UIr:SyncReserveDialog(); d.ok:Click()
+  ok(#P:Reservations() == 1 and not P:Find("Zed-Realm"), "dialog: unticked: reserved, not saved")
+  P:Release(1)
+  -- Save mode (Settings > Saved players): the name is required.
+  UIr:OpenReserveDialog("save")
+  d.st.specID = 270; UIr:SyncReserveDialog()
+  ok(not d.ok:IsEnabled(), "save mode: needs a name")
+  d.name:SetText("mira-tichondrius"); UIr:ReserveNameChanged(); d.ok:Click()
+  ok(P:Find("Mira-tichondrius") and P:Find("Mira-tichondrius").default == 270, "save mode: added")
+  -- Settings > Saved players lists them; its menu removes one.
+  UIr:OpenSettings("players"); RunTimers()
+  local L = UIr.savedList
+  local rows = {}
+  for i = 1, L.used do rows[#rows + 1] = tostring(L.pool[i]:GetText()) end
+  local txt = table.concat(rows, "\n")
+  ok(txt:find("Ann", 1, true) and txt:find("Elemental Shaman (default), Fire Mage", 1, true) and txt:find("Mira", 1, true),
+    "Settings > Saved players lists each player and their specs")
+  ok(not UIr.settingsFrames.players.reset:IsShown(), "no section reset for your own list")
+  UIr:Hide()
+  -- Verify and the report never name anyone.
+  P:Reserve(262, "Ann")
+  local vt = nsR.Verify:Build()
+  ok(vt:find("reserved slots: 1 (DPS), 1 named; saved players: 3", 1, true), "verify counts reservations and saved players")
+  ok(not vt:find("Ann", 1, true) and not vt:find("Mira", 1, true) and not vt:find("Anduin", 1, true), "verify names nobody")
+  ok(not nsR.Report:Build():find("Anduin", 1, true), "the report names nobody")
+  -- Saved data.
+  EnsembleDB = nsR.db
+  nsR.db.savedPlayers = { { full = "Ok-Realm", specs = { 262, 9999 }, default = 9999 }, { full = 5 }, { full = "ok-realm", specs = { 63 } },
+    { full = "Nospec-Realm", specs = {} } }
+  nsR.db.reserved = { seenListed = "x", list = { { specID = 9999 }, { specID = 262, full = 7 }, "bad" } }
+  local nsR2 = boot()
+  local sp = nsR2.db.savedPlayers
+  ok(#sp == 1 and sp[1].full == "Ok-Realm" and #sp[1].specs == 1 and sp[1].default == 262, "saved players cleaned (bad spec, duplicate, empty)")
+  local rv = nsR2.db.reserved
+  ok(rv.seenListed == false and #rv.list == 1 and rv.list[1].specID == 262 and rv.list[1].full == nil, "reservations cleaned")
   APPLICANTS, LISTING, ROSTER, INSPECT_CACHE = {}, nil, {}, {}
 end
 

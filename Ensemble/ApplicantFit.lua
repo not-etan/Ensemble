@@ -304,6 +304,16 @@ function Fit:BuildContext(members, dungeonKey, settings, keyLevel)
   ctx.basePenalty = A:Penalty(ctx.base, keyLevel)
   ctx.baseCritical = Fit.CriticalGaps(ctx.base)
   ctx.open = self:OpenRoles(members)
+  -- Reserved slots (1.5.0) count as members; an applicant whose role has no open slot because
+  -- of one rates Poor, with that as the reason.
+  ctx.reservedRoles = {}
+  for _, m in ipairs(members) do
+    if m.reserved then
+      local p = m.specID and UD:GetSpec(m.specID)
+      local r = (p and p.role) or m.role
+      if r then ctx.reservedRoles[r] = (ctx.reservedRoles[r] or 0) + 1 end
+    end
+  end
   ctx.bestGain, ctx.bestSpec, ctx.critFloor, ctx.critPartialFloor = {}, {}, {}, {}
   for _, role in ipairs(ROLES) do
     local best, bestSpec, worst = 0, nil, nil
@@ -745,8 +755,22 @@ function Fit:Evaluate(ctx, group)
   -- Headline: the single most useful reason, in priority order.
   if ev.roleConflict then
     local r = conflicts[1]
-    ev.headline = "No open " .. ROLE_NAME[r] .. " slot - you already have " ..
-      (SLOTS_PER_ROLE[r] == 1 and ("a " .. ROLE_NAME[r]:lower()) or (SLOTS_PER_ROLE[r] .. " " .. ROLE_NAME[r]))
+    local held = ctx.reservedRoles and ctx.reservedRoles[r] or 0
+    local mine
+    for _, a in ipairs(group.members) do
+      for _, m in ipairs(ctx.members) do
+        if m.reserved and m.full and a.full and m.full:lower() == a.full:lower() then mine = a end
+      end
+    end
+    if mine then
+      ev.headline = "Your reserved slot is for " .. tostring(mine.name) .. ": invite them yourself"
+    elseif held > 0 then
+      ev.headline = "No open " .. ROLE_NAME[r] .. " slot - the last " .. (held > 1 and (held .. " ") or "")
+        .. ROLE_NAME[r] .. (held > 1 and " slots are" or " slot is") .. " reserved"
+    else
+      ev.headline = "No open " .. ROLE_NAME[r] .. " slot - you already have " ..
+        (SLOTS_PER_ROLE[r] == 1 and ("a " .. ROLE_NAME[r]:lower()) or (SLOTS_PER_ROLE[r] .. " " .. ROLE_NAME[r]))
+    end
   else
     -- Closes the group's last open dungeon requirement(s): the clearest reason to invite.
     local needs, needList, afterMissing = {}, {}, 0
@@ -1047,7 +1071,7 @@ local function ContextSig(dungeonKey, level, levelSource, comp, settings)
     ns.Affixes and ns.Affixes:Signature() or "", A:SettingsSig(settings), Fit.PastSig(settings) }
   for _, m in ipairs(comp) do
     -- The label shows up in the notes ("Second Battle rez, backing up Hal").
-    parts[#parts + 1] = tostring(m.specID or m.classFile) .. ":" .. tostring(m.role) .. ":" .. tostring(m.label)
+    parts[#parts + 1] = tostring(m.specID or m.classFile) .. ":" .. tostring(m.role) .. ":" .. tostring(m.label) .. (m.reserved and ":R" or "")
   end
   return table.concat(parts, ";")
 end
@@ -1078,7 +1102,8 @@ function Fit:ForLiveGroup()
   local settings = ns.db.settings
   local dungeonKey = ns:GetEffectiveDungeon(true)
   local level, levelSource = self:GetKeyLevel(dungeonKey)
-  local comp, groups = T:GetComp(), T:GetApplicantGroups()
+  -- The party plus reserved slots (1.5.0): applicants are rated for the slots still open.
+  local comp, groups = (ns.Players and ns.Players:LiveComp() or T:GetComp()), T:GetApplicantGroups()
   local ctxSig = ContextSig(dungeonKey, level, levelSource, comp, settings)
   local appSigs, full = {}, { ctxSig }
   for i, g in ipairs(groups) do
