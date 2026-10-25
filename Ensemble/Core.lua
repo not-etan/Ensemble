@@ -293,7 +293,13 @@ ns.DEFAULTS = {
       soundChoice = "chime",   -- "chime" (Ensemble's) or "readycheck" (the game's)
       popup = true,
       wait = 15,
+      preferTimed = false,     -- past keys (1.5.0): prefer players you've timed with
+      failedWith = "off",      -- players you've failed with: "off", "lower" (priority) or "skip"
     },
+    -- Past keys together (1.5.0): what counts as a failed key with someone, and whether pick
+    -- ratings show it. failed: "overtime", "abandoned" (over time and abandoned) or "abandonedHigh"
+    -- (over time, and abandoned keys from the Strict threshold, +12, up).
+    pastKeys = { failed = "overtime", rating = false },
   },
   -- Builder tab dungeon pick: "AUTO" follows your own keystone, "NONE" = generic only,
   -- or a dungeon key. Resets to "AUTO" when you get a keystone for a different dungeon.
@@ -384,7 +390,44 @@ local function SanitizeDB(db)
     end
     f.wait = math.max(0, math.min(120, tonumber(f.wait) or d.wait))
     if f.soundChoice ~= "chime" and f.soundChoice ~= "readycheck" then f.soundChoice = d.soundChoice end
+    f.preferTimed = f.preferTimed == true
+    if f.failedWith ~= "off" and f.failedWith ~= "lower" and f.failedWith ~= "skip" then f.failedWith = d.failedWith end
   end
+  -- Past keys together (1.5.0).
+  if type(db.settings) == "table" then
+    local st = db.settings
+    if type(st.pastKeys) ~= "table" then st.pastKeys = Util.DeepCopy(ns.DEFAULTS.settings.pastKeys) end
+    local pk = st.pastKeys
+    if pk.failed ~= "overtime" and pk.failed ~= "abandoned" and pk.failed ~= "abandonedHigh" then pk.failed = "overtime" end
+    pk.rating = pk.rating == true
+    if type(st.applicantView) == "table" then
+      local so = st.applicantView.sort
+      if so ~= "fit" and so ~= "rating" and so ~= "ilvl" and so ~= "past" then st.applicantView.sort = "fit" end
+    end
+  end
+  -- Run history: boss splits (1.5.0) need a numeric encounter; a full name is a string.
+  if type(db.history) ~= "table" then db.history = {} end
+  local function CleanRun(run)
+    if type(run.splits) == "table" then
+      for i = #run.splits, 1, -1 do
+        local sp = run.splits[i]
+        if type(sp) ~= "table" or type(sp.enc) ~= "number" then table.remove(run.splits, i)
+        else
+          if sp.t ~= nil and type(sp.t) ~= "number" then sp.t = nil end
+          if sp.deaths ~= nil and type(sp.deaths) ~= "number" then sp.deaths = nil end
+        end
+      end
+    elseif run.splits ~= nil then run.splits = nil end
+    if type(run.comp) == "table" then
+      for _, m in ipairs(run.comp) do
+        if type(m) == "table" and m.full ~= nil and type(m.full) ~= "string" then m.full = nil end
+      end
+    end
+  end
+  for i = #db.history, 1, -1 do
+    if type(db.history[i]) ~= "table" then table.remove(db.history, i) else CleanRun(db.history[i]) end
+  end
+  if type(db.activeRun) == "table" then CleanRun(db.activeRun) elseif db.activeRun ~= nil then db.activeRun = nil end
   -- Settings that no longer exist (1.3.0: the Mythic Dungeon Tools route switch).
   if type(db.settings) == "table" then db.settings.routePlan = nil end
 end

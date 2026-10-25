@@ -5914,5 +5914,233 @@ do
   ACTIVE_CHALLENGE, C_Scenario, GetWorldElapsedTime, CRITERIA, DEATHS = nil, nil, nil, nil, 0
 end
 
+-- 76. Past keys together (1.5.0, F2): History saves realm-qualified names; counts per player;
+-- what counts as failed (a setting, abandoned keys included or from +12); the card, tooltip and
+-- sort; Fill group's Prefer / Lower priority / Skip only among groups that pass; the opt-in
+-- pick-rating step; no names in verify; saved-data cleaning.
+do
+  EnsembleDB = nil
+  CURRENT_AFFIXES = {}
+  ROSTER = {
+    player = { guid = "P", name = "Faelan", class = "WARRIOR", spec = 73, role = "TANK" },
+    party1 = { guid = "D", name = "Dru", class = "DRUID", role = "HEALER" },
+    party2 = { guid = "X", name = "Havi", class = "DEMONHUNTER", role = "DAMAGER" },
+    party3 = { guid = "W", name = "Wari", class = "WARRIOR", role = "DAMAGER" },
+  }
+  INSPECT_CACHE = { D = 105, X = 577, W = 72 }
+  APPLICANTS, APPLICANT_STATUS, LISTING = {}, {}, nil
+  local origUnitName = UnitName
+  UnitName = function(u) if u == "party2" then return "Havi", "Stormrage" end return origUnitName(u) end
+  local nsK = boot()
+  local Hk, T, FG = nsK.History, nsK.Tracker, nsK.FillGroup
+  -- History saves "Name-Realm" (your own realm when the game gives none) and marks you.
+  local hf
+  for _, fr in ipairs(ALLFRAMES) do if fr._events.CHALLENGE_MODE_COMPLETED then hf = fr end end
+  local function fire(ev) hf._scripts.OnEvent(hf, ev); RunTimers() end
+  ACTIVE_CHALLENGE, ACTIVE_KEY_LEVEL, ACTIVE_KEY_AFFIXES = 585, 10, {}
+  fire("CHALLENGE_MODE_START")
+  local comp = nsK.db.activeRun.comp
+  local byName = {}
+  for _, m in ipairs(comp) do byName[m.name] = m end
+  ok(byName.Havi and byName.Havi.full == "Havi-Stormrage" and byName.Dru.full == "Dru-Realm", "F2: History saves realm-qualified names")
+  ok(byName.Faelan and byName.Faelan.me == true, "F2: your own entry is marked")
+  -- Inside the key the game hides a name: the one read earlier stays.
+  local SECRET = {}
+  issecretvalue = function(v) return SECRET[v] == true end
+  UnitName = function(u)
+    local t = { v = "hidden" }; SECRET[t] = true
+    if u == "party1" then return t, nil end
+    if u == "party2" then return "Havi", "Stormrage" end
+    return origUnitName(u)
+  end
+  T:Rescan(); Hk:Snapshot()
+  local kept
+  for _, m in ipairs(nsK.db.activeRun.comp) do if m.classFile == "DRUID" then kept = m.full end end
+  ok(kept == "Dru-Realm", "F2: a name hidden in the key keeps the earlier read")
+  issecretvalue = nil
+  UnitName = function(u) if u == "party2" then return "Havi", "Stormrage" end return origUnitName(u) end
+  COMPLETION = { mapChallengeModeID = 585, level = 10, time = 1500000, onTime = true }
+  fire("CHALLENGE_MODE_COMPLETED"); ACTIVE_CHALLENGE = nil
+
+  -- Counts per player; old runs (short names only) don't count; same name, other realm, apart.
+  local function run(result, level, ...)
+    local c = {}
+    for _, full in ipairs({ ... }) do c[#c + 1] = { name = full:match("^[^-]+"), full = full, classFile = "MAGE", role = "DAMAGER", specID = 63 } end
+    return { key = "VoidscarArena", level = level, result = result, comp = c, gaps = {}, started = 0 }
+  end
+  local old = { key = "VoidscarArena", level = 10, result = "timed", gaps = {}, comp = { { name = "Shammy", classFile = "SHAMAN" } } }
+  nsK.db.history = {
+    run("timed", 10, "Shammy-Realm", "Twin-Realm"), run("timed", 11, "Shammy-Realm"), run("overtime", 12, "Shammy-Realm"),
+    run("overtime", 10, "Magey-Realm"), run("overtime", 11, "Magey-Realm"), run("timed", 10, "Magey-Realm"),
+    run("abandoned", 13, "Roguey-Realm"), run("abandoned", 10, "Roguey-Realm"), run("timed", 10, "Roguey-Realm"),
+    run("overtime", 10, "Twin-Otherrealm"), old,
+  }
+  Hk:ClearPastCache()
+  local s = nsK.db.settings
+  local sh = Hk:With("Shammy-Realm")
+  ok(sh and sh.timed == 2 and sh.overtime == 1, "F2: Shammy 2 timed, 1 over time")
+  ok(Hk:WithText(sh) == "2 timed, 1 over time", "F2: \"With you\" text")
+  ok(Hk:With("Twin-Realm").timed == 1 and Hk:With("Twin-Otherrealm").overtime == 1 and Hk:With("Twin-Realm").overtime == 0,
+    "F2: same name on another realm stays apart")
+  local shCount = 0
+  for _ in pairs(Hk:PastIndex()) do shCount = shCount + 1 end
+  ok(not Hk:With("Shammy") and shCount == 5, "F2: runs saved with short names only don't count")
+  ok(Hk:With("faelan-realm") == nil and Hk:With("Faelan-Realm") == nil, "F2: you never count as someone you played with")
+  -- One bad key never outweighs good ones; more failed than timed = failed with.
+  ok(Hk:Standing("Shammy-Realm") == "timed", "F2: 2 timed, 1 over time = timed with")
+  ok(Hk:Standing("Magey-Realm") == "failed", "F2: 2 over time, 1 timed = failed with")
+  -- Abandoned keys per the setting.
+  s.pastKeys.failed = "overtime"
+  ok(Hk:Standing("Roguey-Realm") == "timed", "F2: Over time only: abandoned keys don't count")
+  s.pastKeys.failed = "abandoned"
+  ok(Hk:Standing("Roguey-Realm") == "failed" and Hk:FailedCount(Hk:With("Roguey-Realm")) == 2, "F2: Over time and abandoned: both abandons count")
+  s.pastKeys.failed = "abandonedHigh"
+  ok(Hk:FailedCount(Hk:With("Roguey-Realm")) == 1 and Hk:Standing("Roguey-Realm") == "timed",
+    "F2: abandoned from +12: the +13 counts, the +10 doesn't (1 failed, 1 timed: still timed with)")
+  s.pastKeys.failed = "overtime"
+
+  -- Fill group: one open DPS slot in Voidscar Arena, no Bloodlust in the party (a must).
+  LISTING = "Voidscar Arena (Mythic Keystone)"
+  APPLICANTS = {
+    [1] = { { name = "Magey", class = "MAGE", role = "DAMAGER", spec = 63, score = 3000, ilvl = 620 } },
+    [2] = { { name = "Roguey", class = "ROGUE", role = "DAMAGER", spec = 261, score = 3000, ilvl = 620 } },
+    [3] = { { name = "Shammy", class = "SHAMAN", role = "DAMAGER", spec = 262, score = 3000, ilvl = 620 } },
+  }
+  s.fill.level = "relaxed"
+  s.fill.rating.on, s.fill.ilvl.on = false, false
+  T:Enable(); T:Rescan()
+  local H74 = nsK.Dungeons.HEURISTICS
+  local oldPts = H74.PAST_KEYS_POINTS
+  local function plan() FG.ClearCache(); return FG:Current() end
+  local function pick(p) return p and p.status == "ready" and p.picks[1] and p.picks[1].members[1].name end
+  local p0 = plan()
+  ok(p0 and p0.status == "ready" and (pick(p0) == "Magey" or pick(p0) == "Shammy"), "F2: off: the plan picks a Bloodlust DPS (" .. tostring(pick(p0)) .. ")")
+  ok(not p0.picks[1].members[1].full or p0.picks[1].members[1].full:find("-Realm", 1, true), "F2: applicants carry full names")
+  -- Even with huge points, a failing group (no Bloodlust) never passes because of history.
+  H74.PAST_KEYS_POINTS = { relaxed = 1000, standard = 1000, strict = 0 }
+  nsK.db.history = { run("timed", 10, "Roguey-Realm"), run("timed", 10, "Roguey-Realm") }
+  Hk:ClearPastCache()
+  s.fill.preferTimed = true
+  local p1 = plan()
+  ok(p1.status == "ready" and pick(p1) ~= "Roguey", "F2: a failing group never passes because of history (" .. tostring(pick(p1)) .. ")")
+  -- Among groups that pass, Prefer decides.
+  nsK.db.history = { run("timed", 10, "Shammy-Realm") }
+  Hk:ClearPastCache()
+  ok(pick(plan()) == "Shammy", "F2: Prefer players I've timed with picks Shammy among passing groups")
+  nsK.db.history = { run("timed", 10, "Magey-Realm") }
+  Hk:ClearPastCache()
+  ok(pick(plan()) == "Magey", "F2: ... and Magey when it's Magey")
+  -- Lower priority: the failed-with player drops behind the other passing group.
+  s.fill.preferTimed = false
+  nsK.db.history = { run("overtime", 10, "Magey-Realm") }
+  Hk:ClearPastCache()
+  s.fill.failedWith = "lower"
+  ok(pick(plan()) == "Shammy", "F2: Lower priority moves Magey behind Shammy")
+  nsK.db.history = { run("overtime", 10, "Shammy-Realm") }
+  Hk:ClearPastCache()
+  ok(pick(plan()) == "Magey", "F2: ... and Shammy behind Magey")
+  -- At Strict, past keys only break ties (0 points).
+  H74.PAST_KEYS_POINTS = oldPts
+  ok(Hk:PastPoints("strict") == 0 and Hk:PastPoints("relaxed") == 5 and Hk:PastPoints("standard") == 3, "F2: 5 / 3 / tiebreak points")
+  -- Skip: like a filter, with the reason.
+  s.fill.failedWith = "skip"
+  nsK.db.history = { run("overtime", 10, "Magey-Realm"), run("overtime", 11, "Magey-Realm") }
+  Hk:ClearPastCache()
+  local p2 = plan()
+  local why
+  for _, x in ipairs(p2.skipped) do if x.ev.members[1].name == "Magey" then why = x.reason end end
+  ok(why == "past keys: 2 over time with you", "F2: Skip names the reason (" .. tostring(why) .. ")")
+  ok(pick(p2) == "Shammy", "F2: the skipped player isn't planned")
+  local UIk = nsK.UI
+  UIk:Show("applicants"); RunTimers()
+  local skippedCard
+  for _, c in ipairs(UIk.ap.cards) do
+    if c:IsShown() and tostring(c.name:GetText()):find("Magey", 1, true) then skippedCard = c end
+  end
+  ok(skippedCard and skippedCard:GetAlpha() < 1 and tostring(skippedCard.headline:GetText()):find("Skipped: past keys", 1, true),
+    "F2: the skipped card is dimmed with the reason")
+  ok(skippedCard and tostring(skippedCard.sub:GetText()):find("With you: 2 over time", 1, true), "F2: the card says \"With you\"")
+  -- Sort: Past keys.
+  s.fill.failedWith = "off"
+  nsK.db.history = { run("timed", 10, "Roguey-Realm"), run("timed", 10, "Roguey-Realm"), run("timed", 10, "Shammy-Realm") }
+  Hk:ClearPastCache()
+  s.applicantView.sort = "past"
+  UIk:Refresh()
+  local order = {}
+  for _, c in ipairs(UIk.ap.cards) do if c:IsShown() then order[#order + 1] = tostring(c.name:GetText()):gsub("|c%x%x%x%x%x%x%x%x", ""):match("(%a+)") end end
+  ok(order[1] == "Roguey" and order[2] == "Shammy" and order[3] == "Magey", "F2: Past keys sort: " .. table.concat(order, ", "))
+  s.applicantView.sort = "fit"
+  -- Blizzard's applicant tooltip gains the line.
+  local lines = {}
+  local origAdd = GameTooltip.AddLine
+  rawset(GameTooltip, "AddLine", function(_, t) lines[#lines + 1] = t end)
+  rawset(GameTooltip, "Show", function() end)
+  UIk:AddApplicantTooltip({ applicantID = 2 })
+  rawset(GameTooltip, "AddLine", nil); rawset(GameTooltip, "Show", nil)
+  local tipLine
+  for _, l in ipairs(lines) do if tostring(l):find("With you: 2 timed", 1, true) then tipLine = l end end
+  ok(tipLine ~= nil, "F2: the applicant tooltip says \"With you: 2 timed\"")
+  UIk:Hide()
+
+  -- Pick rating: off by default (unchanged); on adds a step before the critical-gap floor.
+  local Fit = nsK.ApplicantFit
+  Fit.ClearCache()
+  local _, evOff = Fit:ForLiveGroup()
+  local offScore = {}
+  for _, ev in ipairs(evOff) do offScore[ev.members[1].name] = ev.score; ok(ev.past == nil, "F2: rating off: no past step for " .. ev.members[1].name) end
+  s.pastKeys.rating = true
+  Fit.ClearCache()
+  local ctxOn, evOn = Fit:ForLiveGroup()
+  local rog
+  for _, ev in ipairs(evOn) do if ev.members[1].name == "Roguey" then rog = ev end end
+  ok(rog and rog.past and rog.past.timed == 1 and rog.past.points == 5 and rog.pastScore == math.min(100, rog.blended + 5),
+    "F2: rating on: Roguey +5 at Relaxed (" .. tostring(rog and rog.blended) .. " -> " .. tostring(rog and rog.pastScore) .. ")")
+  local stepText
+  for _, st in ipairs(Fit:ScoreSteps(ctxOn, rog)) do if st.text:find("^Past keys with you") then stepText = st end end
+  ok(stepText and stepText.value == rog.pastScore and stepText.text:find("(2 timed)", 1, true), "F2: Why N? shows the Past keys step")
+  -- The history changing re-rates (the cache follows it).
+  nsK.db.history = {}
+  Hk:ClearPastCache()
+  local _, evNone = Fit:ForLiveGroup()
+  local rog2
+  for _, ev in ipairs(evNone) do if ev.members[1].name == "Roguey" then rog2 = ev end end
+  ok(rog2 and rog2.past == nil and rog2.score == offScore.Roguey, "F2: no shared keys: the same rating as with the setting off")
+  s.pastKeys.rating = false
+  Fit.ClearCache()
+
+  -- Verify: counts, never names.
+  nsK.db.history = { run("timed", 10, "Shammy-Realm") }
+  Hk:ClearPastCache()
+  local vt = nsK.Verify:Build()
+  ok(vt:find("past keys together: 1 of 1 recorded keys have full names", 1, true) and vt:find("applicants you've played with: 1 of 3", 1, true),
+    "F2: verify counts matches")
+  ok(not vt:find("Shammy", 1, true) and not vt:find("Magey", 1, true) and not vt:find("Roguey", 1, true), "F2: verify names nobody")
+  local rep = nsK.Report:Build()
+  ok(not rep:find("Shammy", 1, true), "F2: the bug report names nobody")
+
+  -- Saved data.
+  EnsembleDB = nsK.db
+  nsK.db.settings.pastKeys = { failed = "nonsense", rating = "yes" }
+  nsK.db.settings.fill.failedWith = 3
+  nsK.db.settings.fill.preferTimed = "x"
+  nsK.db.settings.applicantView.sort = "bogus"
+  nsK.db.history = { run("timed", 10, "A-Realm"), 5 }
+  nsK.db.history[1].comp[1].full = 7
+  nsK.db.history[1].splits = { { enc = "x" }, { enc = 2124, t = "soon" } }
+  local nsK2 = boot()
+  local st = nsK2.db.settings
+  ok(st.pastKeys.failed == "overtime" and st.pastKeys.rating == false and st.fill.failedWith == "off" and st.fill.preferTimed == false
+    and st.applicantView.sort == "fit", "F2: settings cleaned")
+  ok(#nsK2.db.history == 1 and nsK2.db.history[1].comp[1].full == nil and #nsK2.db.history[1].splits == 1
+    and nsK2.db.history[1].splits[1].t == nil, "F2: history entries cleaned (names, splits)")
+  -- Reset section covers the past keys settings.
+  nsK2.db.settings.pastKeys.rating = true
+  nsK2.UI:Show("settings"); nsK2.UI:ResetSettingsSection("finder")
+  ok(nsK2.db.settings.pastKeys.rating == false, "F2: Settings > Group Finder's reset covers past keys")
+  nsK2.UI:Hide()
+  UnitName = origUnitName
+  APPLICANTS, LISTING, ROSTER, INSPECT_CACHE = {}, nil, {}, {}
+end
+
 print(string.format("%d passed, %d failed", passes, fails))
 return fails

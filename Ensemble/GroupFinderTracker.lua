@@ -68,11 +68,13 @@ local function FullName(unit)
 end
 
 local function NormalizeName(n)
-  if not n then return nil end
+  if type(n) ~= "string" then return nil end
   if n:find("-", 1, true) then return n end
   local myRealm = GetNormalizedRealmName and GetNormalizedRealmName()
   return myRealm and (n .. "-" .. myRealm) or n
 end
+Tracker.NormalizeName = NormalizeName
+Tracker.FullName = FullName
 
 ---------------------------------------------------------------------------
 -- Enable / disable
@@ -287,6 +289,7 @@ local function ReadApplicants()
             if specID then specByName[NormalizeName(name)] = specID end
             table.insert(out, {
               applicantID = applicantID, name = name, classFile = classFile, specID = specID,
+              full = NormalizeName(Readable(name)),   -- "Name-Realm", for past keys together (1.5.0)
               role = assignedRole, score = score, status = status, itemLevel = itemLevel, level = level,
               memberIndex = m, numMembers = info.numMembers or 1,
               canTank = tank, canHeal = healer, canDps = damage,
@@ -355,6 +358,7 @@ function Tracker:Rescan()
       local name = Readable(UnitName(unit))
       table.insert(members, {
         unit = unit, guid = guid, name = type(name) == "string" and name or "?", classFile = classFile,
+        full = FullName(unit),   -- "Name-Realm" (nil when hidden), for past keys together
         specID = specID, role = role, pending = (specID == nil),
         isPlayer = isPlayer,
       })
@@ -460,7 +464,7 @@ function Tracker:GetComp()
   for i = 1, math.min(#self.members, ns.NUM_SLOTS) do
     local m = self.members[i]
     out[#out + 1] = { specID = m.specID, classFile = m.classFile, pending = m.pending, label = m.name, role = m.role,
-                      isPlayer = m.isPlayer }
+                      isPlayer = m.isPlayer, full = m.full }
   end
   return out
 end

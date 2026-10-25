@@ -575,6 +575,14 @@ function Fit:Evaluate(ctx, group)
     score = math.floor((1 - w) * score + w * ev.experience.points + 0.5)
   end
   ev.blended = score    -- after the experience mix, before the critical-gap rule
+  -- Past keys together (1.5.0, opt-in): the same points Fill group uses at this key's
+  -- strictness, before the critical-gap floor, so a full closer still never rates below anyone
+  -- who doesn't fully close a critical need.
+  ev.past = Fit.PastAdjust(group.members, ctx)
+  if ev.past and not ev.roleConflict and ev.past.points ~= 0 then
+    score = math.max(0, math.min(100, score + ev.past.points))
+  end
+  ev.pastScore = score
   if ev.critFloor and score < ev.critFloor then
     score = ev.critFloor
     ev.critFloored = ev.critClose.kind   -- "full" or "partial"
@@ -784,6 +792,38 @@ function Fit:Evaluate(ctx, group)
 end
 
 ---------------------------------------------------------------------------
+-- Past keys together in the pick rating (1.5.0, F2; off unless "Show past keys in pick
+-- ratings" is on). Per player: + the level's points for one you've timed with, - for one
+-- you've failed with (History:Standing). Returns nil when off or nobody has a shared key.
+---------------------------------------------------------------------------
+function Fit.PastAdjust(members, ctx)
+  local settings = ctx and ctx.settings or ns.db.settings
+  local pk = settings.pastKeys or {}
+  if not pk.rating or not ns.History then return nil end
+  local level = ns.FillGroup and ns.FillGroup:Level(settings, ctx and ctx.keyLevel) or "standard"
+  local w = ns.History:PastPoints(level)
+  local out = { points = 0, timed = 0, failed = 0, level = level, w = w, parts = {} }
+  for _, m in ipairs(members or {}) do
+    local st, c = ns.History:Standing(m.full, settings)
+    if st == "timed" then out.timed = out.timed + 1; out.points = out.points + w
+    elseif st == "failed" then out.failed = out.failed + 1; out.points = out.points - w end
+    if c and st then out.parts[#out.parts + 1] = ((#members > 1) and (tostring(m.name) .. ": ") or "") .. ns.History:WithText(c) end
+  end
+  if out.timed == 0 and out.failed == 0 then return nil end
+  out.rank = (out.timed > out.failed) and 1 or ((out.failed > out.timed) and -1 or 0)
+  return out
+end
+
+-- Part of ForLiveGroup's context signature: past keys change the rating only when it's on.
+function Fit.PastSig(settings)
+  local pk = settings.pastKeys or {}
+  if not pk.rating or not ns.History then return "off" end
+  local runs = ns.db.history or {}
+  return table.concat({ "on", tostring(pk.failed), tostring((settings.fill or {}).level), tostring(#runs),
+    tostring(runs[1] and runs[1].started), tostring(runs[1] and runs[1].result) }, ":")
+end
+
+---------------------------------------------------------------------------
 -- "Why N?": the score's steps in the order they're applied, each with the value it ends on,
 -- so every number on the card adds up. Returns { { text, value = number|nil } }; the last
 -- step with a value equals ev.score. (The gap lines and their total come from ev.breakdown.)
@@ -819,6 +859,20 @@ function Fit:ScoreSteps(ctx, ev)
     steps[#steps + 1] = { value = ev.blended, text = string.format(
       "Experience counts %d%%%s: %d%% of utility %d + %d%% of experience %d = %d.",
       pw, ctx and ctx.keyLevel and (" at +" .. ctx.keyLevel) or "", 100 - pw, ev.fitScore, pw, ev.experience.points, ev.blended) }
+  end
+  local past = ev.past
+  if past and not ev.roleConflict then
+    local lvl = ns.FillGroup and ns.FillGroup.LEVEL_LABEL[past.level] or past.level
+    local text = "Past keys with you (" .. table.concat(past.parts, "; ") .. "): "
+    if past.w == 0 then
+      text = text .. "at " .. tostring(lvl) .. " past keys only break ties, so no points."
+    else
+      local bits = {}
+      if past.timed > 0 then bits[#bits + 1] = "+" .. past.w .. " per player you've timed with" end
+      if past.failed > 0 then bits[#bits + 1] = "-" .. past.w .. " per player you've failed with" end
+      text = text .. table.concat(bits, ", ") .. " at " .. tostring(lvl) .. string.format(": %+d = %d.", past.points, ev.pastScore)
+    end
+    steps[#steps + 1] = { value = past.w ~= 0 and ev.pastScore or nil, text = text }
   end
   local cc = ev.critClose
   if cc and not ev.roleConflict then
@@ -959,9 +1013,11 @@ function Fit:Rank(out)
     end
   end
   local function Exp(ev) return ev.experience and ev.experience.points or -1 end
+  local function Past(ev) return ev.past and ev.past.rank or 0 end
   table.sort(out, function(x, y)
     if x.roleConflict ~= y.roleConflict then return not x.roleConflict end
     if x.score ~= y.score then return x.score > y.score end
+    if Past(x) ~= Past(y) then return Past(x) > Past(y) end   -- only with past keys in ratings on
     if Exp(x) ~= Exp(y) then return Exp(x) > Exp(y) end
     local sx = tonumber(x.members[1] and x.members[1].score) or 0
     local sy = tonumber(y.members[1] and y.members[1].score) or 0
@@ -988,7 +1044,7 @@ Fit.ClearCache = ClearCache
 
 local function ContextSig(dungeonKey, level, levelSource, comp, settings)
   local parts = { tostring(dungeonKey), tostring(level), tostring(levelSource),
-    ns.Affixes and ns.Affixes:Signature() or "", A:SettingsSig(settings) }
+    ns.Affixes and ns.Affixes:Signature() or "", A:SettingsSig(settings), Fit.PastSig(settings) }
   for _, m in ipairs(comp) do
     -- The label shows up in the notes ("Second Battle rez, backing up Hal").
     parts[#parts + 1] = tostring(m.specID or m.classFile) .. ":" .. tostring(m.role) .. ":" .. tostring(m.label)
@@ -1000,7 +1056,7 @@ end
 local function AppSig(g)
   local parts = { tostring(g.applicantID) }
   for _, a in ipairs(g.members) do
-    parts[#parts + 1] = tostring(a.name) .. ":" .. tostring(a.specID or a.classFile) .. ":" .. tostring(a.role) .. ":" ..
+    parts[#parts + 1] = tostring(a.full or a.name) .. ":" .. tostring(a.specID or a.classFile) .. ":" .. tostring(a.role) .. ":" ..
       (a.bestHere and (tostring(a.bestHere.level) .. (a.bestHere.timed and "T" or "")) or "")
   end
   return table.concat(parts, ",")

@@ -56,8 +56,20 @@ function H:Snapshot()
   for _, m in ipairs(run.comp or {}) do if m.specID and m.specID ~= 0 then prevKnown = prevKnown + 1 end end
   if not run.comp or #comp > #run.comp or known >= prevKnown then
     local out = {}
-    for _, m in ipairs(comp) do
-      out[#out + 1] = { specID = m.specID or 0, classFile = m.classFile, role = m.role, name = m.label }
+    for i, m in ipairs(comp) do
+      -- full = "Name-Realm" (1.5.0, for past keys together; only runs saved with it count).
+      -- Inside a key the game may hide names: keep the one an earlier snapshot read for the same
+      -- player (same short name, else the same spot with the same class).
+      local full = m.full
+      if not full then
+        for _, p in ipairs(run.comp or {}) do
+          if p.full and m.label and m.label ~= "?" and p.name == m.label then full = p.full end
+        end
+        local p = (run.comp or {})[i]
+        if not full and p and p.full and p.classFile == m.classFile then full = p.full end
+      end
+      out[#out + 1] = { specID = m.specID or 0, classFile = m.classFile, role = m.role, name = m.label,
+        full = full, me = m.isPlayer or nil }
     end
     run.comp = out
   end
@@ -486,6 +498,112 @@ function H:Lesson(run, runs, index, bestIndex)
 end
 
 function H:Clear() ns.db.history = {}; ns:Fire("HISTORY_CHANGED") end
+
+---------------------------------------------------------------------------
+-- Past keys together (1.5.0, F2): how your recorded keys with each player went. Only runs saved
+-- with realm-qualified names count (1.5.0 on), so two same-named players on different realms
+-- never merge. Local data only; names never leave this file's callers' tooltips and cards.
+---------------------------------------------------------------------------
+H.FAILED_MODES = { "overtime", "abandoned", "abandonedHigh" }
+H.FAILED_LABEL = {
+  overtime = "Over time only",
+  abandoned = "Over time and abandoned",
+  abandonedHigh = "Over time, and abandoned at +12 and up",
+}
+
+local function NameKey(full) return type(full) == "string" and full:lower() or nil end
+H.NameKey = NameKey
+
+local pastCache
+function H:PastIndex()
+  local runs = ns.db and ns.db.history or {}
+  local sig = #runs .. ":" .. tostring(runs[1] and runs[1].started) .. ":" .. tostring(runs[1] and runs[1].result)
+  if pastCache and pastCache.runs == runs and pastCache.sig == sig then return pastCache.idx end
+  local idx = {}
+  local high = ns.Dungeons.HEURISTICS.FILL_STRICT_FROM or 12
+  for _, run in ipairs(runs) do
+    local seen = {}
+    for _, m in ipairs(run.comp or {}) do
+      local k = not m.me and NameKey(m.full)
+      if k and not seen[k] then
+        seen[k] = true
+        local c = idx[k] or { timed = 0, overtime = 0, abandoned = 0, abandonedHigh = 0, full = m.full }
+        idx[k] = c
+        if run.result == "timed" then c.timed = c.timed + 1
+        elseif run.result == "overtime" then c.overtime = c.overtime + 1
+        elseif run.result == "abandoned" then
+          c.abandoned = c.abandoned + 1
+          if (run.level or 0) >= high then c.abandonedHigh = c.abandonedHigh + 1 end
+        end
+      end
+    end
+  end
+  pastCache = { runs = runs, sig = sig, idx = idx }
+  return idx
+end
+function H:ClearPastCache() pastCache = nil end
+ns:On("HISTORY_CHANGED", function() pastCache = nil end)
+
+-- Keys with one player ("Name-Realm"), or nil when none.
+function H:With(full)
+  local k = NameKey(full)
+  return k and self:PastIndex()[k] or nil
+end
+
+function H:FailedMode(settings)
+  local pk = (settings or (ns.db and ns.db.settings) or {}).pastKeys or {}
+  local m = pk.failed
+  return H.FAILED_LABEL[m] and m or "overtime"
+end
+
+-- Failed keys with them under the setting.
+function H:FailedCount(c, settings)
+  if not c then return 0 end
+  local mode = self:FailedMode(settings)
+  if mode == "abandoned" then return c.overtime + c.abandoned end
+  if mode == "abandonedHigh" then return c.overtime + c.abandonedHigh end
+  return c.overtime
+end
+
+-- "timed": you've timed keys with them and they aren't "failed"; "failed": more failed keys
+-- (per the setting) than timed ones, so one bad key never outweighs good ones; nil otherwise.
+function H:Standing(full, settings)
+  local c = self:With(full)
+  if not c then return nil, nil end
+  local failed = self:FailedCount(c, settings)
+  if failed > c.timed then return "failed", c end
+  if c.timed > 0 then return "timed", c end
+  return nil, c
+end
+
+-- "With you: 2 timed, 1 over time" for one player, or nil when you share no key.
+function H:WithText(c)
+  if not c then return nil end
+  local parts = {}
+  if c.timed > 0 then parts[#parts + 1] = c.timed .. " timed" end
+  if c.overtime > 0 then parts[#parts + 1] = c.overtime .. " over time" end
+  if c.abandoned > 0 then parts[#parts + 1] = c.abandoned .. " abandoned" end
+  if #parts == 0 then return nil end
+  return table.concat(parts, ", ")
+end
+
+-- Points per player at a strictness level (DD.HEURISTICS.PAST_KEYS_POINTS).
+function H:PastPoints(level)
+  local t = ns.Dungeons.HEURISTICS.PAST_KEYS_POINTS or {}
+  return t[level] or 0
+end
+
+-- Runs that can count (saved with full names), for /ens verify: counts only, no names.
+function H:PastStats()
+  local runs, withNames = 0, 0
+  for _, run in ipairs(ns.db and ns.db.history or {}) do
+    runs = runs + 1
+    for _, m in ipairs(run.comp or {}) do if m.full and not m.me then withNames = withNames + 1; break end end
+  end
+  local players = 0
+  for _ in pairs(self:PastIndex()) do players = players + 1 end
+  return runs, withNames, players
+end
 
 -- { total, finished, timed, abandoned, rate, gaps = { {title, withN, withTimed, withoutN, withoutTimed,
 --   rateWith, rateWithout, delta} }, dungeons = { {key, n, timed, rate, avgLevel} } }

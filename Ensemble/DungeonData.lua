@@ -173,6 +173,11 @@ DD.HEURISTICS = {
   -- The planner keeps the best few applicants per role by pick rating, and runs at most this
   -- many full analyses per plan (best total first).
   FILL_POOL_PER_ROLE = 8,
+  -- Past keys together (1.5.0, F2): points per player for Fill group's "Prefer players I've
+  -- timed with" / "Lower priority" and the opt-in "Past keys" step in pick ratings. They shrink
+  -- as strictness rises; at Strict past keys only break ties. Applied only among groups that
+  -- already pass, so coverage always wins.
+  PAST_KEYS_POINTS = { relaxed = 5, standard = 3, strict = 0 },
   FILL_MAX_FULL_CHECKS = 60,
   -- The Fill group button pauses this long after the planned group changes, so a click
   -- never lands on a group you didn't see.

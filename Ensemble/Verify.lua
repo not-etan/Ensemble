@@ -356,8 +356,23 @@ local function CheckHistory()
   Add(ns.db.settings.history ~= false and "INFO" or "WARN", string.format("%d key(s) recorded; recording %s%s",
     #(ns.db.history or {}), ns.db.settings.history ~= false and "on" or "OFF",
     ns.db.activeRun and (" - a key is in progress (" .. tostring(ns.db.activeRun.key) .. ")") or ""))
-  -- Boss splits (1.5.0).
+  -- Past keys together (1.5.0): counts only, never a name.
   local H = ns.History
+  local runs, named, players = H:PastStats()
+  Add("INFO", string.format("past keys together: %d of %d recorded keys have full names (1.5.0 on), %d players you've played with; failed = %s",
+    named, runs, players, H.FAILED_LABEL[H:FailedMode()]))
+  if ns.Tracker and ns.Tracker.hosting then
+    local ok, _, evals = pcall(ns.ApplicantFit.ForLiveGroup, ns.ApplicantFit)
+    local n, with = 0, 0
+    for _, ev in ipairs(ok and evals or {}) do
+      for _, m in ipairs(ev.members or {}) do
+        n = n + 1
+        if H:With(m.full) then with = with + 1 end
+      end
+    end
+    Add("INFO", string.format("applicants you've played with: %d of %d", with, n))
+  end
+  -- Boss splits (1.5.0).
   local SI = rawget(_G, "C_ScenarioInfo")
   local hasCrit = type(SI) == "table" and type(SI.GetCriteriaInfo) == "function"
   Add(hasCrit and "OK" or "WARN", "C_ScenarioInfo.GetCriteriaInfo " .. (hasCrit and "present (boss splits)"

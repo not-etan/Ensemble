@@ -2788,6 +2788,39 @@ local function ApplicantSub(m, role)
   return table.concat(bits, "  -  ")
 end
 
+-- Past keys together (1.5.0, F2): "With you: 2 timed, 1 over time" for an application (each
+-- player named in a premade), colored by standing; nil when you share no recorded key.
+-- plain = no color codes (Blizzard's tooltip).
+function UI:PastKeysText(ev, plain)
+  local H = ns.History
+  if not (H and ev and ev.members) then return nil end
+  local parts, worst = {}, nil
+  for _, m in ipairs(ev.members) do
+    local st, c = H:Standing(m.full)
+    local t = c and H:WithText(c)
+    if t then
+      parts[#parts + 1] = (#ev.members > 1 and (tostring(m.name) .. " ") or "") .. t
+      if st == "failed" then worst = "failed" elseif st == "timed" and worst ~= "failed" then worst = "timed" end
+    end
+  end
+  if #parts == 0 then return nil, nil end
+  local text = "With you: " .. table.concat(parts, "; ")
+  if plain then return text, worst end
+  local col = worst == "failed" and HEX.warn or worst == "timed" and HEX.good or HEX.muted
+  return col .. text .. "|r", worst
+end
+
+-- Sort key for "Past keys": timed keys with you minus failed ones (per the setting), summed.
+function UI:PastKeysScore(ev)
+  local H = ns.History
+  local n, any = 0, false
+  for _, m in ipairs(ev.members or {}) do
+    local c = H and H:With(m.full)
+    if c then any = true; n = n + c.timed - H:FailedCount(c) end
+  end
+  return n, any
+end
+
 ---------------------------------------------------------------------------
 -- Fill group (1.4.0): the band at the top of the Applicants card column, the Fill plan in the
 -- right panel, the button's breathing glow and the tab dot. The planning is FillGroup.lua.
@@ -2991,6 +3024,8 @@ function UI:RenderFillPlan(list, plan, ctx)
     list:Add(HEX.muted .. (ROLE_WORD[role] or "?"):upper() .. "|r   " .. self:ApplicantNames(ev) .. "   " .. self:RatingTag(ev)
       .. (note and (HEX.muted .. "  " .. note .. "|r") or ""), { size = 12, gap = 0, indent = 4 })
     list:Add(HEX.muted .. table.concat(bits, "  -  ") .. "|r", { size = 10, gap = 3, indent = 46 })
+    local pastText = self:PastKeysText(ev)
+    if pastText then list:Add(pastText, { size = 10, gap = 3, indent = 46 }) end
   end
   local function partyRows()
     for _, m in ipairs(ctx and ctx.base and ctx.base.members or {}) do
@@ -3318,12 +3353,13 @@ function UI:BuildApplicantsPage()
   ap.hidePoor:SetPoint("TOPRIGHT", -12, -42)
   ap.sortBtns = {}
   local prevBtn
-  for i = 3, 1, -1 do
-    local def = ({ { "fit", "Fit" }, { "rating", "Rating" }, { "ilvl", "ilvl" } })[i]
-    local b = Button(page, def[2], 52, 20, function() view().sort = def[1]; UI:QueueRefresh() end)
+  for i = 4, 1, -1 do
+    local def = ({ { "fit", "Fit" }, { "rating", "Rating" }, { "ilvl", "ilvl" }, { "past", "Past keys" } })[i]
+    local b = Button(page, def[2], def[1] == "past" and 68 or 52, 20, function() view().sort = def[1]; UI:QueueRefresh() end)
     SetFontSize(b.text, 11)
     b.tooltip = ({ fit = "Best fit first: what they add to your group, plus their experience in this dungeon at this key level (ties go to the higher M+ rating)",
-      rating = "Highest M+ rating first", ilvl = "Highest item level first" })[def[1]]
+      rating = "Highest M+ rating first", ilvl = "Highest item level first",
+      past = "Players you've timed keys with first (from your own History; counts keys recorded with full names, 1.5.0 on)" })[def[1]]
     if prevBtn then b:SetPoint("RIGHT", prevBtn, "LEFT", -4, 0) else b:SetPoint("RIGHT", ap.hidePoor, "LEFT", -12, 0) end
     ap.sortBtns[def[1]] = b
     prevBtn = b
@@ -3463,7 +3499,17 @@ function UI:RefreshApplicants()
     else shownList[#shownList + 1] = ev end
   end
   local Avg = ns.ApplicantFit.Avg
-  if view.sort == "rating" or view.sort == "ilvl" then
+  if view.sort == "past" then
+    -- Past keys: most timed keys with you (less failed ones) first; no shared keys last; the
+    -- fit order breaks ties.
+    local order, key, any = {}, {}, {}
+    for i, ev in ipairs(shownList) do order[ev] = i; key[ev], any[ev] = self:PastKeysScore(ev) end
+    table.sort(shownList, function(x, y)
+      if any[x] ~= any[y] then return any[x] end
+      if key[x] ~= key[y] then return key[x] > key[y] end
+      return order[x] < order[y]
+    end)
+  elseif view.sort == "rating" or view.sort == "ilvl" then
     local field = view.sort == "rating" and "score" or "itemLevel"
     local order = {}
     for i, ev in ipairs(shownList) do order[ev] = i end
@@ -3499,6 +3545,15 @@ function UI:RefreshApplicants()
     c.badge:SetText(self:RatingTag(ev))
     c.name:SetText(self:ApplicantNames(ev))
     c.subBase = #ev.members > 1 and (#ev.members .. " players applying together") or ApplicantSub(m1, ev.roles[1])
+    -- Past keys together, right after who they are (the line is cut at the right edge).
+    local pastText = self:PastKeysText(ev)
+    if pastText then
+      if #ev.members > 1 then c.subBase = c.subBase .. "  -  " .. pastText .. HEX.muted
+      else
+        local spec, rest = c.subBase:match("^(.-  %-  .-)(  %-  .*)$")
+        c.subBase = spec and (spec .. "  -  " .. pastText .. HEX.muted .. rest) or (c.subBase .. "  -  " .. pastText .. HEX.muted)
+      end
+    end
     c.firstSeen = m1.firstSeen
     c.sub:SetText(c.subBase)
     c.wait:SetText(UI:WaitText(c.firstSeen, true))
@@ -3716,6 +3771,11 @@ function UI:RenderApplicantDetail(list, ctx, ev, pinned)
   list:Add(self:ApplicantNames(ev), { size = 15, gap = 2 })
   for i, m in ipairs(ev.members) do
     list:Add(HEX.muted .. ApplicantSub(m, ev.roles[i]) .. "|r", { size = 11, gap = 2 })
+  end
+  local pastText = self:PastKeysText(ev)
+  if pastText then
+    list:Add(pastText, { size = 11, gap = 2,
+      tooltip = "From your own History: keys recorded with this player (1.5.0 on, with full names). History can't tell who left a key or why it was abandoned." })
   end
   list:Space(2)
   list:Add(self:RatingTag(ev, false) .. HEX.muted .. string.format("   %d / 100|r", ev.score), { size = 14, gap = 2 })
@@ -4271,6 +4331,11 @@ function UI:AddApplicantTooltip(member)
       GameTooltip:AddLine(" ")
       GameTooltip:AddLine("Ensemble: " .. ev.rating.label .. " (" .. ev.score .. "/100)", c[1], c[2], c[3])
       GameTooltip:AddLine(Plain(ev.headline), 1, 1, 1, true)
+      local pastText, st = UI:PastKeysText(ev, true)
+      if pastText then
+        local col = st == "failed" and C.warn or st == "timed" and C.good or C.muted
+        GameTooltip:AddLine(pastText, col[1], col[2], col[3], true)
+      end
       if not ev.roleConflict and ev.groupAfter then
         GameTooltip:AddLine(UI:GroupAfterText(ev.groupAfter, "full"), 1, 1, 1, true)
       end
@@ -5196,7 +5261,7 @@ UI.SECTION_KEYS = {
   general = { "compact", "explain", "liveAutoDungeon", "autoOpenOnListing", "minimap", "compMode" },
   checks = { "ignoredNeeds", "hideLowSeverity", "countTalentSources", "checks", "dungeonCategories" },
   finder = { "applicantPanel", "finderPanel", "compApplicants", "finderTooltip", "applicantView", "listingMarker",
-             "listingHidePoor", "listingTooltip", "applyLine" },
+             "listingHidePoor", "listingTooltip", "applyLine", "pastKeys" },
   fill = { "fill" },
   chat = { "chatStyle" },
   bosses = { "bossWindow" },
@@ -5446,6 +5511,29 @@ function UI:BuildSettings_finder(f)
     function(v) S().applicantView = S().applicantView or {}; S().applicantView.hidePoor = v end,
     "On the Applicants tab, hide applicants rated Poor (no open slot for their role, or very little fit)."); y = y - 26
 
+  -- Past keys together (1.5.0): how your recorded keys with an applicant went.
+  y = y - 10
+  SubHead(f, x1, y, "Past keys together"); y = y - 24
+  local fl = Text(f, 12, C.text); fl:SetPoint("TOPLEFT", x1, y - 3); fl:SetText("A failed key:")
+  local fm = Button(f, "", 200, 20, function(btn)
+    local items = {}
+    for _, k in ipairs(ns.History.FAILED_MODES) do
+      items[#items + 1] = { text = ns.History.FAILED_LABEL[k], selected = ns.History:FailedMode() == k,
+        onClick = function() S().pastKeys.failed = k; ns:Fire("SETTINGS_CHANGED"); ns:Fire("FILL_SETTINGS_CHANGED"); UI:RefreshSettings() end }
+    end
+    UI:ShowMenu(btn, items)
+  end)
+  SetFontSize(fm.text, 11)
+  fm:SetPoint("LEFT", fl, "RIGHT", 8, 0)
+  fm.tooltip = "Which keys with a player count as failed. Someone counts as \"failed with\" when you have more failed keys with them than timed ones."
+  self.pastFailedBtn = fm
+  y = y - 28
+  AddCheck(self, f, x1, y, "Show past keys in pick ratings", function() return S().pastKeys.rating == true end,
+    function(v) S().pastKeys.rating = v; ns:Fire("SETTINGS_CHANGED") end,
+    "Adds a \"Past keys\" step to Why N?: the same points Fill group uses (5 at Relaxed, 3 at Standard, a tiebreak at Strict) for players you've timed with, taken off for players you've failed with. A full closer of a critical need still never rates below anyone who doesn't."):SetWidth(300)
+  y = y - 24
+  Note(f, x1, y, 300, "From your own History (keys recorded from 1.5.0 on). It can't tell who left a key or why it was abandoned.")
+
   SubHead(f, x2, -44, "Groups you could join")
   local yy = -66
   AddCheck(self, f, x2, yy, "Colored edge stripe on listings", function() return S().listingMarker ~= "off" end,
@@ -5620,7 +5708,25 @@ function UI:BuildSettings_fill(f)
     "The game flags players who recently left keys early. They stay on the list, dimmed and tagged SKIPPED."):SetWidth(400); yy = yy - 24
   AddCheck(self, f, x2, yy, "Skip players the game sends no data for", function() return FillS().skipNoData ~= false end,
     function(v) FillS().skipNoData = v; ns:Fire("FILL_SETTINGS_CHANGED") end,
-    "With a minimum on, an applicant without a rating or item level from the game is skipped. Off lets them through that filter."):SetWidth(400); yy = yy - 34
+    "With a minimum on, an applicant without a rating or item level from the game is skipped. Off lets them through that filter."):SetWidth(400); yy = yy - 24
+  -- Past keys together (1.5.0): only among groups that already pass the level and the musts.
+  AddCheck(self, f, x2, yy, "Prefer players I've timed with", function() return FillS().preferTimed == true end,
+    function(v) FillS().preferTimed = v; ns:Fire("FILL_SETTINGS_CHANGED") end,
+    "Among groups that already pass, players you've timed keys with count for more (5 points each at Relaxed, 3 at Standard, a tiebreak at Strict). Never makes a failing group pass."):SetWidth(400); yy = yy - 26
+  local fwl = Text(f, 12, C.text); fwl:SetPoint("TOPLEFT", x2 + 22, yy - 3); fwl:SetText("Players I've failed with:")
+  local fw = Button(f, "", 130, 20, function(btn)
+    local items = {}
+    for _, d in ipairs({ { "off", "No change" }, { "lower", "Lower priority" }, { "skip", "Skip" } }) do
+      items[#items + 1] = { text = d[2], selected = (FillS().failedWith or "off") == d[1],
+        onClick = function() FillS().failedWith = d[1]; ns:Fire("FILL_SETTINGS_CHANGED"); UI:RefreshSettings() end }
+    end
+    UI:ShowMenu(btn, items)
+  end)
+  SetFontSize(fw.text, 11)
+  fw:SetPoint("LEFT", fwl, "RIGHT", 8, 0)
+  fw.tooltip = "More failed keys than timed ones with you (what counts as failed: Settings > Group Finder). Lower priority: they count for less among groups that pass. Skip: like a filter, dimmed and tagged SKIPPED with the reason."
+  self.fillFailedBtn = fw
+  yy = yy - 34
 
   SubHead(f, x2, yy, "Auto-fill"); yy = yy - 22
   AddCheck(self, f, x2, yy, "Turn Auto-fill on when I list a group", function() return FillS().autoArm == true end,
@@ -5840,6 +5946,10 @@ function UI:RefreshSettings()
   end
   self:SyncAppearance()
   self:RefreshFillSettings()
+  if self.pastFailedBtn then self.pastFailedBtn.text:SetText(ns.History.FAILED_LABEL[ns.History:FailedMode()]) end
+  if self.fillFailedBtn then
+    self.fillFailedBtn.text:SetText(({ off = "No change", lower = "Lower priority", skip = "Skip" })[ns.db.settings.fill.failedWith or "off"] or "No change")
+  end
   if self.bossFontLabel then
     self.bossFontLabel:SetText("Text size: " .. tostring((ns.db.settings.bossWindow or {}).fontSize or 12) .. " px")
   end

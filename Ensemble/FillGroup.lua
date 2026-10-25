@@ -664,17 +664,45 @@ function FG:Plan(ctx, evals, settings)
   plan.slots = slots
   if slots == 0 then plan.status = "full"; return plan end
 
+  -- Past keys together (1.5.0, F2): Skip works like a filter; Prefer and Lower priority move
+  -- groups only in the order they're tried, so they act among groups that pass: a group that
+  -- fails the level or a must never passes because of them, and coverage always wins.
+  local fs = FillSettings(settings)
+  local past = { prefer = fs.preferTimed == true, mode = fs.failedWith or "off" }
+  past.w = ns.History and ns.History:PastPoints(plan.level) or 0
+  plan.past = past
+  local function PastOf(ev)
+    local adj, tie, failedWho, timedN = 0, 0, nil, 0
+    if not ns.History or not (past.prefer or past.mode ~= "off") then return 0, 0, nil, 0 end
+    for _, m in ipairs(ev.members or {}) do
+      local st, c = ns.History:Standing(m.full, settings)
+      if st == "timed" and past.prefer then adj, tie, timedN = adj + past.w, tie + 1, timedN + 1
+      elseif st == "failed" then
+        if past.mode == "lower" then adj, tie = adj - past.w, tie - 1 end
+        failedWho = failedWho or { m = m, c = c }
+      end
+    end
+    return adj, tie, failedWho, timedN
+  end
+
   -- Filters and the candidate pool.
   local cands = {}
   for _, ev in ipairs(evals or {}) do
     if Status(ev) ~= "invited" then
       local why = FG.FilterApplication(ev, plan.filters)
+      local adj, tie, failedWho, timedN = PastOf(ev)
+      if not why and failedWho and past.mode == "skip" then
+        why = "past keys" .. (#(ev.members or {}) > 1 and (" with " .. tostring(failedWho.m.name)) or "")
+          .. ": " .. tostring(ns.History:WithText(failedWho.c)) .. " with you"
+      end
       if why then plan.skipped[#plan.skipped + 1] = { ev = ev, reason = why }
       else
         local need, fits = {}, true
         for _, r in ipairs(ev.roles or {}) do need[r] = (need[r] or 0) + 1 end
         for r, n in pairs(need) do if n > (open[r] or 0) then fits = false end end
-        if fits and #(ev.roles or {}) > 0 then cands[#cands + 1] = { ev = ev, need = need } end
+        if fits and #(ev.roles or {}) > 0 then
+          cands[#cands + 1] = { ev = ev, need = need, adj = adj, tie = tie, timedN = timedN, failed = failedWho and true or nil }
+        end
       end
     end
   end
@@ -704,7 +732,9 @@ function FG:Plan(ctx, evals, settings)
   -- Prune per role to the best few by pick rating (premades kept, they're rare).
   local perRole = h.FILL_POOL_PER_ROLE or 8
   table.sort(cands, function(x, y)
-    if x.ev.score ~= y.ev.score then return x.ev.score > y.ev.score end
+    local sx, sy = x.ev.score + x.adj, y.ev.score + y.adj
+    if sx ~= sy then return sx > sy end
+    if x.tie ~= y.tie then return x.tie > y.tie end
     return (x.ev.members[1].firstSeen or 0) < (y.ev.members[1].firstSeen or 0)
   end)
   local kept, taken, cut = {}, {}, {}
@@ -755,7 +785,7 @@ function FG:Plan(ctx, evals, settings)
   for r, n in pairs(open) do left[r] = n end
   local counts, nspecs = {}, #specs
   for i = 1, nspecs do counts[i] = baseCounts[i] or 0 end
-  local total, wait = 0, 0
+  local total, wait, adj, tie = 0, 0, 0, 0
   local function rec(i, remaining)
     if remaining == 0 then
       local fails = 0
@@ -765,7 +795,7 @@ function FG:Plan(ctx, evals, settings)
       end
       local list = {}
       for k = 1, #chosen do list[k] = chosen[k] end
-      leaves[#leaves + 1] = { list = list, total = total, wait = wait, cheap = fails }
+      leaves[#leaves + 1] = { list = list, total = total, wait = wait, cheap = fails, adj = adj, tie = tie }
       return
     end
     if i > #kept then return end
@@ -777,10 +807,12 @@ function FG:Plan(ctx, evals, settings)
       for r, n in pairs(c.need) do left[r] = left[r] - n; used = used + n end
       for k = 1, nspecs do counts[k] = counts[k] + (c.counts[k] or 0) end
       total, wait = total + (c.ev.score or 0), wait + (c.ev.members[1].firstSeen or 0)
+      adj, tie = adj + c.adj, tie + c.tie
       chosen[#chosen + 1] = c
       rec(i + 1, remaining - used)
       chosen[#chosen] = nil
       total, wait = total - (c.ev.score or 0), wait - (c.ev.members[1].firstSeen or 0)
+      adj, tie = adj - c.adj, tie - c.tie
       for k = 1, nspecs do counts[k] = counts[k] - (c.counts[k] or 0) end
       for r, n in pairs(c.need) do left[r] = left[r] + n end
     end
@@ -801,8 +833,11 @@ function FG:Plan(ctx, evals, settings)
       or "Waiting for applicants that fit the open slots together."
     return plan
   end
+  -- Best total first; past keys (when on) add their points, and at Strict only break ties.
   table.sort(leaves, function(x, y)
-    if x.total ~= y.total then return x.total > y.total end
+    local tx, ty = x.total + x.adj, y.total + y.adj
+    if tx ~= ty then return tx > ty end
+    if x.tie ~= y.tie then return x.tie > y.tie end
     return x.wait < y.wait
   end)
 
@@ -849,6 +884,9 @@ function FG:Plan(ctx, evals, settings)
     plan.status = "ready"
     plan.picks = picksOf(best)
     plan.total = best.total
+    plan.pastAdj = best.adj ~= 0 and best.adj or nil
+    past.timedIDs = {}
+    for _, c in ipairs(best.list) do if c.timedN > 0 then past.timedIDs[c.ev.applicantID] = true end end
     plan.judge = best.judge
     plan.after = best.r
     plan.groupAfter = Fit:GroupAfter(best.r, settings, 0)
@@ -896,6 +934,13 @@ local function SettingsSig(settings, dk)
   for _, k in ipairs({ "rating", "ilvl" }) do
     local c = fs[k] or {}
     parts[#parts + 1] = tostring(c.on) .. tostring(c.source) .. tostring(c.value)
+  end
+  -- Past keys (1.5.0): the toggles, what counts as failed, and the history they read.
+  parts[#parts + 1] = tostring(fs.preferTimed) .. tostring(fs.failedWith)
+  if fs.preferTimed or (fs.failedWith and fs.failedWith ~= "off") then
+    local runs = ns.db and ns.db.history or {}
+    parts[#parts + 1] = tostring((Settings(settings).pastKeys or {}).failed) .. ":" .. #runs .. ":"
+      .. tostring(runs[1] and runs[1].started) .. ":" .. tostring(runs[1] and runs[1].result)
   end
   local m = ns.db and ns.db.fillMusts and ns.db.fillMusts[dk or ""]
   if m then
