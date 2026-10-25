@@ -3762,7 +3762,8 @@ do
   ok(inFolder and root and inFolder == root, "Ensemble/LICENSE.txt is an exact copy of LICENSE")
   local toc = slurp(ADDON_DIR .. "/Ensemble.toc") or ""
   ok(toc:find("\n## X%-Curse%-Project%-ID: 1745945") ~= nil, "TOC has the CurseForge project ID")
-  ok(toc:find("\n## X%-Wago%-ID: QKyq2vK7") ~= nil, "TOC has the Wago project ID")
+  -- Not published to Wago since October 24, 2026: no Wago ID, so the packager never uploads there.
+  ok(not toc:find("X%-Wago%-ID"), "TOC has no Wago project ID")
 end
 
 -- 60. Plan tab (1.3.0 issues #5, #6, #7, #9), the issue's own case: Den of Nalorakk +17 with

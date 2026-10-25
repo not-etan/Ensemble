@@ -3,8 +3,7 @@
 # A local test build: the same layout as the release zip that .github/workflows/release.yml
 # uploads (BigWigs packager, .pkgmeta): one Ensemble/ folder with the code, media and
 # LICENSE.txt (a copy of LICENSE, kept identical; the tests check).
-# Also writes the store descriptions: dist/overview-bbcode.txt (CurseForge) and
-# dist/overview-wago.md (Wago: Markdown with full web addresses), and regenerates README.md.
+# Also writes the store description dist/overview-bbcode.txt (CurseForge) and regenerates README.md.
 set -e
 cd "$(dirname "$0")/.."
 rm -f Ensemble/README.md
@@ -18,7 +17,5 @@ rm -f "dist/Ensemble-$VER.zip"
 rm -rf dist/stage
 python3 tools/md_to_bbcode.py branding/overview.md > dist/overview-bbcode.txt
 python3 tools/make_readme.py branding/overview.md > README.md
-python3 tools/make_readme.py --wago branding/overview.md > dist/overview-wago.md
 echo "dist/Ensemble-$VER.zip"
 echo "dist/overview-bbcode.txt"
-echo "dist/overview-wago.md"

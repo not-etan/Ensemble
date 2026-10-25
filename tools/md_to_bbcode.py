@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert branding/overview.md to the BBCode used on addon sites (CurseForge/Wago style).
+"""Convert branding/overview.md to the BBCode used on addon sites (CurseForge).
 
 Usage: python3 tools/md_to_bbcode.py branding/overview.md > dist/overview-bbcode.txt
 """

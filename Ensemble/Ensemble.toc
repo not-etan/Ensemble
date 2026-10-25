@@ -10,7 +10,6 @@
 ## AddonCompartmentFuncOnLeave: Ensemble_OnAddonCompartmentLeave
 ## Category: Dungeons & Raids
 ## X-Curse-Project-ID: 1745945
-## X-Wago-ID: QKyq2vK7
 
 # The "## Interface:" line above is the ONLY place the client build number lives.
 # For a point release (e.g. 120105) change that single line. Multiple builds may be
