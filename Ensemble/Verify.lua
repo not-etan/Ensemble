@@ -557,7 +557,7 @@ local function CheckFill()
   end
   local fn = C_MythicPlus and C_MythicPlus.GetRewardLevelForDifficultyLevel
   if type(fn) ~= "function" then
-    Add("WARN", "C_MythicPlus.GetRewardLevelForDifficultyLevel missing: no suggested item level (set your own or use your listing's)")
+    Add("WARN", "C_MythicPlus.GetRewardLevelForDifficultyLevel missing: the suggested item level uses Ensemble's table")
   else
     -- 0 (or nothing) means no suggested item level: the filter shows "Not in force" (seen in
     -- 12.1.5 build 70575, October 24: end of run 0, weekly 318). Was marked OK before 1.4.1.
@@ -566,8 +566,12 @@ local function CheckFill()
     Add(good and "OK" or "WARN", string.format("reward item level for +10: end of run %s, weekly %s%s",
       tostring(ok and eor), tostring(ok and weekly),
       good and " (suggested item level reads this)"
-      or " - no end-of-run value, so the suggested item level stays off (use your listing's or a custom number)"))
+      or " - no end-of-run value from the game, so the suggested item level uses Ensemble's table (issue #18)"))
   end
+  -- Which source the suggested item level uses (1.5.1, #18): the game or the season's table.
+  local sv, src = FG:SuggestedItemLevel(12)
+  Add(sv and "OK" or "WARN", "suggested item level for a +12: " .. tostring(sv or "none")
+    .. (src == "game" and " (from the game)" or src == "table" and " (from Ensemble's table for this season)" or ""))
   local okH, has = pcall(C_LFGList.HasActiveEntryInfo)
   if okH and has then
     local okE, entry = pcall(C_LFGList.GetActiveEntryInfo)

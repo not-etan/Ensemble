@@ -133,11 +133,20 @@ function FG:SuggestedItemLevel(keyLevel)
   Init()
   local h = H()
   if not keyLevel or keyLevel < (h.FILL_SUGGEST_FROM or 7) then return nil end
+  local L = math.max(2, keyLevel - (h.FILL_SUGGEST_OFFSET or 2))
+  -- The game first; when it gives nothing (0 in 12.1.5, issue #18) or the call is missing,
+  -- the season's table (DD.HEURISTICS.FILL_END_OF_RUN_ILVL). Second return: "game" or "table".
   local fn = C_MythicPlus and C_MythicPlus.GetRewardLevelForDifficultyLevel
-  if type(fn) ~= "function" then return nil, "api" end
-  local ok, _, endOfRun = pcall(fn, math.max(2, keyLevel - (h.FILL_SUGGEST_OFFSET or 2)))
-  endOfRun = ok and tonumber(endOfRun) or nil
-  if endOfRun and endOfRun > 0 then return math.floor(endOfRun) end
+  if type(fn) == "function" then
+    local ok, _, endOfRun = pcall(fn, L)
+    endOfRun = ok and tonumber(endOfRun) or nil
+    if endOfRun and endOfRun > 0 then return math.floor(endOfRun), "game" end
+  end
+  local t = h.FILL_END_OF_RUN_ILVL
+  if type(t) == "table" then
+    local v = t[math.min(L, h.FILL_END_OF_RUN_CAP or 10)]
+    if tonumber(v) then return tonumber(v), "table" end
+  end
   return nil, "api"
 end
 

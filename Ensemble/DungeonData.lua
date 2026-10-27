@@ -155,6 +155,17 @@ DD.HEURISTICS = {
   -- ask for what timing every dungeon this many levels below the key would give.
   FILL_SUGGEST_FROM = 7,
   FILL_SUGGEST_OFFSET = 2,
+  -- Mythic+ end-of-run loot item level by key level, Midnight Season 2 (#18, 1.5.1). The game
+  -- is asked first (C_MythicPlus.GetRewardLevelForDifficultyLevel); in 12.1.5 it answered 0 for
+  -- the end of run (build 70575, October 24, 2026), so the suggested item level falls back to
+  -- this table. Loot stops rising at +10 (FILL_END_OF_RUN_CAP), so the suggested minimum (two
+  -- levels below the key) stops rising at +12. Sources, all three agreeing exactly: Wowhead's
+  -- "Mythic+ Season Overview" (updated September 29, 2026), Icy Veins' Midnight Mythic+ Season 2
+  -- guide (August 5, 2026), Warcraft Wiki's Midnight Season 2 page; Method.gg's track page backs
+  -- them (Hero 1/6 305, 3/6 311; its dungeon page is 3 low at the Hero ranks). Re-check each
+  -- season (Season Update runbook).
+  FILL_END_OF_RUN_ILVL = { [2] = 295, [3] = 295, [4] = 298, [5] = 302, [6] = 305, [7] = 305, [8] = 308, [9] = 308, [10] = 311 },
+  FILL_END_OF_RUN_CAP = 10,
   FILL_RATING_ROUND = 50,
   -- Mythic+ rating model for the suggested minimum: a timed key's dungeon score is
   -- RATING_BASE at +RATING_BASE_LEVEL, RATING_PER_LEVEL more per level, RATING_AFFIX_BONUS more at

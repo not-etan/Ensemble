@@ -4760,10 +4760,20 @@ do
   local oldReward = C_MythicPlus.GetRewardLevelForDifficultyLevel
   C_MythicPlus.GetRewardLevelForDifficultyLevel = nil
   local v, why = FG:SuggestedItemLevel(12)
-  ok(v == nil and why == "api", "no reward API: no suggested item level")
+  ok(v == 311 and why == "table", "no reward API: the season's table (#18, 1.5.1)")
   C_MythicPlus.GetRewardLevelForDifficultyLevel = function() error("boom") end
-  ok(FG:SuggestedItemLevel(12) == nil, "reward API error: no value, no Lua error")
+  ok(FG:SuggestedItemLevel(12) == 311, "reward API error: the table, no Lua error")
+  -- The game answers 0 for the end of run (12.1.5, #18): the table, two levels below the key,
+  -- capped at +10's loot (311), off up to +6.
+  C_MythicPlus.GetRewardLevelForDifficultyLevel = function() return 318, 0 end
+  local tv = {}
+  for L = 6, 20 do tv[#tv + 1] = tostring(FG:SuggestedItemLevel(L)) end
+  ok(table.concat(tv, ",") == "nil,302,305,305,308,308,311,311,311,311,311,311,311,311,311",
+    "suggested item level from the table: +7 302 ... +12 and up 311, off up to +6 (" .. table.concat(tv, ",") .. ")")
+  ok(select(2, FG:SuggestedItemLevel(14)) == "table" and FG:Filters(ns70.db.settings, 14).ilvl.on and FG:Filters(ns70.db.settings, 14).ilvl.value == 311,
+    "the filter is in force from the table")
   C_MythicPlus.GetRewardLevelForDifficultyLevel = oldReward
+  ok(select(2, FG:SuggestedItemLevel(12)) == "game", "a value from the game wins over the table")
 
   -- Levels.
   local s = ns70.db.settings
@@ -6922,6 +6932,7 @@ do
   local vt = ns80.Verify:Build()
   ok(vt:find("one player per class in each role: on", 1, true) and not vt:find("Brenna", 1, true) and not vt:find("Rhia", 1, true),
     "verify: the class rule's state, counts only, no names")
+  ok(vt:find("suggested item level for a +12: ", 1, true), "verify: which source the suggested item level uses (#18)")
   local chk
   for _, c in ipairs(UI80.checks or {}) do if c.label and c.label.GetText and tostring(c.label:GetText()):find("One player per class", 1, true) then chk = c end end
   ok(chk ~= nil, "Settings > Fill group has \"One player per class in each role\"")
