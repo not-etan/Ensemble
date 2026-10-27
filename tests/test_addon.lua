@@ -6941,5 +6941,104 @@ do
   APPLICANTS, APPLICANT_STATUS, LISTING, ROSTER, INSPECT_CACHE = {}, {}, nil, {}, {}
 end
 
+-- 81. F1 extras (1.5.1, approved October 26, 2026): wipes per boss with the boss's lowest
+-- health (ENCOUNTER_END's encounterUnitStatus), shown on History's Bosses line; the boss window
+-- matches kills by encounter ID before names and catches up from the key's objectives.
+do
+  EnsembleDB = nil
+  CURRENT_AFFIXES = {}
+  ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" } }
+  INSPECT_CACHE = {}
+  local SECRET = {}
+  local function mark(v) local t = { v = v }; SECRET[t] = true; return t end
+  CRITERIA = {}
+  C_Scenario = { GetStepInfo = function() return "Temple", "", #CRITERIA end }
+  C_ScenarioInfo = { GetCriteriaInfo = function(i) return CRITERIA[i] end }
+  GetWorldElapsedTime = function() return 1, 100, true end
+  local function crit(enc, name, done) return { criteriaType = 165, assetID = enc, description = name, completed = done } end
+  local nsW = boot()
+  local Hw, BC = nsW.History, nsW.BossCards
+  local dk
+  for k, d in pairs(nsW.Dungeons.list) do if d.name == "Temple of Sethraliss" then dk = k end end
+  local hf
+  for _, fr in ipairs(ALLFRAMES) do if fr._events.CHALLENGE_MODE_COMPLETED and fr ~= BC.frame then hf = fr end end
+  local function fire(fr, ev, ...) fr._scripts.OnEvent(fr, ev, ...); RunTimers() end
+  local function units(...) local t = {} for i, v in ipairs({ ... }) do t[i] = { creatureID = 1000 + i, creatureName = "Boss " .. i, remainingHealthPercent = v } end return t end
+
+  ACTIVE_CHALLENGE, ACTIVE_KEY_LEVEL, ACTIVE_KEY_AFFIXES = 250, 12, {}
+  DEATHS = 0
+  CRITERIA = { crit(2124, "Adderis and Aspix", false), crit(2125, "Merektha", false) }
+  fire(hf, "CHALLENGE_MODE_START")
+  -- Two wipes on Merektha (40% then 12%), then the kill; a two-boss wipe on Adderis and Aspix
+  -- counts the boss with the most health left.
+  fire(hf, "ENCOUNTER_END", 2125, "Merektha", 8, 5, 0, units(40))
+  fire(hf, "ENCOUNTER_END", 2125, "Merektha", 8, 5, 0, units(12))
+  fire(hf, "ENCOUNTER_END", 2124, "Adderis and Aspix", 8, 5, 0, units(30, 55))
+  local run = nsW.db.activeRun
+  ok(Hw:WipeText(run, 2125) == "wiped 2x, best 12%", "wipes per boss: two wipes, the lowest health reached (" .. tostring(Hw:WipeText(run, 2125)) .. ")")
+  ok(Hw:WipeText(run, 2124) == "wiped 1x, best 55%", "several bosses: the one with the most health left counts")
+  ok(not run.splits or #run.splits == 0, "a wipe is never a split")
+  -- No status (or a hidden one): the wipe still counts, without a health.
+  fire(hf, "ENCOUNTER_END", 2126, "Galvazzt", 8, 5, 0, nil)
+  ok(Hw:WipeText(run, 2126) == "wiped 1x", "no boss health from the game: the wipe still counts")
+  issecretvalue = function(v) return SECRET[v] == true end
+  fire(hf, "ENCOUNTER_END", 2126, "Galvazzt", 8, 5, 0, { { creatureID = 1, creatureName = "x", remainingHealthPercent = mark(5) } })
+  ok(Hw:WipeText(run, 2126) == "wiped 2x" and Hw.lastWipe and Hw.lastWipe.raw == nil, "a hidden health is left out, no error")
+  issecretvalue = nil
+  -- The kill, then the key ends over time: Merektha's wipes on its split, Galvazzt never killed.
+  CRITERIA = { crit(2124, "Adderis and Aspix", false), crit(2125, "Merektha", true) }
+  fire(hf, "SCENARIO_CRITERIA_UPDATE")
+  COMPLETION = { mapChallengeModeID = 250, level = 12, time = 2600 * 1000, onTime = false, keystoneUpgradeLevels = 0 }
+  fire(hf, "CHALLENGE_MODE_COMPLETED")
+  ACTIVE_CHALLENGE = nil
+  local saved = nsW.db.history[1]
+  ok(saved.wipes and #saved.wipes == 3 and saved.splits and #saved.splits == 1, "the run keeps its wipes and its split")
+  -- History draws them on the Bosses line, including the boss never killed.
+  nsW.UI:Show("history"); RunTimers()
+  local hist = {}
+  local HL = nsW.UI.hp.runs
+  for i = 1, (HL.used or 0) do hist[#hist + 1] = HL.pool[i]:GetText() or "" end
+  local htext = table.concat(hist, "\n")
+  ok(htext:find("wiped 2x, best 12%", 1, true) and htext:find("Galvazzt", 1, true) and htext:find("wiped 2x", 1, true),
+    "History: the Bosses line shows wipes, a boss never killed included")
+
+  -- The boss window: the encounter ID first, even with a hidden or different name.
+  local realIDs = BC.EncounterIDs
+  BC.EncounterIDs = function(self, d) return { byID = { [3207] = 2 }, byName = {} } end
+  local idx, how = BC:IndexForEncounter(dk, 3207, nil)
+  ok(idx == 2 and how == "id", "the encounter ID matches a card with no name")
+  idx, how = BC:IndexForEncounter(dk, 3207, "Adderis and Aspix")
+  ok(idx == 2 and how == "id", "the encounter ID comes before the name")
+  idx, how = BC:IndexForEncounter(dk, 9999, "Galvazzt")
+  ok(idx == 3 and how == "name", "an unknown ID falls back to the name")
+  BC.matches = { id = 0, name = 0, screen = 0, objectives = 0 }
+  BC.state = { dk = dk, killed = {}, index = 1 }
+  BC:OnEncounterEnd(9999, nil, 8, 5, 1)
+  ok(BC.state.killed[1] and BC.matches.screen == 1, "neither matches: the card on screen, counted for verify")
+  BC:OnEncounterEnd(3207, nil, 8, 5, 1)
+  ok(BC.state.killed[2] and BC.matches.id == 1, "a kill matched by ID with the name hidden")
+  -- The key's objectives catch the window up (a /reload, or a kill whose event was hidden).
+  BC.state = { dk = dk, killed = {}, index = 1 }
+  CRITERIA = { crit(2124, "Adderis and Aspix", true), crit(3207, "?", true), crit(2126, "Galvazzt", false) }
+  fire(BC.frame, "SCENARIO_CRITERIA_UPDATE")
+  ok(BC.state.killed[1] and BC.state.killed[2] and not BC.state.killed[3] and BC.state.index == 3 and BC.matches.objectives == 2,
+    "objectives: both bosses down marked killed, the window on the next one")
+  ok(BC.frame._events.SCENARIO_CRITERIA_UPDATE, "the boss window listens for the key's objectives")
+  BC.EncounterIDs = realIDs
+  -- Verify: the last wipe's raw health and how kills were matched.
+  local vt = nsW.Verify:Build()
+  ok(vt:find("last wipe: ", 1, true) and vt:find("boss window kills this session: 1 by encounter ID", 1, true),
+    "verify: the last wipe and the kill matching")
+  -- Saved data: a bad wipe entry is dropped on load, a bad health cleared.
+  saved.wipes[#saved.wipes + 1] = { enc = "x", n = 1 }
+  saved.wipes[#saved.wipes + 1] = { enc = 9, n = 1, best = "y" }
+  EnsembleDB = nsW.db
+  local nsW2 = boot()
+  local sw = nsW2.db.history[1].wipes
+  ok(#sw == 4 and sw[4].enc == 9 and sw[4].best == nil, "saved wipes cleaned on load: a bad entry dropped, a bad health cleared")
+  CRITERIA, C_ScenarioInfo, C_Scenario = {}, nil, nil
+  ROSTER, INSPECT_CACHE = {}, {}
+end
+
 print(string.format("%d passed, %d failed", passes, fails))
 return fails

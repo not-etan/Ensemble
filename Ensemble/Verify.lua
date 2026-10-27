@@ -434,6 +434,24 @@ local function CheckHistory()
     local run = ns.db.activeRun
     Add("INFO", "splits recorded this key: " .. (run and run.splits and #run.splits or 0))
   end
+  -- Wipes per boss (1.5.1): the last failed pull's bosses' health from ENCOUNTER_END's sixth
+  -- argument. The raw value says whether the game sends 0-100 (read as a percent) or 0-1.
+  local lw = H.lastWipe
+  if lw then
+    Add((lw.status and lw.raw) and "OK" or "WARN", "last wipe: " .. (lw.status and (tostring(lw.units or 0) .. " boss unit(s), highest remaining health raw "
+      .. tostring(lw.raw) .. " (read as a percent)") or "no boss health with it (encounterUnitStatus missing or hidden): the wipe still counts"))
+  else
+    Add("INFO", "wipes per boss: no failed pull seen since the last reload (a wipe inside a key shows the boss health the game sends)")
+  end
+  -- Boss window kill matching (1.5.1): by encounter ID first, then name, then the card on screen.
+  local BC = ns.BossCards
+  if BC and BC.matches then
+    local m = BC.matches
+    local total = (m.id or 0) + (m.name or 0) + (m.screen or 0) + (m.objectives or 0)
+    Add(total == 0 and "INFO" or ((m.screen or 0) > 0 and "WARN" or "OK"), string.format(
+      "boss window kills this session: %d by encounter ID, %d by name, %d from the key's objectives, %d by the card on screen%s",
+      m.id or 0, m.name or 0, m.objectives or 0, m.screen or 0, (m.screen or 0) > 0 and " (neither ID nor name matched)" or ""))
+  end
 end
 
 local function CheckGroupFinder()

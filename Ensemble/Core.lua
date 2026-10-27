@@ -482,6 +482,14 @@ local function SanitizeDB(db)
         end
       end
     elseif run.splits ~= nil then run.splits = nil end
+    -- Wipes per boss (1.5.1): { enc, n, best?, boss? }.
+    if type(run.wipes) == "table" then
+      for i = #run.wipes, 1, -1 do
+        local w = run.wipes[i]
+        if type(w) ~= "table" or type(w.enc) ~= "number" or type(w.n) ~= "number" then table.remove(run.wipes, i)
+        elseif w.best ~= nil and type(w.best) ~= "number" then w.best = nil end
+      end
+    elseif run.wipes ~= nil then run.wipes = nil end
     if type(run.comp) == "table" then
       for _, m in ipairs(run.comp) do
         if type(m) == "table" and m.full ~= nil and type(m.full) ~= "string" then m.full = nil end

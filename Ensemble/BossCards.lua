@@ -390,21 +390,24 @@ function BC:Decorate(dk, text)
   return ns.Links:Decorate(text, nil, dk, self:JournalSpells(dk))
 end
 
--- Which card an encounter belongs to: by name first (exact, then partial: "Kyrakka and
--- Erkhart Stormvein" vs "Kyrakka"), then by the journal's encounter ID and position.
+-- Which card an encounter belongs to (1.5.1, F1 extra): by the game's encounter ID first (the
+-- DungeonEncounterID in ENCOUNTER_START / ENCOUNTER_END and in the key's boss objectives,
+-- matched through the journal), so a hidden or non-English boss name doesn't stop the boss
+-- window; then by name (exact, then partial: "Kyrakka and Erkhart Stormvein" vs "Kyrakka").
+-- The second return says which matched ("id" or "name").
 function BC:IndexForEncounter(dk, encounterID, name)
   local bosses = self:Bosses(dk)
+  local ej = type(encounterID) == "number" and self:EncounterIDs(dk) or nil
+  local n = ej and ej.byID[encounterID]
+  if n and bosses[n] then return n, "id" end
   local nn = norm(name)
   if nn ~= "" then
-    for idx, b in ipairs(bosses) do if norm(b.name) == nn then return idx end end
+    for idx, b in ipairs(bosses) do if norm(b.name) == nn then return idx, "name" end end
     for idx, b in ipairs(bosses) do
       local bn = norm(b.name)
-      if bn:find(nn, 1, true) or nn:find(bn, 1, true) then return idx end
+      if bn:find(nn, 1, true) or nn:find(bn, 1, true) then return idx, "name" end
     end
   end
-  local ej = self:EncounterIDs(dk)
-  local n = ej and encounterID and ej.byID[encounterID]
-  if n and bosses[n] then return n end
   return nil
 end
 
@@ -550,13 +553,44 @@ function BC:OnEncounterStart(encounterID, name)
   if idx then self:Show(idx) end
 end
 
+-- How kills were matched this session (for /ens verify): by encounter ID, by name, by the
+-- card on screen (neither matched), or from the key's objectives.
+BC.matches = { id = 0, name = 0, screen = 0, objectives = 0 }
+
 -- Same arguments as the ENCOUNTER_END event.
 function BC:OnEncounterEnd(encounterID, name, difficultyID, groupSize, success)
   local dk = self.state.dk
   if not dk or not (success == 1 or success == true) then return end
-  local idx = self:IndexForEncounter(dk, encounterID, name) or self.state.index
-  if idx then self.state.killed[idx] = true end
+  local idx, how = self:IndexForEncounter(dk, encounterID, name)
+  if not idx then idx, how = self.state.index, "screen" end
+  if idx then
+    self.state.killed[idx] = true
+    self.matches[how] = (self.matches[how] or 0) + 1
+  end
   self:Show(self:FirstAlive(dk, self.state.killed))
+end
+
+-- The key's boss objectives (1.5.1, F1 extra): every boss they show as down is marked killed,
+-- matched by its encounter ID (then the objective's name), so the window catches up after a
+-- /reload or a kill whose ENCOUNTER_END was hidden. Reads through History:BossCriteria (every
+-- value checked with issecretvalue).
+function BC:SyncObjectives()
+  local dk = self.state.dk
+  if not dk or not (ns.History and ns.History.BossCriteria) then return false end
+  local list = ns.History:BossCriteria()
+  local changed = false
+  for _, c in ipairs(list or {}) do
+    if c.completed then
+      local idx = self:IndexForEncounter(dk, c.enc, c.name)
+      if idx and not self.state.killed[idx] then
+        self.state.killed[idx] = true
+        self.matches.objectives = self.matches.objectives + 1
+        changed = true
+      end
+    end
+  end
+  if changed then self:Show(self:FirstAlive(dk, self.state.killed)) end
+  return changed
 end
 
 -- Where you are right now (a Season dungeon with boss cards), or nil.
@@ -572,7 +606,7 @@ end
 local frame = CreateFrame("Frame")
 BC.frame = frame
 local EVENTS = { "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA", "ENCOUNTER_START", "ENCOUNTER_END",
-                 "CHALLENGE_MODE_START", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED" }
+                 "CHALLENGE_MODE_START", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "SCENARIO_CRITERIA_UPDATE" }
 BC.eventsOK = {}
 function BC:RegisterEvents()
   for _, ev in ipairs(EVENTS) do
@@ -610,6 +644,8 @@ frame:SetScript("OnEvent", function(_, event, a1, a2, a3, a4, a5)
     BC:OnEncounterStart(a1, a2)
   elseif event == "ENCOUNTER_END" then
     BC:OnEncounterEnd(a1, a2, a3, a4, a5)
+  elseif event == "SCENARIO_CRITERIA_UPDATE" then
+    if BC.state.dk then pcall(BC.SyncObjectives, BC) end
   elseif event == "CHALLENGE_MODE_START" then
     BC:CheckZone(); BC:NewRun(); ns:Fire("BOSS_CARD_CHANGED")
   elseif event == "PLAYER_REGEN_DISABLED" then

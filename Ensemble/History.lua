@@ -16,7 +16,9 @@
 --     tracker shows; the same reads WarpDeplete uses in Midnight). Count from
 --     C_Scenario.GetStepInfo()'s third return, else C_ScenarioInfo.GetScenarioStepInfo().numCriteria.
 --   GetWorldElapsedTime(1) -> _, elapsed seconds on the key's timer.
---   ENCOUNTER_END (encounterID, name, difficulty, size, success) is the second path.
+--   ENCOUNTER_END (encounterID, name, difficulty, size, success) is the second path; a failed
+--     pull (success 0) is a wipe, with the bosses' remaining health from its sixth argument
+--     (encounterUnitStatus, 12.0.7+) (1.5.1).
 local _, ns = ...
 
 local H = {}
@@ -188,10 +190,55 @@ function H:CheckSplits(approx)
   return added
 end
 
-function H:OnEncounterEnd(encounterID, name, success)
+function H:OnEncounterEnd(encounterID, name, success, status)
   local run = ns.db and ns.db.activeRun
-  if not run or not (success == 1 or success == true) then return end
-  AddSplit(run, encounterID, "encounter", type(name) == "string" and name or nil)
+  if not run then return end
+  if success == 1 or success == true then
+    AddSplit(run, encounterID, "encounter", type(name) == "string" and name or nil)
+  elseif success == 0 or success == false then
+    self:AddWipe(run, encounterID, name, status)
+  end
+end
+
+-- Wipes per boss (1.5.1, F1 extra): each failed pull of a boss and the lowest health it reached,
+-- from ENCOUNTER_END's sixth argument (12.0.7+: a list of { creatureID, creatureName,
+-- remainingHealthPercent } for every boss unit engaged; Blizzard's 12.1.5 API docs). An
+-- encounter with several bosses counts its highest remaining health (all of them must die).
+-- Every value through issecretvalue; a hidden or missing health still counts the wipe.
+-- Unconfirmed in game: whether the percent is 0-100 (the field's name) or 0-1; /ens verify shows
+-- the last raw value so the first wipe settles it. Read as 0-100.
+function H:AddWipe(run, enc, name, status)
+  if type(enc) ~= "number" then return false end
+  run.wipes = run.wipes or {}
+  local w
+  for _, x in ipairs(run.wipes) do if x.enc == enc then w = x end end
+  if not w then
+    w = { enc = enc, n = 0, boss = run.key and ns.BossCards and ns.BossCards.IndexForEncounter
+      and ns.BossCards:IndexForEncounter(run.key, enc, type(name) == "string" and name or nil) or nil }
+    run.wipes[#run.wipes + 1] = w
+  end
+  w.n = w.n + 1
+  local hp
+  status = Plain(status)
+  if type(status) == "table" then
+    for _, u in ipairs(status) do
+      local v = type(u) == "table" and Plain(u.remainingHealthPercent) or nil
+      if type(v) == "number" and v >= 0 then hp = math.max(hp or 0, v) end
+    end
+  end
+  self.lastWipe = { raw = hp, units = type(status) == "table" and #status or nil, status = status ~= nil }
+  if hp then w.best = math.min(w.best or 100, math.floor(hp + 0.5)) end
+  return true
+end
+
+-- " - wiped 2x, best 12%" for a boss, or nil.
+function H:WipeText(run, enc)
+  for _, w in ipairs(run and run.wipes or {}) do
+    if w.enc == enc and (w.n or 0) > 0 then
+      return "wiped " .. w.n .. "x" .. (w.best and (", best " .. w.best .. "%") or "")
+    end
+  end
+  return nil
 end
 
 -- A boss's name from our cards, else "Boss N".
@@ -253,7 +300,7 @@ function H:SplitRows(run, best)
   end
   local prev
   for _, sp in ipairs(run.splits or {}) do
-    local row = { name = self:BossName(run, sp), t = sp.t, approx = sp.approx }
+    local row = { name = self:BossName(run, sp), t = sp.t, approx = sp.approx, enc = sp.enc }
     if sp.deaths and (not prev or prev.deaths) then row.deaths = sp.deaths - (prev and prev.deaths or 0) end
     local b = byEnc[sp.enc]
     if b and sp.t and b.sp.t then
@@ -344,6 +391,7 @@ function H:Finish(result, info)
   -- The last boss's objective can complete in the same moment as the key.
   if result ~= "abandoned" then pcall(self.CheckSplits, self) end
   if run.splits and #run.splits == 0 then run.splits = nil end
+  if run.wipes and #run.wipes == 0 then run.wipes = nil end
   ns.db.activeRun = nil
   ns.Tracker:Release("history")
   if info and info.practiceRun then return end
@@ -427,12 +475,12 @@ for _, ev in ipairs({ "CHALLENGE_MODE_START", "CHALLENGE_MODE_COMPLETED", "CHALL
   "SCENARIO_CRITERIA_UPDATE", "ENCOUNTER_END" }) do
   pcall(f.RegisterEvent, f, ev)
 end
-f:SetScript("OnEvent", function(_, event, a1, a2, a3, a4, a5)
+f:SetScript("OnEvent", function(_, event, a1, a2, a3, a4, a5, a6)
   if not ns.db or not C_ChallengeMode then return end
   if event == "SCENARIO_CRITERIA_UPDATE" then
     if ns.db.activeRun then pcall(H.CheckSplits, H) end
   elseif event == "ENCOUNTER_END" then
-    if ns.db.activeRun then pcall(H.OnEncounterEnd, H, Plain(a1), Plain(a2), Plain(a5)) end
+    if ns.db.activeRun then pcall(H.OnEncounterEnd, H, Plain(a1), Plain(a2), Plain(a5), a6) end
   elseif event == "CHALLENGE_MODE_START" then H:OnStart()
   elseif event == "CHALLENGE_MODE_COMPLETED" then H:OnCompleted()
   elseif event == "CHALLENGE_MODE_RESET" then H:Finish("abandoned")

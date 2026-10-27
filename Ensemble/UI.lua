@@ -5535,19 +5535,31 @@ function UI:RefreshHistory()
     L:Add(HEX.muted .. table.concat(bits, "   ") .. "|r", { indent = 22, size = 11, gap = 1 })
     -- Boss splits (1.5.0): kill time on the key's timer, deaths in that stretch, and the
     -- difference from your best timed run here.
-    if run.splits and #run.splits > 0 then
-      local best = ns.History:BestTimed(run.key, run, bestIndex)
+    if (run.splits and #run.splits > 0) or (run.wipes and #run.wipes > 0) then
+      local best = run.splits and ns.History:BestTimed(run.key, run, bestIndex)
       local parts = {}
-      for _, row in ipairs(ns.History:SplitRows(run, best)) do
+      local killed = {}
+      for _, row in ipairs(run.splits and ns.History:SplitRows(run, best) or {}) do
         local p = (row.final and "finish " or (row.name .. " ")) .. (row.t and ns.History.Clock(row.t) or "?")
         if row.approx then p = p .. "*" end
         if row.delta then
           p = p .. " " .. (row.delta > 0 and HEX.warn or HEX.good) .. (row.delta > 0 and "+" or "") .. ns.History.Clock(row.delta) .. "|r"
         end
         if row.deaths and row.deaths > 0 then p = p .. HEX.muted .. " (" .. row.deaths .. " death" .. (row.deaths == 1 and "" or "s") .. ")|r" end
+        -- Wipes on this boss before the kill (1.5.1).
+        local wt = row.enc and ns.History:WipeText(run, row.enc)
+        if wt then p = p .. HEX.warn .. " " .. wt .. "|r" end
+        if row.enc then killed[row.enc] = true end
         parts[#parts + 1] = p
       end
-      local tip = { "Boss kills on the key's timer, with the deaths in each stretch." }
+      -- A boss wiped on but never killed (an abandoned or over-time key).
+      for _, w in ipairs(run.wipes or {}) do
+        if not killed[w.enc] then
+          parts[#parts + 1] = ns.History:BossName(run, w) .. " " .. HEX.warn .. ns.History:WipeText(run, w.enc) .. "|r"
+        end
+      end
+      local tip = { "Boss kills on the key's timer, with the deaths in each stretch.",
+        "\"wiped 2x, best 12%\": failed pulls of that boss and the lowest health it reached." }
       if best then tip[#tip + 1] = "Colored: the difference from your best timed run here (+" .. tostring(best.level or "?") .. ", " .. Clock(best.time) .. ")." end
       for _, sp in ipairs(run.splits) do
         if sp.approx then tip[#tip + 1] = "*: seen after a reload or loading screen, so the time is when it was seen, not the kill."; break end
