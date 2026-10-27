@@ -3019,6 +3019,12 @@ function UI:BuildReserveDialog()
   d.save:SetPoint("TOPLEFT", 74, -114)
   d.err = Text(d, 11, C.bad); d.err:SetPoint("TOPLEFT", 12, -140); d.err:SetPoint("RIGHT", -12, 0)
   d.note = Text(d, 10, C.muted); d.note:SetPoint("TOPLEFT", 12, -160); d.note:SetPoint("RIGHT", -12, 0)
+  -- Stack by real height (1.5.1): any change to the error or the note lays the dialog out again,
+  -- so a line that wraps at a larger text size pushes the buttons down instead of running into them.
+  for _, fs in ipairs({ d.err, d.note }) do
+    local set = fs.SetText
+    fs.SetText = function(self, t) set(self, t); UI:LayoutReserveDialog() end
+  end
   d.cancel = Button(d, "Cancel", 80, 22, function() d:Hide() end); d.cancel:SetPoint("BOTTOMRIGHT", -10, 10)
   d.ok = Button(d, "Reserve", 96, 22, function() UI:ConfirmReserveDialog() end)
   d.ok:SetPoint("RIGHT", d.cancel, "LEFT", -6, 0)
@@ -3055,6 +3061,24 @@ function UI:BuildReserveDialog()
   d:SetScript("OnHide", function() sug:Hide() end)
   self.reserveDialog = d
   return d
+end
+
+-- The dialog's lower part by real height (1.5.1): the error (when there is one) at y 140, the
+-- note under it (or at y 160), and the dialog tall enough for the note and the buttons. Found
+-- while drawing the picker mock-ups: at 125% text the note wrapped into the Reserve button.
+UI.RESERVE_DIALOG_MIN_H = 214
+function UI:LayoutReserveDialog()
+  local d = self.reserveDialog
+  if not (d and d.err and d.note) then return end
+  local function height(fs)
+    if (fs:GetText() or "") == "" then return 0 end
+    return math.max(12, tonumber(fs:GetStringHeight()) or 12)
+  end
+  local errH = height(d.err)
+  local noteTop = 140 + (errH > 0 and (errH + 6) or 20)
+  d.note:ClearAllPoints()
+  d.note:SetPoint("TOPLEFT", 12, -noteTop); d.note:SetPoint("RIGHT", -12, 0)
+  d:SetHeight(math.max(self.RESERVE_DIALOG_MIN_H, noteTop + height(d.note) + 10 + 22 + 10))
 end
 
 -- mode: "reserve" (Fill group) or "save" (Settings > Saved players).

@@ -6937,6 +6937,21 @@ do
   for _, c in ipairs(UI80.checks or {}) do if c.label and c.label.GetText and tostring(c.label:GetText()):find("One player per class", 1, true) then chk = c end end
   ok(chk ~= nil, "Settings > Fill group has \"One player per class in each role\"")
 
+  -- The reserve dialog stacks by real height (1.5.1): a note that wraps to two lines at 125%
+  -- pushes the buttons down; an error pushes the note down.
+  UI80:OpenReserveDialog("reserve")
+  local dlg = UI80.reserveDialog
+  dlg.note.GetStringHeight = function() return 30 end
+  dlg.note:SetText(dlg.note:GetText())
+  local function noteTop() for _, pt in ipairs(rawget(dlg.note, "_points") or {}) do if pt[1] == "TOPLEFT" then return -pt[3] end end end
+  local h1 = dlg:GetHeight()
+  ok(noteTop() == 160 and h1 >= 160 + 30 + 10 + 22 + 10, "a two-line note: the dialog grows so the buttons sit under it (" .. tostring(h1) .. ")")
+  dlg.err:SetText("Pick a spec.")
+  ok(noteTop() == 140 + 12 + 6 and dlg:GetHeight() >= noteTop() + 30 + 42, "an error pushes the note down, the dialog follows")
+  dlg.err:SetText("")
+  ok(noteTop() == 160, "the error cleared: the note goes back")
+  dlg.note.GetStringHeight = nil
+  dlg:Hide()
   C_LFGList.GetApplicantDungeonScoreForListing = nil
   APPLICANTS, APPLICANT_STATUS, LISTING, ROSTER, INSPECT_CACHE = {}, {}, nil, {}, {}
 end
