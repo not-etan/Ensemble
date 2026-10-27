@@ -38,7 +38,7 @@ Ensemble is a Mythic+ companion that helps players of every skill level learn du
 - 🚦 **Fit rating:** every applicant rated Great, Good, Fair or Poor out of 100, by how well their spec fits your group and key and by their best run of this dungeon, with a point-by-point "Why?". Browsing for a group? Every Mythic+ listing shows how strong a pick you'd be.
 - ✅ **Group after:** a plain line saying whether the group is ready once they join (or once you do), or what's still missing.
 - ⚖️ **Compare and invite:** pin two applicants side by side, sort by fit, hide Poor fits, see how your past keys with each applicant went, and invite from the card or the panel beside the Group Finder.
-- 🧩 **Fill group:** builds a full group from your applicants that covers the key: Bloodlust, abilities, and anything more your strictness setting asks for. Auto-fill alerts you the moment one is ready, and you can hold a slot for a friend who's joining. Ensemble only invites when you click.
+- 🧩 **Fill group:** builds a full group from your applicants that covers the key: Bloodlust, abilities, and anything more your strictness setting asks for. Auto-fill alerts you the moment one is ready, and you can hold a slot for a friend or guildmate who's joining. Ensemble only invites when you click.
 - 📝 **Ready-to-copy lines:** "What we need" for your listing ("LF 2 DPS. Need: Poison dispel, Brez."), and a Sign Up note with your spec, rating, best run and what you'd bring.
 
 ### 🗝️ The plan
@@ -48,7 +48,7 @@ Ensemble is a Mythic+ companion that helps players of every skill level learn du
 
 ### 🎓 Learning and history
 - 💡 **Learning mode:** plain-language explanations throughout, a glossary and a quick tour, or switch it off for a compact expert view.
-- 📈 **Run history:** your keys saved locally, with boss splits against your best timed run, timed rates with and without each gap and a takeaway from every run.
+- 📈 **Run history:** your keys saved locally, with boss splits against your best timed run, wipes per boss, timed rates with and without each gap and a takeaway from every run.
 
 ---
 
