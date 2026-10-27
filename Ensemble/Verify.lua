@@ -573,6 +573,23 @@ local function CheckFill()
         #st > 0 and table.concat(st, ", ") or "none"))
     end
   end
+  -- The friends and guild picker (1.5.1): each source's state and counts, never a name.
+  local Fr = ns.Friends
+  if Fr then
+    local okL = pcall(Fr.List, Fr)
+    local parts, warn = {}, false
+    local LABEL = { friend = "friends", bnet = "Battle.net friends in WoW", guild = "guild" }
+    for _, src in ipairs(Fr.SOURCES) do
+      local st = Fr.reads[src] or {}
+      if st.ok then parts[#parts + 1] = LABEL[src] .. " " .. (st.online or 0) .. " online (" .. (st.listed or 0) .. " listed)"
+      else
+        parts[#parts + 1] = LABEL[src] .. ": " .. (st.why == "api" and "API missing" or st.why or "not read")
+        if st.why == "api" or st.why == "unreadable" then warn = true end
+      end
+    end
+    Add((okL and not warn) and "OK" or "WARN", "friends picker: " .. table.concat(parts, "; ")
+      .. ((Fr.secretReads or 0) > 0 and ("; " .. Fr.secretReads .. " value(s) hidden by the game") or ""))
+  end
   local fn = C_MythicPlus and C_MythicPlus.GetRewardLevelForDifficultyLevel
   if type(fn) ~= "function" then
     Add("WARN", "C_MythicPlus.GetRewardLevelForDifficultyLevel missing: the suggested item level uses Ensemble's table")

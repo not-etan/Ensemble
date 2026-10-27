@@ -31,6 +31,7 @@ ApplicantFit.lua
 ListingFit.lua
 FillGroup.lua
 SavedPlayers.lua
+Friends.lua
 History.lua
 UI.lua
 BossWindow.lua

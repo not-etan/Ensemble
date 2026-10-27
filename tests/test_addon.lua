@@ -1840,7 +1840,10 @@ do
   UIl.ShowMenu = function(_, _, it) items = it end
   UIl:OpenSpecMenu(UIl.cp.slotRows[5], 5)
   UIl.ShowMenu = oldShow
-  ok(type(items[2].tooltip) == "function" and items[2].tooltip():find("Net:", 1, true), "spec menu items carry the preview")
+  local firstSpec
+  for _, it in ipairs(items) do if it.specID and not firstSpec then firstSpec = it end end
+  ok(firstSpec and type(firstSpec.tooltip) == "function" and firstSpec.tooltip():find("Net:", 1, true), "spec menu items carry the preview")
+  ok(items[2].text == "Pick a friend or guildmate..." and items[2].onClick, "the slot menu offers the friends and guild picker (1.5.1)")
   -- 3. Dungeon primer
   UIl:Show("dungeons"); RunTimers()
   UIl:SetPrimerPick("TempleOfSethraliss"); UIl:Refresh(); RunTimers()
@@ -7053,6 +7056,177 @@ do
   ok(#sw == 4 and sw[4].enc == 9 and sw[4].best == nil, "saved wipes cleaned on load: a bad entry dropped, a bad health cleared")
   CRITERIA, C_ScenarioInfo, C_Scenario = {}, nil, nil
   ROSTER, INSPECT_CACHE = {}, {}
+end
+
+-- 82. The friends and guild picker (1.5.1, approved October 27, 2026, option A): character
+-- friends, Battle.net friends on a Retail character in this region and the guild as names for
+-- the reserve dialog (autocomplete and a browse list beside it) and the Composition planner
+-- (with "Show offline"); the spec menu narrowed to the class; a person once; nothing saved.
+do
+  EnsembleDB = nil
+  ROSTER = { player = { guid = "P", name = "Etan", class = "DEMONHUNTER", spec = 581, role = "TANK" } }
+  LISTING = "Den of Nalorakk (Mythic Keystone)"
+  APPLICANTS, APPLICANT_STATUS = {}, {}
+  local SECRET = {}
+  local function mark(v) local t = { v = v }; SECRET[t] = true; return t end
+  GetMaxLevelForPlayerExpansion = function() return 90 end
+  local CLASS_BY_GUID = { F1 = "PALADIN", F2 = "WARRIOR", F3 = "PRIEST", F4 = "MAGE" }
+  GetPlayerInfoByGUID = function(g) local c = CLASS_BY_GUID[g]; return c and c:lower(), c end
+  FRIENDS = {
+    { name = "Kaelith", connected = true, level = 90, guid = "F1", area = "Silvermoon City", className = "Paladin" },
+    { name = "Thorn-Area52", connected = true, level = 90, guid = "F2", area = "Dornogal", className = "Warrior" },
+    { name = "Lowbie", connected = true, level = 40, guid = "F3", className = "Priest" },
+    { name = "Ilsa", connected = false, guid = "F4", className = "Mage" },
+  }
+  C_FriendList = {
+    GetNumFriends = function() return #FRIENDS end,
+    GetFriendInfoByIndex = function(i) return FRIENDS[i] end,
+    ShowFriends = function() FRIENDS_ASKED = true end,
+  }
+  BNET = {
+    { { isOnline = true, clientProgram = "WoW", wowProjectID = 1, characterName = "Karro", realmName = "Illidan",
+        classFilename = "DRUID", characterLevel = 90, areaName = "Silvermoon City", isInCurrentRegion = true } },
+    { { isOnline = true, clientProgram = "WoW", wowProjectID = 2, characterName = "Classic", realmName = "X", classFilename = "ROGUE", characterLevel = 60 } },
+    { { isOnline = true, clientProgram = "App" } },
+    { { isOnline = true, clientProgram = "WoW", wowProjectID = 1, characterName = "Abroad", realmName = "Draenor",
+        classFilename = "HUNTER", characterLevel = 90, isInCurrentRegion = false } },
+  }
+  BNGetNumFriends = function() return #BNET, #BNET end
+  C_BattleNet = {
+    GetFriendNumGameAccounts = function(i) return #BNET[i] end,
+    GetFriendGameAccountInfo = function(i, j) return BNET[i][j] end,
+  }
+  local CLASSID = { [8] = "MAGE", [3] = "HUNTER", [11] = "DRUID", [1] = "WARRIOR", [10] = "MONK", [12] = "DEMONHUNTER" }
+  C_CreatureInfo = { GetClassInfo = function(id) return CLASSID[id] and { classFile = CLASSID[id] } end }
+  IN_GUILD = true
+  IsInGuild = function() return IN_GUILD end
+  GUILD = {
+    { name = "Kazrin", classID = 8, level = 90, presence = 1, zone = "Dornogal", overallDungeonScore = 3120 },
+    { name = "Orrin", classID = 3, level = 90, presence = 3, lastOnlineDay = 2 },
+    { name = "Etan", classID = 12, level = 90, presence = 1, isSelf = true },
+    { name = "Thorn-Area52", classID = 1, level = 90, presence = 1, overallDungeonScore = 3010 },
+    { name = "Shen", classID = 10, level = 90, presence = 1, overallDungeonScore = 2870 },
+  }
+  C_Club = {
+    GetGuildClubId = function() return IN_GUILD and 77 or nil end,
+    GetClubMembers = function() local t = {} for i = 1, #GUILD do t[i] = i end return t end,
+    GetMemberInfo = function(_, id) return GUILD[id] end,
+  }
+  C_GuildInfo = { GuildRoster = function() ROSTER_ASKED = true end }
+  local nsP = boot()
+  local Fr, P, UIp = nsP.Friends, nsP.Players, nsP.UI
+  local function fullsOf(list) local t = {} for _, e in ipairs(list) do t[#t + 1] = e.full .. ":" .. e.source end table.sort(t) return table.concat(t, ",") end
+
+  local list = Fr:List()
+  ok(fullsOf(list) == "Kaelith-Realm:friend,Karro-Illidan:bnet,Kazrin-Realm:guild,Shen-Realm:guild,Thorn-Area52:friend",
+    "online, max level, Retail in this region; you left out; a person once (first source wins): " .. fullsOf(list))
+  local kaz = Fr:Find("Kazrin-Realm", list)
+  ok(kaz and kaz.classFile == "MAGE" and kaz.rating == 3120 and kaz.online, "a guildmate: class from the class ID, M+ rating")
+  local off = Fr:List({ offline = true })
+  local ilsa, orrin = Fr:Find("Ilsa-Realm", off), Fr:Find("Orrin-Realm", off)
+  ok(ilsa and not ilsa.online and orrin and orrin.where == "offline 2 days", "Show offline: offline friends and guildmates, with how long")
+  ok(Fr.reads.friend.online == 3 and Fr.reads.bnet.online == 1 and Fr.reads.guild.online == 3,
+    "counts per source (for verify): Battle.net only Retail in this region, the guild without you")
+  ok(table.concat(Fr:ClassSpecs("DRUID"), ",") == "104,105,102,103" and table.concat(Fr:ClassSpecs("DRUID", "TANK"), ",") == "104",
+    "a class's specs, optionally by role")
+  -- Hidden values are left out; missing APIs don't break the rest.
+  issecretvalue = function(v) return SECRET[v] == true end
+  GUILD[1].name = mark("Kazrin")
+  local hid = Fr:List()
+  ok(not Fr:Find("Kazrin-Realm", hid) and (Fr.secretReads or 0) > 0, "a hidden name is left out, counted")
+  GUILD[1].name = "Kazrin"; issecretvalue = nil
+  local saveClub = C_Club; C_Club = nil
+  local noGuild = Fr:List()
+  ok(Fr.reads.guild.why == "api" and Fr:Find("Karro-Illidan", noGuild), "no club API: the guild is left out, the rest still listed")
+  C_Club = saveClub
+  -- Autocomplete: saved players first, then the others with their source.
+  P:Save("Kael-Stormrage", 262)
+  ok(#Fr:Matches("ka") == 3 and Fr:Matches("ka")[1].full == "Kaelith-Realm", "matches: names starting with the text, saved players left to their own list")
+
+  -- The reserve dialog.
+  UIp:Show("applicants"); RunTimers()
+  UIp:OpenReserveDialog("reserve")
+  local d = UIp.reserveDialog
+  ok(d.nameNote:GetText() == "optional: type or browse" and d.browse:IsShown(), "the name box: a hint and a Browse button")
+  d.name:SetText("ka"); UIp:ReserveNameChanged(true)
+  local rows = {}
+  for _, b in ipairs(d.sug.rows) do if b:IsShown() then rows[#rows + 1] = (b.text:GetText() or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "") end end
+  ok(#rows == 4 and rows[1]:find("^Saved  Kael") and rows[2]:find("^Friend  Kaelith") and rows[3]:find("^Battle.net  Karro")
+    and rows[4]:find("^Guild  Kazrin") and rows[4]:find("3120", 1, true), "suggestions: Saved first, then Friend, Battle.net, Guild (" .. table.concat(rows, " | ") .. ")")
+  UIp:PickReserveFriend(Fr:Find("Karro-Illidan", list))
+  ok(d.name:GetText() == "Karro-Illidan" and d.st.classFile == "DRUID" and d.st.specID == nil and d.spec.text:GetText():find("Pick their Druid spec", 1, true),
+    "a Battle.net friend picked: the name, and the spec to pick from their class")
+  local menu
+  local oldShow = UIp.ShowMenu
+  UIp.ShowMenu = function(_, _, it) menu = it end
+  UIp:OpenReserveSpecMenu(d.spec)
+  UIp.ShowMenu = oldShow
+  local specIDs = {}
+  for _, it in ipairs(menu) do if it.specID then specIDs[#specIDs + 1] = it.specID end end
+  ok(menu[1].header and menu[1].text == "Druid: the spec they'll play" and table.concat(specIDs, ",") == "104,105,102,103",
+    "the spec menu narrows to the Druid's specs")
+  ok(d.save:IsShown(), "\"Save this player\" offered for a new name, as before")
+  -- Browse: the list beside the dialog.
+  d.browse:Click(); RunTimers()
+  local fp = UIp.friendsPicker
+  local function pickerText() local t = {} for i = 1, fp.list.used do t[#t + 1] = fp.list.pool[i]:GetText() or "" end return table.concat(t, "\n") end
+  local pt = pickerText()
+  local anchoredTo
+  for _, pnt in ipairs(rawget(fp, "_points") or {}) do if pnt[1] == "TOPLEFT" then anchoredTo = pnt[2] end end
+  ok(fp:IsShown() and anchoredTo == d and d.browse.active, "Browse opens the list beside the dialog")
+  ok(pt:find("FRIENDS (2 ONLINE)", 1, true) and pt:find("BATTLE.NET (1 IN WOW)", 1, true)
+    and pt:find("GUILD (2 ONLINE)", 1, true), "sections with the online people they can show (Thorn once, as a friend): " .. pt:gsub("\n", " / "))
+  ok(not pt:find("Ilsa", 1, true) and not pt:find("Orrin", 1, true) and not pt:find("Lowbie", 1, true), "online and max level only by default")
+  -- A saved player shows once, under Saved players, naming the other source.
+  P:Save("Thorn-Area52", 73)
+  UIp:RefreshFriendsPicker()
+  pt = pickerText()
+  local _, nThorn = pt:gsub("Thorn", "")
+  ok(nThorn == 1 and pt:find("Friend", 1, true), "a saved friend shows once, under Saved players, with where else they are")
+  fp.search:SetText("kaz"); fp.search._scripts.OnTextChanged(fp.search, true)
+  pt = pickerText()
+  ok(pt:find("Kazrin", 1, true) and not pt:find("Karro", 1, true), "search filters the names")
+  fp.search:SetText(""); fp.search._scripts.OnTextChanged(fp.search, true)
+  fp.offline:Click()
+  pt = pickerText()
+  ok(pt:find("Ilsa", 1, true) and pt:find("offline 2 days", 1, true), "Show offline lists them, dimmed, with how long")
+  fp.offline:Click()
+  local savedBefore = #P:List()
+  UIp:PickFromFriendsPicker(Fr:Find("Kazrin-Realm", list))
+  ok(d.name:GetText() == "Kazrin-Realm" and d.st.classFile == "MAGE" and fp:IsShown() and #P:List() == savedBefore,
+    "picking from the list fills the dialog, keeps the list, saves nothing")
+  d:Hide()
+  ok(not fp:IsShown(), "closing the dialog closes its list")
+
+  -- The Composition planner: the picker on its own, by role, then the spec.
+  UIp:OpenFriendsPicker({ mode = "planner", slot = 1, role = "TANK" })
+  pt = pickerText()
+  ok(fp:IsShown() and tostring(fp.title:GetText()):find("PICK FOR THE TANK SLOT", 1, true), "planner: the picker on its own, for the tank slot")
+  ok(tostring(fp.filterNote:GetText()):find("Classes that can tank", 1, true), "planner: says it shows classes that can tank: " .. tostring(fp.filterNote:GetText()))
+  ok(pt:find("Karro", 1, true) and pt:find("Shen", 1, true) and pt:find("Kaelith", 1, true) and not pt:find("Kazrin", 1, true),
+    "planner: only classes that can tank (a Mage left out)")
+  UIp:PickFromFriendsPicker(Fr:Find("Karro-Illidan", list))
+  ok(nsP.db.currentComp[1] == 104 and nsP.db.currentPeople[1] and nsP.db.currentPeople[1].full == "Karro-Illidan" and not fp:IsShown(),
+    "a Druid for the tank slot: Guardian (their only tank spec), with their name; the picker closes")
+  UIp:OpenFriendsPicker({ mode = "planner", slot = 3, role = "DAMAGER" })
+  UIp.ShowMenu = function(_, _, it) menu = it end
+  UIp:PickFromFriendsPicker(Fr:Find("Karro-Illidan", list))
+  UIp.ShowMenu = oldShow
+  specIDs = {}
+  for _, it in ipairs(menu) do if it.specID then specIDs[#specIDs + 1] = it.specID end end
+  ok(table.concat(specIDs, ",") == "102,103" and menu[1].header, "a Druid for a DPS slot: Balance or Feral to pick")
+  for _, it in ipairs(menu) do if it.specID == 103 then it.onClick() end end
+  ok(nsP.db.currentComp[3] == 103 and nsP.db.currentPeople[3].full == "Karro-Illidan" and #P:List() == savedBefore,
+    "the planner slot gets the spec and the name; nothing saved")
+  -- Verify: each source's counts, no names.
+  local vt = nsP.Verify:Build()
+  ok(vt:find("friends picker: friends 3 online (2 listed); Battle.net friends in WoW 1 online (1 listed); guild 3 online", 1, true),
+    "verify: the picker's sources, counts only")
+  ok(not vt:find("Karro", 1, true) and not vt:find("Kazrin", 1, true) and not vt:find("Kaelith", 1, true), "verify names nobody")
+
+  C_FriendList, C_BattleNet, BNGetNumFriends, C_Club, C_CreatureInfo, C_GuildInfo, IsInGuild = nil, nil, nil, nil, nil, nil, nil
+  GetMaxLevelForPlayerExpansion, GetPlayerInfoByGUID = nil, nil
+  APPLICANTS, APPLICANT_STATUS, LISTING, ROSTER, INSPECT_CACHE = {}, {}, nil, {}, {}
 end
 
 print(string.format("%d passed, %d failed", passes, fails))

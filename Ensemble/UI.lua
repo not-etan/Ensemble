@@ -1266,6 +1266,10 @@ function UI:OpenSpecMenu(anchor, slot)
   local P = ns.Players
   local items = {
     { text = "Clear slot", onClick = function() ns.db.currentComp[slot] = 0; ns.db.currentPeople[slot] = false; ns:Fire("COMP_CHANGED", "slot") end },
+    -- 1.5.1: a friend, Battle.net friend, guildmate or saved player, then their spec.
+    { text = "Pick a friend or guildmate...", color = C.accent,
+      tooltip = "Your friends, Battle.net friends and guild, by class; then the spec they'll play",
+      onClick = function() UI:OpenFriendsPicker({ mode = "planner", slot = slot, role = role }) end },
   }
   -- Saved players (1.5.0) who play this slot's role: their spec fills it, their name shows on it.
   local saved = P:ForRole(role)
@@ -3007,8 +3011,14 @@ function UI:BuildReserveDialog()
   local nl = Text(d, 12, C.text); nl:SetPoint("TOPLEFT", 12, -36); nl:SetText("Name")
   d.nameLabel = nl
   d.name = EditBox(d, 230, 24); d.name:SetPoint("TOPLEFT", 74, -32)
-  d.nameNote = Text(d, 10, C.muted); d.nameNote:SetPoint("LEFT", d.name, "RIGHT", 8, 0); d.nameNote:SetWidth(70)
-  d.nameNote:SetText("optional")
+  -- The hint sits inside the empty name box; "Browse" opens the friends and guild list beside
+  -- the dialog (1.5.1, option A).
+  d.nameNote = Text(d.name, 11, C.muted); d.nameNote:SetPoint("LEFT", 7, 0); d.nameNote:SetPoint("RIGHT", -6, 0)
+  d.nameNote:SetWordWrap(false)
+  d.nameNote:SetText("optional: type or browse")
+  d.browse = Button(d, "Browse", 72, 24, function() UI:ToggleFriendsPicker() end)
+  d.browse:SetPoint("LEFT", d.name, "RIGHT", 6, 0)
+  d.browse.tooltip = "Pick from your online friends, Battle.net friends and guild"
   local sl = Text(d, 12, C.text); sl:SetPoint("TOPLEFT", 12, -70); sl:SetText("Spec")
   d.spec = Dropdown(d, 230, 24, function(btn) UI:OpenReserveSpecMenu(btn) end)
   d.spec:SetPoint("TOPLEFT", 74, -66)
@@ -3041,24 +3051,35 @@ function UI:BuildReserveDialog()
     b:SetHeight(20); b:SetPoint("TOPLEFT", 2, -2 - (i - 1) * 20); b:SetPoint("RIGHT", sug, "RIGHT", -2, 0)
     local hl = b:CreateTexture(nil, "BACKGROUND"); hl:SetAllPoints(); Accent(hl, "tex", 0.15); b:SetHighlightTexture(hl)
     b.text = Text(b, 11, C.text); b.text:SetPoint("LEFT", 4, 0); b.text:SetPoint("RIGHT", -4, 0); b.text:SetWordWrap(false)
-    b:SetScript("OnClick", function(self) if self.player then UI:PickReservePlayer(self.player) end end)
+    b:SetScript("OnClick", function(self)
+      if self.player then
+        if self.player.specs then UI:PickReservePlayer(self.player) else UI:PickReserveFriend(self.player) end
+      end
+    end)
     sug.rows[i] = b
   end
   d.sug = sug
-  d.name:SetScript("OnTextChanged", function(box, user) if user ~= false then UI:ReserveNameChanged() end end)
+  d.name:SetScript("OnTextChanged", function(box, user)
+    d.nameNote:SetShown((box:GetText() or "") == "")
+    if user ~= false then UI:ReserveNameChanged(true) end
+  end)
   d.name:SetScript("OnEnterPressed", function(box)
     local first = d.st.matches and d.st.matches[1]
-    if first and sug:IsShown() then UI:PickReservePlayer(first) else box:ClearFocus() end
+    if first and sug:IsShown() then UI:PickSuggestion(first) else box:ClearFocus() end
   end)
   d.name:SetScript("OnTabPressed", function()
     local first = d.st.matches and d.st.matches[1]
-    if first and sug:IsShown() then UI:PickReservePlayer(first) end
+    if first and sug:IsShown() then UI:PickSuggestion(first) end
   end)
   d.name:SetScript("OnEscapePressed", function(box)
     if sug:IsShown() then sug:Hide() else box:ClearFocus(); d:Hide() end
   end)
   d.name:SetScript("OnEditFocusLost", function() C_Timer.After(0.2, function() if not d.name:HasFocus() then sug:Hide() end end) end)
-  d:SetScript("OnHide", function() sug:Hide() end)
+  d:SetScript("OnHide", function()
+    sug:Hide()
+    local fp = UI.friendsPicker
+    if fp and fp.st.mode ~= "planner" then fp:Hide() end
+  end)
   self.reserveDialog = d
   return d
 end
@@ -3086,20 +3107,24 @@ function UI:OpenReserveDialog(mode)
   local d = self:BuildReserveDialog()
   d.st.mode = mode or "reserve"
   d.st.specID, d.st.player, d.st.saveOn, d.st.matches, d.st.done = nil, nil, true, {}, nil
+  d.st.classFile, d.st.friends = nil, nil
   d.name:SetText("")
   d.err:SetText("")
   d.sug:Hide()
   if d.st.mode == "save" then
     d.title:SetText("Add a saved player")
     d.ok.text:SetText("Save")
-    d.nameNote:SetText("required")
+    d.nameNote:SetText("required: type or browse")
     d.note:SetText("Name-Realm (your realm when none is given). Kept on this computer for all your characters.")
   else
     d.title:SetText("Reserve a slot")
     d.ok.text:SetText("Reserve")
-    d.nameNote:SetText("optional")
+    d.nameNote:SetText("optional: type or browse")
     d.note:SetText("Fill group plans only the other slots. Players still apply for this role: addons can't change your listing.")
   end
+  d.nameNote:Show()
+  if self.friendsPicker and self.friendsPicker.st.mode ~= "planner" then self.friendsPicker:Hide() end
+  d.browse:SetActive(false)
   self:SyncReserveDialog()
   d:Show()
   if d.name.SetFocus then d.name:SetFocus() end
@@ -3111,7 +3136,7 @@ function UI:SyncReserveDialog()
   local P = ns.Players
   local p = d.st.specID and UD:GetSpec(d.st.specID)
   d.spec.text:SetText(p and (select(4, Util.ClassColor(p.class)) .. UD:SpecName(d.st.specID) .. " " .. UD:ClassName(p.class) .. "|r")
-    or (HEX.muted .. "Pick a spec (required)|r"))
+    or (HEX.muted .. (d.st.classFile and ("Pick their " .. UD:ClassName(d.st.classFile) .. " spec (required)") or "Pick a spec (required)") .. "|r"))
   d.role:SetText(p and ("Role: " .. ROLE_TEXT[p.role] .. " (follows the spec)") or "The role follows the spec.")
   local full = P:Normalize(d.name:GetText())
   local saved = full and P:Find(full)
@@ -3127,15 +3152,30 @@ function UI:SyncReserveDialog()
   d.ok.tooltip = not can and (d.st.mode == "save" and "Type a name and pick a spec" or "Pick a spec: it decides what the slot brings") or nil
 end
 
-function UI:ReserveNameChanged()
+function UI:ReserveNameChanged(typed)
   local d = self.reserveDialog
-  local P = ns.Players
+  local P, F = ns.Players, ns.Friends
   local text = d.name:GetText() or ""
   d.st.matches = P:Matches(text, UI.RESERVE_SUGGEST_ROWS)
   -- An exact saved name needs no list.
   local full = P:Normalize(text)
   local exact = full and P:Find(full)
   if exact and #d.st.matches == 1 and d.st.matches[1] == exact then d.st.matches = {} end
+  -- Then online friends, Battle.net friends and guildmates (1.5.1), after Saved players.
+  if F then
+    d.st.friends = d.st.friends or F:List()
+    local room = UI.RESERVE_SUGGEST_ROWS - #d.st.matches
+    if room > 0 and not exact then
+      for _, e in ipairs(F:Matches(text, room, d.st.friends)) do
+        if not (full and e.full:lower() == full:lower()) then d.st.matches[#d.st.matches + 1] = e end
+      end
+    end
+    -- Typing a name changes who it is: the class comes from a friend typed out in full.
+    if typed then
+      local fe = full and not exact and F:Find(full, d.st.friends) or nil
+      d.st.classFile = fe and fe.classFile or nil
+    end
+  end
   local n = #d.st.matches
   for i, b in ipairs(d.sug.rows) do
     local p = d.st.matches[i]
@@ -3143,15 +3183,44 @@ function UI:ReserveNameChanged()
     b:SetShown(p ~= nil)
     if p then
       local name, realm = p.full:match("^([^%-]+)%-?(.*)$")
-      local def = UD:GetSpec(p.default)
-      b.text:SetText(tostring(name) .. HEX.muted .. (realm ~= "" and ("-" .. realm) or "") .. "   "
-        .. (def and (UD:SpecName(p.default) .. " " .. UD:ClassName(def.class)) or "") .. "|r")
+      local tag, cls, what
+      if p.specs then
+        local def = UD:GetSpec(p.default)
+        tag, cls, what = "Saved", def and def.class, def and (UD:SpecName(p.default) .. " " .. UD:ClassName(def.class)) or ""
+      else
+        tag, cls = ns.Friends.LABEL[p.source] or "", p.classFile
+        what = UD:ClassName(p.classFile) .. (p.rating and (" - " .. p.rating) or "")
+      end
+      local hex = cls and select(4, Util.ClassColor(cls)) or HEX.text
+      b.text:SetText(HEX.muted .. tag .. "|r  " .. hex .. tostring(name) .. "|r" .. HEX.muted .. (realm ~= "" and ("-" .. realm) or "")
+        .. "   " .. tostring(what) .. "|r")
     end
   end
   d.sug:SetHeight(4 + n * 20)
   d.sug:SetShown(n > 0)
   -- A saved player typed out in full: their default spec, unless one was picked already.
   if exact and not d.st.specID then d.st.specID = exact.default end
+  self:SyncReserveDialog()
+end
+
+-- Enter / Tab on the first suggestion, saved or not.
+function UI:PickSuggestion(x)
+  if x.specs then self:PickReservePlayer(x) else self:PickReserveFriend(x) end
+end
+
+-- A friend, Battle.net friend or guildmate picked (1.5.1): their name, and the spec menu narrows
+-- to their class (the game never shares a friend's spec). A saved player keeps their own specs.
+function UI:PickReserveFriend(e)
+  local d = self.reserveDialog
+  local P = ns.Players
+  d.name:SetText(e.full)
+  local saved = P:Find(e.full)
+  if saved then self:PickReservePlayer(saved); return end
+  d.st.player, d.st.classFile, d.st.matches = nil, e.classFile, {}
+  local cur = d.st.specID and UD:GetSpec(d.st.specID)
+  if not (cur and cur.class == e.classFile) then d.st.specID = nil end
+  d.sug:Hide()
+  if d.name.ClearFocus then d.name:ClearFocus() end
   self:SyncReserveDialog()
 end
 
@@ -3179,6 +3248,18 @@ function UI:OpenReserveSpecMenu(anchor)
       onClick = function() d.st.specID = specID; d.err:SetText(""); UI:SyncReserveDialog() end }
   end
   local saved = d.st.player
+  -- A friend or guildmate picked (1.5.1): only their class's specs.
+  if d.st.classFile and not saved then
+    items[#items + 1] = { text = UD:ClassName(d.st.classFile) .. ": the spec they'll play", header = true }
+    for _, id in ipairs(ns.Friends:ClassSpecs(d.st.classFile)) do
+      local role = UD:GetSpec(id).role
+      local word = ({ TANK = "Tank", HEALER = "Healer", DAMAGER = "DPS" })[role]
+      local full = d.st.mode == "reserve" and P:FreeFor(role) <= 0
+      add(id, " - " .. word .. (full and " (no open slot)" or ""))
+    end
+    self:ShowMenu(anchor, items)
+    return
+  end
   if saved then
     items[#items + 1] = { text = (saved.full:match("^([^%-]+)") or saved.full) .. "'s specs", header = true }
     for _, id in ipairs(saved.specs) do if UD:GetSpec(id) then add(id, id == saved.default and " (default)" or nil) end end
@@ -3216,6 +3297,206 @@ function UI:ConfirmReserveDialog()
     return
   end
   d:Hide()
+end
+
+---------------------------------------------------------------------------
+-- The friends and guild picker (1.5.1, option A): a list beside the reserve dialog (or on its
+-- own for a Composition planner slot) of Saved players, online friends, Battle.net friends on a
+-- Retail character and guildmates, with a search box and "Show offline". A person shows once,
+-- Saved players first (their row names the other source). Picking fills the dialog's name and
+-- narrows its spec menu to the class; in the planner it fills the slot after the spec. Nothing is
+-- saved by picking. Our own frame; nothing is typed into Blizzard's UI.
+---------------------------------------------------------------------------
+local ROLE_SLOT_WORD = { TANK = "tank", HEALER = "healer", DAMAGER = "DPS" }
+local TEX_ONLINE = "|TInterface\\FriendsFrame\\StatusIcon-Online:12:12|t"
+local TEX_OFFLINE = "|TInterface\\FriendsFrame\\StatusIcon-Offline:12:12|t"
+UI.FRIENDS_PICKER_W, UI.FRIENDS_PICKER_H = 312, 344
+
+function UI:BuildFriendsPicker()
+  if self.friendsPicker then return self.friendsPicker end
+  local f = CreateFrame("Frame", "EnsembleFriendsPicker", UIParent, "BackdropTemplate")
+  f:SetSize(self.FRIENDS_PICKER_W, self.FRIENDS_PICKER_H)
+  f:SetFrameStrata("DIALOG")
+  f:EnableMouse(true); f:SetClampedToScreen(true)
+  Skin(f, C.bg, C.accent); Accent(f, "border")
+  if UISpecialFrames then table.insert(UISpecialFrames, "EnsembleFriendsPicker") end   -- Escape closes it
+  f:Hide()
+  f.st = { offline = false, search = "" }   -- picker state: a plain table
+  f.title = AccentText(f); f.title:SetPoint("TOPLEFT", 12, -10)
+  f.search = EditBox(f, self.FRIENDS_PICKER_W - 20, 22)
+  f.searchHint = Text(f.search, 11, C.muted); f.searchHint:SetPoint("LEFT", 7, 0); f.searchHint:SetText("Search names")
+  f.search:SetScript("OnTextChanged", function(box)
+    local t = box:GetText() or ""
+    f.searchHint:SetShown(t == "")
+    f.st.search = t
+    UI:RefreshFriendsPicker()
+  end)
+  f.offline = Check(f, "Show offline", function() return f.st.offline end,
+    function(v) f.st.offline = v; UI:RefreshFriendsPicker() end,
+    "Also friends and guildmates who aren't online. Battle.net friends show only the character they're on, so offline ones aren't listed.")
+  f.offline:SetScript("OnClick", function(self) f.st.offline = not f.st.offline; self:Sync(); UI:RefreshFriendsPicker() end)
+  f.offline:SetWidth(140)
+  f.maxNote = Text(f, 10, C.muted, "RIGHT"); f.maxNote:SetText("max level only")
+  f.filterNote = Text(f, 10, C.muted); f.filterNote:SetWordWrap(false)
+  f.list = LineList(f, self.FRIENDS_PICKER_W - 20, 200)
+  f.cancel = Button(f, "Cancel", 80, 22, function() f:Hide() end)
+  f.cancel:SetPoint("BOTTOMRIGHT", -10, 10)
+  f:SetScript("OnHide", function()
+    local d = UI.reserveDialog
+    if d and d.browse then d.browse:SetActive(false) end
+  end)
+  ns:On("FRIENDS_CHANGED", function() if f:IsShown() then UI:RefreshFriendsPicker() end end)
+  self.friendsPicker = f
+  return f
+end
+
+-- opts: { mode = "reserve" | "save" | "planner", slot, role }.
+function UI:OpenFriendsPicker(opts)
+  local f = self:BuildFriendsPicker()
+  opts = opts or {}
+  f.st.mode, f.st.slot, f.st.role, f.st.picked = opts.mode or "reserve", opts.slot, opts.role, nil
+  f.search:SetText(""); f.st.search = ""; f.searchHint:Show()
+  f.offline:Sync()
+  if ns.Friends then ns.Friends:Request() end
+  local planner = f.st.mode == "planner"
+  local top = planner and 36 or 8
+  f.title:SetShown(planner)
+  f.title:SetText(planner and ("Pick for the " .. (ROLE_SLOT_WORD[f.st.role] or "") .. " slot") or "")
+  f.search:ClearAllPoints(); f.search:SetPoint("TOPLEFT", 10, -top)
+  f.offline:ClearAllPoints(); f.offline:SetPoint("TOPLEFT", 10, -(top + 28))
+  f.maxNote:ClearAllPoints(); f.maxNote:SetPoint("TOPRIGHT", -12, -(top + 31))
+  local listTop = top + 52
+  f.filterNote:ClearAllPoints(); f.filterNote:SetPoint("TOPLEFT", 12, -listTop); f.filterNote:SetPoint("RIGHT", -12, 0)
+  f.filterNote:SetText(planner and ("Classes that can " .. (f.st.role == "TANK" and "tank" or f.st.role == "HEALER" and "heal" or "play DPS")
+    .. ". Then pick their spec.") or "")
+  if planner then listTop = listTop + 16 end
+  f.list:Fill(10, -listTop, -10, planner and 40 or 10)
+  f.cancel:SetShown(planner)
+  f:ClearAllPoints()
+  local d = self.reserveDialog
+  if not planner and d and d:IsShown() then
+    f:SetPoint("TOPLEFT", d, "TOPRIGHT", 4, 0)
+    d.browse:SetActive(true)
+  else
+    f:SetPoint("CENTER", UIParent, "CENTER", 160, 60)
+  end
+  f:Show()
+  self:RefreshFriendsPicker()
+end
+
+function UI:ToggleFriendsPicker()
+  local f = self.friendsPicker
+  if f and f:IsShown() and f.st.mode ~= "planner" then f:Hide(); return end
+  local d = self.reserveDialog
+  self:OpenFriendsPicker({ mode = d and d.st.mode or "reserve" })
+end
+
+-- Classes with a spec for `role` (planner mode), or nil for any.
+local function RoleClasses(role)
+  if not role then return nil end
+  local out = {}
+  for _, id in ipairs(UD:SpecsForRole(role)) do local p = UD:GetSpec(id); if p then out[p.class] = true end end
+  return out
+end
+
+function UI:RefreshFriendsPicker()
+  local f = self.friendsPicker
+  if not (f and f:IsShown()) then return end
+  local F, P = ns.Friends, ns.Players
+  local data = F and F:List({ offline = f.st.offline }) or {}
+  local q = (f.st.search or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
+  local classes = RoleClasses(f.st.mode == "planner" and f.st.role or nil)
+  local L = f.list
+  L:Clear()
+  local function row(x, cls, what, right, online, other)
+    local name, realm = x.full:match("^([^%-]+)%-?(.*)$")
+    local hex = online and select(4, Util.ClassColor(cls)) or HEX.muted
+    local text = (online and TEX_ONLINE or TEX_OFFLINE) .. " " .. hex .. tostring(name) .. "|r" .. HEX.muted
+      .. (realm ~= "" and ("-" .. realm) or "") .. "  " .. tostring(what) .. (right and ("  -  " .. right) or "") .. "|r"
+    if f.st.picked and f.st.picked == x.full then text = HEX.accent .. "> |r" .. text end
+    local tip = x.full .. (other and ("\n" .. other) or "") .. (x.where and ("\n" .. x.where) or "")
+    L:Add(text, { size = 11, gap = 3, indent = 2, onClick = function() UI:PickFromFriendsPicker(x) end, tooltip = tip })
+  end
+  local function match(full, cls) return (q == "" or full:lower():find(q, 1, true)) and (not classes or classes[cls]) end
+  -- Saved players first; their row names where else they are (and shows them online when a
+  -- source says so).
+  local savedShown = 0
+  local first = true
+  for _, p in ipairs(P:List()) do
+    local specs = {}
+    for _, id in ipairs(p.specs) do
+      local sp = UD:GetSpec(id)
+      if sp and (not f.st.role or f.st.mode ~= "planner" or sp.role == f.st.role) then specs[#specs + 1] = id end
+    end
+    local def = UD:GetSpec(p.default) or UD:GetSpec(specs[1] or 0)
+    local cls = def and def.class
+    if cls and #specs > 0 and match(p.full, cls) then
+      local e = F and F:Find(p.full, data) or nil
+      if e or f.st.offline or not F then
+        if first then L:Header("Saved players"); first = false end
+        local note = e and (F.LABEL[e.source] .. (e.rating and (" - " .. e.rating) or "")) or nil
+        row(p, cls, UD:SpecName(specs[1] == p.default and p.default or specs[1]) .. " " .. UD:ClassName(cls), note, e == nil or e.online, note)
+        savedShown = savedShown + 1
+      end
+    end
+  end
+  local HEAD = { friend = "Friends", bnet = "Battle.net", guild = "Guild" }
+  local any = savedShown > 0
+  for _, src in ipairs(F and F.SOURCES or {}) do
+    local st = F.reads[src] or {}
+    if st.ok then
+      local rows = {}
+      for _, e in ipairs(data) do
+        if e.source == src and not P:Find(e.full) and match(e.full, e.classFile) then rows[#rows + 1] = e end
+      end
+      -- Online people the list can show (max level; Battle.net: Retail in this region).
+      local nOn = 0
+      for _, e in ipairs(data) do if e.source == src and e.online then nOn = nOn + 1 end end
+      local count = src == "bnet" and (nOn .. " in WoW") or (nOn .. " online")
+      L:Header(HEAD[src] .. " (" .. count .. ")")
+      for _, e in ipairs(rows) do
+        row(e, e.classFile, UD:ClassName(e.classFile), e.rating and tostring(e.rating) or (not e.online and e.where) or nil, e.online)
+      end
+      if #rows == 0 then L:Add(HEX.muted .. (q ~= "" and "Nobody matches." or "Nobody to show.") .. "|r", { size = 10, gap = 3, indent = 6 }) end
+      any = true
+    end
+  end
+  if not any then L:Add(HEX.muted .. "No friends, Battle.net friends or guild the game lets the addon read.|r", { size = 11 }) end
+  L:Finish()
+end
+
+-- A row picked: the reserve dialog's name (and the class's specs), or the planner slot after
+-- the spec.
+function UI:PickFromFriendsPicker(x)
+  local f = self.friendsPicker
+  if f.st.mode == "planner" then
+    local slot, role = f.st.slot, f.st.role
+    local specs = {}
+    if x.specs then
+      if x.default and UD:GetSpec(x.default) and UD:GetSpec(x.default).role == role then specs[1] = x.default end
+      for _, id in ipairs(x.specs) do
+        local sp = UD:GetSpec(id)
+        if sp and sp.role == role and id ~= specs[1] then specs[#specs + 1] = id end
+      end
+    else
+      specs = ns.Friends:ClassSpecs(x.classFile, role)
+    end
+    if #specs == 0 then return end
+    local function put(id) ns.Players:SetPlannerSlot(slot, x.full, id); f:Hide() end
+    if #specs == 1 then put(specs[1]); return end
+    local items = { { text = (x.full:match("^([^%-]+)") or x.full) .. ": the spec they'll play", header = true } }
+    for _, id in ipairs(specs) do
+      local sp = UD:GetSpec(id)
+      local r, g, b = Util.ClassColor(sp.class)
+      items[#items + 1] = { text = UD:SpecName(id) .. " " .. UD:ClassName(sp.class), specID = id, classFile = sp.class,
+        color = { r, g, b, 1 }, onClick = function() put(id) end, tooltip = function() return UI:SpecPreviewText(slot, id) end }
+    end
+    self:ShowMenu(f, items)
+    return
+  end
+  if x.specs then self:PickReservePlayer(x) else self:PickReserveFriend(x) end
+  f.st.picked = x.full
+  self:RefreshFriendsPicker()
 end
 
 -- The band's and Settings' button: no reservations -> the dialog; otherwise a menu to reserve
