@@ -6955,6 +6955,25 @@ do
   ok(noteTop() == 160, "the error cleared: the note goes back")
   dlg.note.GetStringHeight = nil
   dlg:Hide()
+  -- A full tie on the chain and the same wait (1.5.1 build review): "Why this group" says there's
+  -- no difference instead of claiming one waited longer.
+  local twins = {
+    [1] = one("Rhia", "DRUID", "HEALER", 105, 3180, { 14, true, 300 }),
+    [2] = one("Tor", "WARLOCK", "DAMAGER", 266, 3310, { 14, true, 300 }),
+    [3] = one("Brenna", "WARLOCK", "DAMAGER", 266, 3310, { 14, true, 300 }),
+    [4] = one("Kael", "SHAMAN", "DAMAGER", 262, 3260, { 15, true, 320 }),
+  }
+  local ptw = plan(twins)
+  local tw = ptw.runnerUp
+  local fs1 = tw and tw.out and tw.out.members[1].firstSeen
+  local fs2 = tw and tw.inn and tw.inn.members[1].firstSeen
+  ok(ptw.status == "ready" and tw and tw.tied and tw.tieStep == nil and fs1 == fs2,
+    "two identical Warlocks who applied together: a full tie, the same wait")
+  UI80:Show("applicants"); RunTimers()
+  ap = UI80.ap
+  if not ap.detailOpen then ap.band:Click(); RunTimers() end
+  ok(detail():find(": no difference between them.", 1, true) and not detail():find("has waited longer", 1, true),
+    "a full tie with the same wait: no difference, not a claim about the wait")
   C_LFGList.GetApplicantDungeonScoreForListing = nil
   APPLICANTS, APPLICANT_STATUS, LISTING, ROSTER, INSPECT_CACHE = {}, {}, nil, {}, {}
 end
@@ -7223,6 +7242,66 @@ do
   ok(vt:find("friends picker: friends 3 online (2 listed); Battle.net friends in WoW 1 online (1 listed); guild 3 online", 1, true),
     "verify: the picker's sources, counts only")
   ok(not vt:find("Karro", 1, true) and not vt:find("Kazrin", 1, true) and not vt:find("Kaelith", 1, true), "verify names nobody")
+
+  -- 1.5.1 build review fixes.
+  -- (a) Guild presence: only Online, Away and Busy are in game. OnlineMobile (the Battle.net app)
+  -- and Unknown count as offline, so they're never offered as joining now.
+  issecretvalue = nil
+  GUILD = {
+    { name = "Mob", classID = 8, level = 90, presence = 2 },
+    { name = "Unk", classID = 3, level = 90, presence = 0 },
+    { name = "Afk", classID = 11, level = 90, presence = 4 },
+    { name = "Dnd", classID = 1, level = 90, presence = 5 },
+    { name = "On", classID = 10, level = 90, presence = 1 },
+  }
+  Enum = Enum or {}
+  local savedEnum = Enum.ClubMemberPresence
+  for pass = 1, 2 do
+    Enum.ClubMemberPresence = (pass == 1) and nil or { Unknown = 0, Online = 1, OnlineMobile = 2, Offline = 3, Away = 4, Busy = 5 }
+    local g = {}
+    for _, e in ipairs(Fr:List()) do if e.source == "guild" then g[#g + 1] = e.full:match("^[^%-]+") end end
+    table.sort(g)
+    ok(table.concat(g, ",") == "Afk,Dnd,On",
+      "guild: Online, Away and Busy are in game; the phone app and Unknown aren't (" .. (pass == 1 and "fallback values" or "the game's Enum") .. "): " .. table.concat(g, ","))
+    local off = {}
+    for _, e in ipairs(Fr:List({ offline = true })) do if e.source == "guild" and not e.online then off[#off + 1] = e.full:match("^[^%-]+") end end
+    table.sort(off)
+    ok(table.concat(off, ",") == "Mob,Unk", "with Show offline, the phone app and Unknown are listed as offline")
+  end
+  Enum.ClubMemberPresence = savedEnum
+
+  -- (b) The browse list reads the sources once per change, not per keystroke, and a burst of
+  -- roster events rebuilds it once.
+  UIp:OpenFriendsPicker({ mode = "reserve" })
+  local fpk = UIp.friendsPicker
+  local r0 = fpk.st.reads
+  for _, t in ipairs({ "k", "ka", "kaz" }) do fpk.search:SetText(t); fpk.search._scripts.OnTextChanged(fpk.search, true) end
+  ok(fpk.st.reads == r0, "typing in the search box filters the cached list (no new reads)")
+  TIMERS = {}
+  for _ = 1, 5 do nsP:Fire("FRIENDS_CHANGED") end
+  ok(fpk.st.reads == r0 and #TIMERS == 1, "five roster events while open: one rebuild queued")
+  RunTimers()
+  ok(fpk.st.reads == r0 + 1, "the queued rebuild reads the sources once")
+  fpk.offline:Click()
+  ok(fpk.st.reads == r0 + 2, "Show offline reads them again (offline people are a different list)")
+
+  -- (c) A saved player who isn't in your friends or guild: status unknown, so the row never
+  -- shows them online.
+  P:Save("Stranger-Faraway", 581)
+  fpk.search:SetText("stranger"); fpk.search._scripts.OnTextChanged(fpk.search, true)
+  local srow
+  for i = 1, fpk.list.used do
+    local t = fpk.list.pool[i]:GetText() or ""
+    if t:find("Stranger", 1, true) then srow = { text = t } end
+  end
+  for i = 1, (fpk.list.bused or 0) do
+    local b = fpk.list.bpool[i]
+    if srow and type(b.tip) == "string" and b.tip:find("Stranger-Faraway", 1, true) then srow.tip = b.tip end
+  end
+  ok(srow and srow.text:find("StatusIcon-Offline", 1, true) and not srow.text:find("StatusIcon-Online", 1, true),
+    "an unknown saved player isn't drawn as online")
+  ok(srow and type(srow.tip) == "string" and srow.tip:find("online status unknown", 1, true), "its tooltip says the status is unknown")
+  fpk:Hide()
 
   C_FriendList, C_BattleNet, BNGetNumFriends, C_Club, C_CreatureInfo, C_GuildInfo, IsInGuild = nil, nil, nil, nil, nil, nil, nil
   GetMaxLevelForPlayerExpansion, GetPlayerInfoByGUID = nil, nil

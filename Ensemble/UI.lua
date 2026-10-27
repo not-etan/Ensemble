@@ -3334,7 +3334,7 @@ function UI:BuildFriendsPicker()
   f.offline = Check(f, "Show offline", function() return f.st.offline end,
     function(v) f.st.offline = v; UI:RefreshFriendsPicker() end,
     "Also friends and guildmates who aren't online. Battle.net friends show only the character they're on, so offline ones aren't listed.")
-  f.offline:SetScript("OnClick", function(self) f.st.offline = not f.st.offline; self:Sync(); UI:RefreshFriendsPicker() end)
+  f.offline:SetScript("OnClick", function(self) f.st.offline = not f.st.offline; f.st.stale = true; self:Sync(); UI:RefreshFriendsPicker() end)
   f.offline:SetWidth(140)
   f.maxNote = Text(f, 10, C.muted, "RIGHT"); f.maxNote:SetText("max level only")
   f.filterNote = Text(f, 10, C.muted); f.filterNote:SetWordWrap(false)
@@ -3345,7 +3345,15 @@ function UI:BuildFriendsPicker()
     local d = UI.reserveDialog
     if d and d.browse then d.browse:SetActive(false) end
   end)
-  ns:On("FRIENDS_CHANGED", function() if f:IsShown() then UI:RefreshFriendsPicker() end end)
+  -- The game's roster events can come in bursts (a big guild sends one per member change):
+  -- mark the list stale and rebuild once, half a second after the first (1.5.1 build review).
+  ns:On("FRIENDS_CHANGED", function()
+    f.st.stale = true
+    if not f:IsShown() or f.st.pending then return end
+    f.st.pending = true
+    local function go() f.st.pending = nil; UI:RefreshFriendsPicker() end
+    if C_Timer and C_Timer.After then C_Timer.After(0.5, go) else go() end
+  end)
   self.friendsPicker = f
   return f
 end
@@ -3356,6 +3364,7 @@ function UI:OpenFriendsPicker(opts)
   opts = opts or {}
   f.st.mode, f.st.slot, f.st.role, f.st.picked = opts.mode or "reserve", opts.slot, opts.role, nil
   f.search:SetText(""); f.st.search = ""; f.searchHint:Show()
+  f.st.stale = true
   f.offline:Sync()
   if ns.Friends then ns.Friends:Request() end
   local planner = f.st.mode == "planner"
@@ -3403,7 +3412,14 @@ function UI:RefreshFriendsPicker()
   local f = self.friendsPicker
   if not (f and f:IsShown()) then return end
   local F, P = ns.Friends, ns.Players
-  local data = F and F:List({ offline = f.st.offline }) or {}
+  -- The sources are read once per change (opening, "Show offline", a roster event), not per
+  -- keystroke: the search only filters the cached list (1.5.1 build review).
+  if f.st.stale or not f.st.data then
+    f.st.data = F and F:List({ offline = f.st.offline }) or {}
+    f.st.stale = nil
+    f.st.reads = (f.st.reads or 0) + 1
+  end
+  local data = f.st.data
   local q = (f.st.search or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
   local classes = RoleClasses(f.st.mode == "planner" and f.st.role or nil)
   local L = f.list
@@ -3435,7 +3451,11 @@ function UI:RefreshFriendsPicker()
       if e or f.st.offline or not F then
         if first then L:Header("Saved players"); first = false end
         local note = e and (F.LABEL[e.source] .. (e.rating and (" - " .. e.rating) or "")) or nil
-        row(p, cls, UD:SpecName(specs[1] == p.default and p.default or specs[1]) .. " " .. UD:ClassName(cls), note, e == nil or e.online, note)
+        -- Not in your friends or guild: the addon can't tell whether they're online, so the row
+        -- never claims it (1.5.1 build review).
+        local tip = note or (F and "Not in your friends or guild: online status unknown") or nil
+        row(p, cls, UD:SpecName(specs[1] == p.default and p.default or specs[1]) .. " " .. UD:ClassName(cls), note,
+          (e and e.online) or (not F), tip)
         savedShown = savedShown + 1
       end
     end
@@ -3664,7 +3684,11 @@ function UI:RenderFillPlan(list, plan, ctx)
         local a, b = ns.ApplicantFit.TieKey(win)[st.key] or 0, ns.ApplicantFit.TieKey(lose)[st.key] or 0
         reason = wn .. "'s " .. st.label .. " is higher, " .. st.fmt(a) .. " vs " .. st.fmt(b) .. "."
       else
-        reason = wn .. " has waited longer."
+        -- A full tie on the chain: the wait decides, and only when it differs (else the stable
+        -- order picked one; say there's no difference rather than claim a reason).
+        local ww = tonumber(win.members[1] and win.members[1].firstSeen)
+        local lw = tonumber(lose.members[1] and lose.members[1].firstSeen)
+        reason = (ww and lw and ww ~= lw) and (wn .. " has waited longer.") or "no difference between them."
       end
       why = why .. " Tied with " .. ln .. " in " .. wn .. "'s place (fit " .. tostring(lose.score) .. "): " .. reason
     elseif ru and ru.out and ru.inn then

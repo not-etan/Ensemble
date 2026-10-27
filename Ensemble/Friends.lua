@@ -147,7 +147,22 @@ local function ReadBattleNet(out, opts, maxLevel)
   end
 end
 
-local PRESENCE_OFFLINE = 3   -- Enum.ClubMemberPresence.Offline
+-- Enum.ClubMemberPresence (12.1.5): Unknown 0, Online 1, OnlineMobile 2, Offline 3, Away 4,
+-- Busy 5. In game means Online, Away or Busy: OnlineMobile is the Battle.net app (not in game,
+-- can't join a key), and Unknown isn't a claim either way, so both count as offline.
+local PRESENCE_IN_GAME = { 1, 4, 5 }
+local function InGameSet()
+  local E = rawget(_G, "Enum") and Enum.ClubMemberPresence
+  local set = {}
+  if type(E) == "table" and E.Online then
+    for _, k in ipairs({ "Online", "Away", "Busy" }) do if E[k] then set[E[k]] = true end end
+  else
+    for _, v in ipairs(PRESENCE_IN_GAME) do set[v] = true end
+  end
+  return set
+end
+F.InGameSet = InGameSet
+
 local function ReadGuild(out, opts, maxLevel)
   local CB = rawget(_G, "C_Club")
   local st = { ok = false, online = 0, listed = 0 }
@@ -162,13 +177,13 @@ local function ReadGuild(out, opts, maxLevel)
   ids = okM and Plain(ids) or nil
   if type(ids) ~= "table" then st.why = "unreadable"; return end
   st.ok = true
-  local offEnum = rawget(_G, "Enum") and Enum.ClubMemberPresence and Enum.ClubMemberPresence.Offline or PRESENCE_OFFLINE
+  local inGame = InGameSet()
   for k = 1, math.min(#ids, 1000) do
     local okI, info = Call(CB.GetMemberInfo, club, ids[k])
     info = okI and Plain(info) or nil
     if type(info) == "table" and Plain(info.isSelf) ~= true then
       local presence = Plain(info.presence)
-      local online = presence ~= nil and presence ~= offEnum
+      local online = presence ~= nil and inGame[presence] == true
       if online then st.online = st.online + 1 end
       local lvl = Plain(info.level)
       local cls = ClassFromID(Plain(info.classID))
