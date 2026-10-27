@@ -295,6 +295,7 @@ ns.DEFAULTS = {
       wait = 15,
       preferTimed = false,     -- past keys (1.5.0): prefer players you've timed with
       failedWith = "off",      -- players you've failed with: "off", "lower" (priority) or "skip"
+      oneClassPerRole = true,  -- 1.5.1: never plan two players of one class in the same role
     },
     -- Past keys together (1.5.0): what counts as a failed key with someone, and whether pick
     -- ratings show it. failed: "overtime", "abandoned" (over time and abandoned) or "abandonedHigh"
@@ -411,6 +412,7 @@ local function SanitizeDB(db)
     f.wait = math.max(0, math.min(120, tonumber(f.wait) or d.wait))
     if f.soundChoice ~= "chime" and f.soundChoice ~= "readycheck" then f.soundChoice = d.soundChoice end
     f.preferTimed = f.preferTimed == true
+    if f.oneClassPerRole ~= false then f.oneClassPerRole = true end
     if f.failedWith ~= "off" and f.failedWith ~= "lower" and f.failedWith ~= "skip" then f.failedWith = d.failedWith end
   end
   -- Past keys together (1.5.0).

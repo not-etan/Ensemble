@@ -946,6 +946,62 @@ local function Avg(members, field)
 end
 Fit.Avg = Avg
 
+---------------------------------------------------------------------------
+-- The tiebreak chain (1.5.1, approved by the author October 26, 2026): between applications
+-- with the same rating (and past keys, when on), the higher of each step wins, in order:
+--   1. best timed level in this dungeon, 2. this dungeon's score, 3. overall M+ rating,
+--   4. item level; then the longest wait, then the applicant ID (a stable order).
+-- Missing per-dungeon data counts as "no run here" (0), and a missing rating or item level as 0,
+-- so the order is consistent (Lua's table.sort needs one). A premade uses the average of its
+-- members that have the value. Used by Fill group (the per-role cut and the group order) and by
+-- every Applicants sort, so the cards and the plan agree.
+---------------------------------------------------------------------------
+Fit.TIE_STEPS = {
+  { key = "timed", label = "best timed here", fmt = function(v) return v > 0 and ("+" .. math.floor(v + 0.5)) or "none" end },
+  { key = "map", label = "score in this dungeon", fmt = function(v) return tostring(math.floor(v + 0.5)) end },
+  { key = "rating", label = "M+ rating", fmt = function(v) return tostring(math.floor(v + 0.5)) end },
+  { key = "ilvl", label = "item level", fmt = function(v) return tostring(math.floor(v + 0.5)) end },
+}
+
+function Fit.TieKey(ev)
+  local sums = { timed = { 0, 0 }, map = { 0, 0 }, rating = { 0, 0 }, ilvl = { 0, 0 } }
+  local function add(k, v) sums[k][1] = sums[k][1] + v; sums[k][2] = sums[k][2] + 1 end
+  for _, m in ipairs(ev.members or {}) do
+    local b = m.bestHere
+    if type(b) == "table" then
+      add("timed", (b.timed and tonumber(b.level)) or 0)
+      add("map", tonumber(b.score) or 0)
+    end
+    local r, i = tonumber(m.score), tonumber(m.itemLevel)
+    if r and r > 0 then add("rating", r) end
+    if i and i > 0 then add("ilvl", i) end
+  end
+  local key = {}
+  for k, s in pairs(sums) do key[k] = s[2] > 0 and (s[1] / s[2]) or 0 end
+  return key
+end
+
+-- -1 when x goes first, 1 when y does, 0 on a full tie; the second return is the step that
+-- decided (an index into TIE_STEPS), nil on a tie.
+function Fit.TieCompare(x, y)
+  local a, b = Fit.TieKey(x), Fit.TieKey(y)
+  for i, st in ipairs(Fit.TIE_STEPS) do
+    local va, vb = a[st.key] or 0, b[st.key] or 0
+    if math.abs(va - vb) > 1e-9 then return va > vb and -1 or 1, i end
+  end
+  return 0, nil
+end
+
+local function Wait(ev) return tonumber(ev.members and ev.members[1] and ev.members[1].firstSeen) or math.huge end
+-- The full tail after the step a sort cares about: the chain, the longest wait, the ID.
+function Fit.TieBefore(x, y)
+  local c = Fit.TieCompare(x, y)
+  if c ~= 0 then return c < 0 end
+  local wx, wy = Wait(x), Wait(y)
+  if wx ~= wy then return wx < wy end
+  return tostring(x.applicantID) < tostring(y.applicantID)
+end
+
 -- Returns { stats = { {label, a, b, better = "a"|"b"|nil} }, onlyA, onlyB, both (utility lines),
 --           fixA, fixB, fixBoth (dungeon fixes), verdict, winner = "a"|"b"|nil }
 function Fit:Compare(ctx, a, b)
@@ -1042,17 +1098,14 @@ function Fit:Rank(out)
       end
     end
   end
-  local function Exp(ev) return ev.experience and ev.experience.points or -1 end
   local function Past(ev) return ev.past and ev.past.rank or 0 end
   table.sort(out, function(x, y)
     if x.roleConflict ~= y.roleConflict then return not x.roleConflict end
     if x.score ~= y.score then return x.score > y.score end
     if Past(x) ~= Past(y) then return Past(x) > Past(y) end   -- only with past keys in ratings on
-    if Exp(x) ~= Exp(y) then return Exp(x) > Exp(y) end
-    local sx = tonumber(x.members[1] and x.members[1].score) or 0
-    local sy = tonumber(y.members[1] and y.members[1].score) or 0
-    if sx ~= sy then return sx > sy end
-    return tostring(x.applicantID) < tostring(y.applicantID)
+    -- The tiebreak chain (1.5.1): best timed here, this dungeon's score, M+ rating, item level,
+    -- then the longest wait. Experience points left the sort: they come from the same best run.
+    return Fit.TieBefore(x, y)
   end)
   return out
 end

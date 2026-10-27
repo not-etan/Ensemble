@@ -27,7 +27,11 @@
 -- Choosing: pending invites count toward the group; the remaining slots are filled from the
 -- applications that pass the filters, pruned per role to the best few by pick rating; cheap
 -- capability counts rule groups out before the full analysis; the highest total pick rating
--- among the groups that pass wins, ties to the longest wait. Never a partial invite.
+-- among the groups that pass wins; ties go to past keys (when on), then the tiebreak chain
+-- (ApplicantFit: best timed here, this dungeon's score, M+ rating, item level), then the longest
+-- wait. One player per class in each role (1.5.1, a setting, on by default). Never a partial
+-- invite. When nothing passes, the plan names the closest group (and the level it would pass),
+-- the group that would pass with a repeat class, or the best applicant so far per open role.
 
 local _, ns = ...
 
@@ -635,8 +639,11 @@ FG.JoinOr = JoinOr
 --   poolGaps = { { label, keys, coverers } }, blocking = text, closest = { picks, judge },
 --   checked = full analyses run, leaves = groups counted
 -- }
-function FG:Plan(ctx, evals, settings)
+-- opts (internal): ignoreClassRule = plan as if "One player per class in each role" were off
+-- (the repeat-class group shown when only a repeat passes); noAlt = don't look for that group.
+function FG:Plan(ctx, evals, settings, opts)
   Init()
+  opts = opts or {}
   settings = Settings(settings)
   local h = H()
   local plan = { picks = {}, pending = {}, skipped = {}, poolGaps = {}, checked = 0, leaves = 0 }
@@ -666,6 +673,28 @@ function FG:Plan(ctx, evals, settings)
   plan.reserved = 0
   for _, m in ipairs(ctx.members or {}) do if m.reserved then plan.reserved = plan.reserved + 1 end end
   if slots == 0 then plan.status = "full"; plan.reservedAll = plan.reserved > 0; return plan end
+
+  -- One player per class in each role (1.5.1, on by default): your party (you included), invited
+  -- players and reserved slots hold their class in their role; an applicant of a held class in
+  -- that role is skipped with the reason, a premade that repeats a class in a role is skipped,
+  -- and the search never puts two of one class in one role. Fit decides between two applicants
+  -- of a class; the tiebreak chain only on a tie.
+  local classRule = FillSettings(settings).oneClassPerRole ~= false and not opts.ignoreClassRule
+  plan.classRule = classRule
+  local held = {}
+  local function MemberRoleClass(m)
+    local p = m.specID and UD:GetSpec(m.specID)
+    return m.role or (p and p.role), m.classFile or (p and p.class)
+  end
+  for _, m in ipairs(fixed) do
+    local r, cl = MemberRoleClass(m)
+    if r and cl and not held[r .. ":" .. cl] then held[r .. ":" .. cl] = m end
+  end
+  local function HolderName(m)
+    if m.isPlayer then return "you" end
+    if m.reserved then return "your reserved slot" end
+    return tostring(m.name or m.label or "?")
+  end
 
   -- Past keys together (1.5.0, F2): Skip works like a filter; Prefer and Lower priority move
   -- groups only in the order they're tried, so they act among groups that pass: a group that
@@ -698,13 +727,31 @@ function FG:Plan(ctx, evals, settings)
         why = "past keys" .. (#(ev.members or {}) > 1 and (" with " .. tostring(failedWho.m.name)) or "")
           .. ": " .. tostring(ns.History:WithText(failedWho.c)) .. " with you"
       end
-      if why then plan.skipped[#plan.skipped + 1] = { ev = ev, reason = why }
-      else
+      if why then plan.skipped[#plan.skipped + 1] = { ev = ev, reason = why } end
+      -- Each member's role and class ("DAMAGER:SHAMAN"), for the class rule.
+      local keys, seen = {}, {}
+      for i, a in ipairs(ev.members or {}) do
+        local r, cl = (ev.roles or {})[i] or a.role, a.classFile
+        if r and cl then
+          local k = r .. ":" .. cl
+          keys[#keys + 1] = k
+          if classRule and not why then
+            if seen[k] then
+              why = "repeats a class in a role (2 " .. UD:ClassName(cl) .. " " .. ROLE_WORD[r] .. ")"
+            elseif held[k] then
+              why = "same class as " .. HolderName(held[k]) .. " (" .. ROLE_WORD[r] .. ")"
+            end
+            if why then plan.skipped[#plan.skipped + 1] = { ev = ev, reason = why, class = true } end
+          end
+          seen[k] = true
+        end
+      end
+      if not why then
         local need, fits = {}, true
         for _, r in ipairs(ev.roles or {}) do need[r] = (need[r] or 0) + 1 end
         for r, n in pairs(need) do if n > (open[r] or 0) then fits = false end end
         if fits and #(ev.roles or {}) > 0 then
-          cands[#cands + 1] = { ev = ev, need = need, adj = adj, tie = tie, timedN = timedN, failed = failedWho and true or nil }
+          cands[#cands + 1] = { ev = ev, need = need, adj = adj, tie = tie, timedN = timedN, failed = failedWho and true or nil, keys = keys }
         end
       end
     end
@@ -738,15 +785,22 @@ function FG:Plan(ctx, evals, settings)
     local sx, sy = x.ev.score + x.adj, y.ev.score + y.adj
     if sx ~= sy then return sx > sy end
     if x.tie ~= y.tie then return x.tie > y.tie end
-    return (x.ev.members[1].firstSeen or 0) < (y.ev.members[1].firstSeen or 0)
+    return Fit.TieBefore(x.ev, y.ev)   -- the tiebreak chain (1.5.1), then the longest wait
   end)
-  local kept, taken, cut = {}, {}, {}
+  -- With one player per class in each role, at most 2 of a class per role stay (only one can be
+  -- picked; the second covers a must the first can't), so the rule can't empty the cut.
+  local kept, taken, cut, classTaken = {}, {}, {}, {}
   for _, c in ipairs(cands) do
     if #c.ev.members > 1 then kept[#kept + 1] = c
     else
       local r = c.ev.roles[1]
-      taken[r] = (taken[r] or 0) + 1
-      if taken[r] <= perRole then kept[#kept + 1] = c else cut[#cut + 1] = c end
+      local k = c.keys[1]
+      local over = classRule and k and (classTaken[k] or 0) >= 2
+      if not over then taken[r] = (taken[r] or 0) + 1 end
+      if not over and taken[r] <= perRole then
+        kept[#kept + 1] = c
+        if k then classTaken[k] = (classTaken[k] or 0) + 1 end
+      else cut[#cut + 1] = c end
     end
   end
   -- Need-aware keep (1.4.1 review, R1): pick rating scores each applicant alone, so the one
@@ -781,6 +835,46 @@ function FG:Plan(ctx, evals, settings)
     end
   end
 
+  -- When nothing passes (1.5.1): the group that would pass with a repeat class (the rule off),
+  -- shown so the player can invite it by hand; Fill group never plans it.
+  local function RepeatGroup()
+    if not classRule or opts.noAlt then return nil end
+    local ok, alt = pcall(self.Plan, self, ctx, evals, settings, { ignoreClassRule = true, noAlt = true })
+    if not ok or type(alt) ~= "table" then return nil end
+    if alt.status == "ready" then
+      local count, dups = {}, {}
+      local all = Concat(fixed, {})
+      for _, ev in ipairs(alt.picks) do for _, m in ipairs(Members(ev)) do all[#all + 1] = m end end
+      for _, m in ipairs(all) do
+        local r, cl = MemberRoleClass(m)
+        if r and cl then count[r .. ":" .. cl] = (count[r .. ":" .. cl] or 0) + 1 end
+      end
+      for k, n in pairs(count) do
+        if n > 1 then
+          local r, cl = k:match("^(%u+):(.+)$")
+          dups[#dups + 1] = n .. " " .. UD:ClassName(cl) .. " " .. ROLE_WORD[r]
+        end
+      end
+      table.sort(dups)
+      plan.repeatGroup = { picks = alt.picks, dups = table.concat(dups, ", ") }
+    end
+    return alt
+  end
+
+  -- The tiebreak chain's rank of each kept application (1 = best; equal applications share a
+  -- rank): groups that tie on total compare by the sum of their ranks, which is exactly "the
+  -- better player" when two groups differ by one swap (the usual case).
+  do
+    local order = {}
+    for _, c in ipairs(kept) do order[#order + 1] = c end
+    table.sort(order, function(x, y) return Fit.TieBefore(x.ev, y.ev) end)
+    local rank = 0
+    for i, c in ipairs(order) do
+      if i == 1 or Fit.TieCompare(order[i - 1].ev, c.ev) ~= 0 then rank = i end
+      c.rank = rank
+    end
+  end
+
   -- Every way to fill the open slots exactly. Counts, total and wait are kept as running sums
   -- (added on the way down, taken off on the way back), so a group costs one pass over the
   -- need specs (1,792 groups at 4 open slots with 8 per role).
@@ -788,7 +882,8 @@ function FG:Plan(ctx, evals, settings)
   for r, n in pairs(open) do left[r] = n end
   local counts, nspecs = {}, #specs
   for i = 1, nspecs do counts[i] = baseCounts[i] or 0 end
-  local total, wait, adj, tie = 0, 0, 0, 0
+  local total, wait, adj, tie, rankSum = 0, 0, 0, 0, 0
+  local used = {}
   local function rec(i, remaining)
     if remaining == 0 then
       local fails = 0
@@ -798,24 +893,29 @@ function FG:Plan(ctx, evals, settings)
       end
       local list = {}
       for k = 1, #chosen do list[k] = chosen[k] end
-      leaves[#leaves + 1] = { list = list, total = total, wait = wait, cheap = fails, adj = adj, tie = tie }
+      leaves[#leaves + 1] = { list = list, total = total, wait = wait, cheap = fails, adj = adj, tie = tie, rank = rankSum }
       return
     end
     if i > #kept then return end
     local c = kept[i]
     local fits = true
     for r, n in pairs(c.need) do if n > (left[r] or 0) then fits = false end end
+    if fits and classRule then
+      for _, k in ipairs(c.keys) do if used[k] then fits = false end end
+    end
     if fits then
-      local used = 0
-      for r, n in pairs(c.need) do left[r] = left[r] - n; used = used + n end
+      local seats = 0
+      for r, n in pairs(c.need) do left[r] = left[r] - n; seats = seats + n end
+      if classRule then for _, k in ipairs(c.keys) do used[k] = true end end
       for k = 1, nspecs do counts[k] = counts[k] + (c.counts[k] or 0) end
       total, wait = total + (c.ev.score or 0), wait + (c.ev.members[1].firstSeen or 0)
-      adj, tie = adj + c.adj, tie + c.tie
+      adj, tie, rankSum = adj + c.adj, tie + c.tie, rankSum + (c.rank or 0)
       chosen[#chosen + 1] = c
-      rec(i + 1, remaining - used)
+      rec(i + 1, remaining - seats)
       chosen[#chosen] = nil
       total, wait = total - (c.ev.score or 0), wait - (c.ev.members[1].firstSeen or 0)
-      adj, tie = adj - c.adj, tie - c.tie
+      adj, tie, rankSum = adj - c.adj, tie - c.tie, rankSum - (c.rank or 0)
+      if classRule then for _, k in ipairs(c.keys) do used[k] = nil end end
       for k = 1, nspecs do counts[k] = counts[k] - (c.counts[k] or 0) end
       for r, n in pairs(c.need) do left[r] = left[r] + n end
     end
@@ -832,15 +932,48 @@ function FG:Plan(ctx, evals, settings)
       local short = open[r] - (have[r] or 0)
       if short > 0 then want[#want + 1] = (short > 1 and (short .. " ") or "") .. ROLE_WORD[r] end
     end
-    plan.blocking = #want > 0 and ("Waiting for applicants: " .. table.concat(want, ", ") .. (#plan.skipped > 0 and " (past your filters)" or ""))
-      or "Waiting for applicants that fit the open slots together."
+    -- Best so far (1.5.1): the best applicant for each open slot that has one, by the same
+    -- order (fit, then the tiebreak chain) and the class rule. Display only: Fill group never
+    -- invites part of a group.
+    local left2, usedK, picks = {}, {}, {}
+    for r, n in pairs(open) do left2[r] = n end
+    for _, c in ipairs(cands) do
+      if #c.ev.members == 1 then
+        local r, k = c.ev.roles[1], c.keys[1]
+        if (left2[r] or 0) > 0 and not (classRule and k and usedK[k]) then
+          picks[#picks + 1] = c.ev; left2[r] = left2[r] - 1
+          if k then usedK[k] = true end
+        end
+      end
+    end
+    local rank = { TANK = 1, HEALER = 2, DAMAGER = 3 }
+    table.sort(picks, function(a, b)
+      local ra, rb = rank[a.roles[1]] or 4, rank[b.roles[1]] or 4
+      if ra ~= rb then return ra < rb end
+      return a.score > b.score
+    end)
+    local missing = {}
+    for _, r in ipairs(ROLES) do if (left2[r] or 0) > 0 then missing[#missing + 1] = { role = r, n = left2[r] } end end
+    plan.bestSoFar = { picks = picks, missing = missing }
+    plan.closestIDs = {}
+    for _, ev in ipairs(picks) do plan.closestIDs[ev.applicantID] = true end
+    local alt = RepeatGroup()
+    plan.classBlocked = alt and (alt.status == "ready" or (alt.leaves or 0) > 0) or nil
+    if plan.classBlocked and #want == 0 then
+      plan.blocking = "Waiting for applicants of another class"
+    else
+      plan.blocking = #want > 0 and ("Waiting for applicants: " .. table.concat(want, ", ") .. (#plan.skipped > 0 and " (past your filters)" or ""))
+        or "Waiting for applicants that fit the open slots together."
+    end
     return plan
   end
-  -- Best total first; past keys (when on) add their points, and at Strict only break ties.
+  -- Best total first; past keys (when on) add their points, and at Strict only break ties;
+  -- then the tiebreak chain (the lower sum of ranks), then the longest wait.
   table.sort(leaves, function(x, y)
     local tx, ty = x.total + x.adj, y.total + y.adj
     if tx ~= ty then return tx > ty end
     if x.tie ~= y.tie then return x.tie > y.tie end
+    if x.rank ~= y.rank then return x.rank < y.rank end
     return x.wait < y.wait
   end)
 
@@ -903,6 +1036,11 @@ function FG:Plan(ctx, evals, settings)
       for id, ev in pairs(inBest) do if not inSecond[id] then outEv = ev end end
       for id, ev in pairs(inSecond) do if not inBest[id] then innEv = ev end end
       plan.runnerUp = { out = outEv, inn = innEv, diff = best.total - second.total }
+      -- A tie on total (and past keys): say what decided it (1.5.1).
+      if best.total + best.adj == second.total + second.adj and best.tie == second.tie and outEv and innEv then
+        local _, step = Fit.TieCompare(outEv, innEv)
+        plan.runnerUp.tied, plan.runnerUp.tieStep = true, step
+      end
     end
     return plan
   end
@@ -912,18 +1050,33 @@ function FG:Plan(ctx, evals, settings)
   table.sort(leaves, function(x, y)
     if x.cheap ~= y.cheap then return x.cheap < y.cheap end
     if x.total ~= y.total then return x.total > y.total end
+    if x.rank ~= y.rank then return x.rank < y.rank end
     return x.wait < y.wait
   end)
   local closest = leaves[1]
   analyze(closest)
   plan.closest = { picks = picksOf(closest), judge = closest.judge, total = closest.total }
-  local gap = plan.poolGaps[1]
-  if gap then
-    plan.blocking = "Waiting for " .. gap.label .. (#gap.coverers > 0 and (": " .. JoinOr(gap.coverers)) or "")
-  else
-    local f = closest.judge.fails[1]
-    plan.blocking = f and ("Closest group: " .. (f.status == "missing" and "no " or "thin ") .. f.label) or "No group passes yet."
+  plan.closestIDs = {}
+  for _, ev in ipairs(plan.closest.picks) do plan.closestIDs[ev.applicantID] = true end
+  -- The highest lower level that lets the closest group through (1.5.1): the judge again on the
+  -- same analysis, no new search. A missing must fails every level.
+  local mustMissing, nMust = false, 0
+  for _, f in ipairs(closest.judge.fails) do if f.must and f.status == "missing" then mustMissing, nMust = true, nMust + 1 end end
+  plan.closest.mustMissing = mustMissing
+  local LV = { "strict", "standard", "relaxed" }
+  local at
+  for i, l in ipairs(LV) do if l == plan.level then at = i end end
+  if at and closest.r then
+    for i = at + 1, #LV do
+      local okJ, j = pcall(self.Judge, self, closest.r, LV[i], plan.musts, settings)
+      if okJ and j and j.pass then plan.closest.passesAt = LV[i]; break end
+    end
   end
+  RepeatGroup()
+  local n = #closest.judge.fails
+  local mustText = n == 1 and " (a must)" or (" (" .. nMust .. (nMust == 1 and " is a must)" or " are musts)"))
+  plan.blocking = "Closest group: short of " .. n .. (mustMissing and mustText
+    or (plan.closest.passesAt and (" - passes " .. FG.LEVEL_LABEL[plan.closest.passesAt]) or ""))
   return plan
 end
 
@@ -933,7 +1086,7 @@ end
 local cache = {}
 local function SettingsSig(settings, dk)
   local fs = FillSettings(settings)
-  local parts = { tostring(fs.level), tostring(fs.skipLeavers), tostring(fs.skipNoData) }
+  local parts = { tostring(fs.level), tostring(fs.skipLeavers), tostring(fs.skipNoData), tostring(fs.oneClassPerRole ~= false) }
   for _, k in ipairs({ "rating", "ilvl" }) do
     local c = fs[k] or {}
     parts[#parts + 1] = tostring(c.on) .. tostring(c.source) .. tostring(c.value)

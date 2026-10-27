@@ -3252,7 +3252,9 @@ function UI:RenderFillBand(band, plan)
   else
     icon, border = TEX_WAIT, C.warn
     title = HEX.warn .. "No full group yet|r"
-    line = HEX.text .. tostring(plan.blocking or "") .. "|r" .. tailText
+    -- 1.5.1: with a closest group the line stays short ("Closest group: short of 1 - passes
+    -- Standard"); the level and the skipped count are in the Fill plan.
+    line = HEX.text .. tostring(plan.blocking or "") .. "|r" .. (plan.status == "none" and "" or tailText)
   end
   band.title:SetText(icon .. " " .. title)
   band.line:SetText(line)
@@ -3346,39 +3348,102 @@ function UI:RenderFillPlan(list, plan, ctx)
     if plan.groupAfter then list:Add(self:GroupAfterText(plan.groupAfter, "full"), { size = 11, gap = 2, indent = 4 }) end
     list:Header("Why this group")
     local why = "Highest total fit (" .. plan.total .. ") of the full groups that pass."
-    if plan.runnerUp and plan.runnerUp.out and plan.runnerUp.inn then
-      why = why .. " Next best: " .. tostring(plan.runnerUp.inn.members[1].name) .. " instead of "
-        .. tostring(plan.runnerUp.out.members[1].name) .. " (total " .. plan.runnerUp.diff .. " lower)."
+    local ru = plan.runnerUp
+    if ru and ru.out and ru.inn and ru.tied then
+      -- A tie (1.5.1): what decided it, in the tiebreak chain's order.
+      local win, lose = ru.out, ru.inn
+      local wn, ln = tostring(win.members[1].name), tostring(lose.members[1].name)
+      local st = ru.tieStep and ns.ApplicantFit.TIE_STEPS[ru.tieStep]
+      local reason
+      if st then
+        local a, b = ns.ApplicantFit.TieKey(win)[st.key] or 0, ns.ApplicantFit.TieKey(lose)[st.key] or 0
+        reason = wn .. "'s " .. st.label .. " is higher, " .. st.fmt(a) .. " vs " .. st.fmt(b) .. "."
+      else
+        reason = wn .. " has waited longer."
+      end
+      why = why .. " Tied with " .. ln .. " in " .. wn .. "'s place (fit " .. tostring(lose.score) .. "): " .. reason
+    elseif ru and ru.out and ru.inn then
+      why = why .. " Next best: " .. tostring(ru.inn.members[1].name) .. " instead of "
+        .. tostring(ru.out.members[1].name) .. " (total " .. ru.diff .. " lower)."
     elseif plan.runnerUp then
       why = why .. " Next best: total " .. plan.runnerUp.diff .. " lower."
     end
     list:Add(why, { size = 11, gap = 2, indent = 4 })
   else
-    list:Header("What's stopping it")
-    list:Add(TEX_NO .. " " .. tostring(plan.blocking or "No group passes yet."), { size = 11, gap = 2, indent = 4 })
+    -- Panel A (1.5.1, the author's pick, October 26): each fact once. Every shortfall is one row
+    -- with its rule folded in (the level that rejects it, or that it's a must) and, when nobody
+    -- applying brings it, the classes that could; the must hint once; the repeat-class group in
+    -- one line; "Best so far" instead of a closest group when there aren't enough applicants.
+    local function partyNames()
+      local names = {}
+      for _, m in ipairs(ctx and ctx.base and ctx.base.members or {}) do
+        if m.isPlayer then table.insert(names, 1, "you")
+        elseif not m.reserved then names[#names + 1] = tostring(m.label) end
+      end
+      for _, ev in ipairs(plan.pending) do names[#names + 1] = tostring(ev.members[1] and ev.members[1].name) .. " (invited)" end
+      if #names == 0 then return nil end
+      return HEX.muted .. "With " .. FG.JoinOr(names):gsub(" or ", " and ") .. ".|r"
+    end
+    local usedGap = {}
+    local function gapFor(keys)
+      for i, g in ipairs(plan.poolGaps) do
+        for _, a in ipairs(g.keys or {}) do
+          for _, b in ipairs(keys or {}) do if a == b and not usedGap[i] then usedGap[i] = true; return g end end
+        end
+      end
+    end
+    local levelName = FG.LEVEL_LABEL[plan.level]
+    if plan.closest then
+      local head = "CLOSEST GROUP"
+      if plan.closest.passesAt then
+        head = head .. HEX.muted .. "  -  |r" .. HEX.good .. "would pass at " .. FG.LEVEL_LABEL[plan.closest.passesAt] .. "|r"
+      end
+      list:Header(head)
+      for _, ev in ipairs(plan.closest.picks) do memberRow(ev.roles[1], ev) end
+      local pn = partyNames()
+      if pn then list:Add(pn, { size = 10, gap = 4, indent = 4 }) end
+      for _, f in ipairs(plan.closest.judge.fails) do
+        local what = (f.status == "missing" and "No " or "Thin ") .. f.label
+        local rule
+        if f.must then
+          rule = (f.status == "missing") and "a must" or ("a must; " .. levelName .. " wants it not thin")
+        else
+          rule = levelName .. ((f.status == "missing") and " needs it" or " wants it not thin")
+        end
+        local g = gapFor(f.keys)
+        local gapText = g and ("; nobody applying brings it" .. (#g.coverers > 0 and (HEX.muted .. " (" .. FG.JoinOr(g.coverers) .. ")|r") or "")) or ""
+        list:Add(TEX_NO .. " " .. what .. ": " .. rule .. gapText, { size = 11, gap = 2, indent = 4 })
+      end
+      if plan.closest.mustMissing then
+        list:Add(HEX.muted .. "A must blocks every level: untick it under Settings > Fill group > Always require.|r", { size = 10, gap = 2, indent = 4 })
+      end
+    elseif plan.bestSoFar then
+      list:Header("Best so far")
+      for _, ev in ipairs(plan.bestSoFar.picks) do memberRow(ev.roles[1], ev) end
+      for _, x in ipairs(plan.bestSoFar.missing) do
+        list:Add(TEX_NO .. " " .. (x.n > 1 and (x.n .. " ") or "") .. (ROLE_WORD[x.role] or "?")
+          .. ": nobody applying yet" .. (plan.classBlocked and " of another class" or ""), { size = 11, gap = 2, indent = 4 })
+      end
+      list:Add(HEX.muted .. "Shown so you can invite by hand; Fill group never invites part of a group.|r", { size = 10, gap = 2, indent = 4 })
+    else
+      list:Add(TEX_NO .. " " .. tostring(plan.blocking or "No group passes yet."), { size = 11, gap = 2, indent = 4 })
+    end
+    -- A gap no closest-group row named (none in the short case).
     for i, g in ipairs(plan.poolGaps) do
-      if i > 1 or not (plan.blocking or ""):find(g.label, 1, true) then
+      if not usedGap[i] then
         list:Add(TEX_NO .. " Nobody applying brings " .. g.label .. (#g.coverers > 0 and (HEX.muted .. ": " .. FG.JoinOr(g.coverers) .. "|r") or ""),
           { size = 11, gap = 2, indent = 4 })
       end
     end
-    if plan.closest then
-      list:Header("Closest group")
-      list:Add(self:FillNames(plan.closest.picks), { size = 11, gap = 2, indent = 4 })
-      local fails, mustFail = {}, nil
-      for _, f in ipairs(plan.closest.judge.fails) do
-        fails[#fails + 1] = (f.status == "missing" and "no " or "thin ") .. f.label
-        if f.must and not mustFail then mustFail = f end
-      end
-      list:Add(HEX.warn .. "Short of: " .. table.concat(fails, ", ") .. "|r", { size = 11, gap = 2, indent = 4 })
-      if mustFail then
-        list:Add(HEX.muted .. mustFail.label .. " is a must, so no level lets this group through. Untick it under Settings > Fill group > Always require to allow it.|r",
-          { size = 10, gap = 2, indent = 4 })
-      end
+    if plan.repeatGroup then
+      list:Add(TEX_OK .. " Passes " .. levelName .. " with a repeat class: " .. self:FillNames(plan.repeatGroup.picks)
+        .. HEX.muted .. " (" .. plan.repeatGroup.dups .. ")|r", { size = 11, gap = 1, indent = 4 })
+      list:Add(HEX.muted .. "\"One player per class in each role\" is on, so Fill group won't plan it. You can invite them yourself.|r",
+        { size = 10, gap = 2, indent = 16 })
     end
   end
   if #plan.skipped > 0 then
-    list:Header("Skipped by your filters (" .. #plan.skipped .. ")")
+    list:Header("Skipped (" .. #plan.skipped .. ")")
     for _, x in ipairs(plan.skipped) do
       list:Add(self:ApplicantNames(x.ev) .. ": " .. x.reason, { size = 11, gap = 2, indent = 4 })
     end
@@ -3428,6 +3493,14 @@ local function ApplicantCard(parent)
   c.after:SetWordWrap(false)
   -- Fill group: IN PLAN / SKIPPED, left of the rating.
   c.chip = Chip(c); c.chip:SetPoint("RIGHT", c.badge, "LEFT", -6, 0)
+  -- The tag's own hover line (CLOSEST, 1.5.1): one line pointing to the Fill plan, not the list again.
+  c.chip:EnableMouse(true)
+  c.chip:SetScript("OnEnter", function(self)
+    if self.tip and GameTooltip then
+      GameTooltip:SetOwner(self, "ANCHOR_TOP"); GameTooltip:SetText(self.tip, 1, 1, 1, 1, true); GameTooltip:Show()
+    end
+  end)
+  c.chip:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
   c:SetScript("OnEnter", function(self) if not self.selected then self:SetBackdropBorderColor(unpack(C.accent)) end end)
   c:SetScript("OnLeave", function(self)
     if not self.selected then self:SetBackdropBorderColor(unpack(self.inPlan and C.accent or C.border)) end
@@ -3647,7 +3720,7 @@ function UI:BuildApplicantsPage()
     local def = ({ { "fit", "Fit" }, { "rating", "Rating" }, { "ilvl", "ilvl" }, { "past", "Past keys" } })[i]
     local b = Button(page, def[2], def[1] == "past" and 68 or 52, 20, function() view().sort = def[1]; UI:QueueRefresh() end)
     SetFontSize(b.text, 11)
-    b.tooltip = ({ fit = "Best fit first: what they add to your group, plus their experience in this dungeon at this key level (ties go to the higher M+ rating)",
+    b.tooltip = ({ fit = "Best fit first: what they add to your group, plus their experience in this dungeon at this key level.\nTies: best timed here, then this dungeon's score, M+ rating, item level, then who waited longest.",
       rating = "Highest M+ rating first", ilvl = "Highest item level first",
       past = "Players you've timed keys with first (from your own History; counts keys recorded with full names, 1.5.0 on)" })[def[1]]
     if prevBtn then b:SetPoint("RIGHT", prevBtn, "LEFT", -4, 0) else b:SetPoint("RIGHT", ap.hidePoor, "LEFT", -12, 0) end
@@ -3764,9 +3837,18 @@ function UI:RefreshApplicants()
   ap.sf:SetPoint("TOPLEFT", 8, showBand and -(8 + FILL_BAND_H + 6) or -8); ap.sf:SetPoint("BOTTOMRIGHT", -4, 8)
   if showBand then self:RenderFillBand(ap.band, plan) end
   local inPlan, skippedWhy = {}, {}
+  local closest, closestTip = {}, nil
   if plan then
     for _, ev in ipairs(plan.picks) do inPlan[ev.applicantID] = true end
     for _, x in ipairs(plan.skipped) do skippedWhy[x.ev.applicantID] = x.reason end
+    -- What Fill group leans toward while nothing passes (1.5.1).
+    if plan.status ~= "ready" then closest = plan.closestIDs or {} end
+    if plan.closest then
+      local n = #plan.closest.judge.fails
+      closestTip = "In the closest group: short of " .. n .. ". See the Fill plan."
+    elseif plan.bestSoFar then
+      closestTip = "Best so far for an open slot: not enough applicants for a full group yet. See the Fill plan."
+    end
   end
   if not showBand then ap.showPlan = false end
 
@@ -3796,22 +3878,20 @@ function UI:RefreshApplicants()
   local Avg = ns.ApplicantFit.Avg
   if view.sort == "past" then
     -- Past keys: most timed keys with you (less failed ones) first; no shared keys last; the
-    -- fit order breaks ties.
-    local order, key, any = {}, {}, {}
-    for i, ev in ipairs(shownList) do order[ev] = i; key[ev], any[ev] = self:PastKeysScore(ev) end
+    -- tiebreak chain breaks ties.
+    local key, any = {}, {}
+    for _, ev in ipairs(shownList) do key[ev], any[ev] = self:PastKeysScore(ev) end
     table.sort(shownList, function(x, y)
       if any[x] ~= any[y] then return any[x] end
       if key[x] ~= key[y] then return key[x] > key[y] end
-      return order[x] < order[y]
+      return ns.ApplicantFit.TieBefore(x, y)   -- the tiebreak chain (1.5.1)
     end)
   elseif view.sort == "rating" or view.sort == "ilvl" then
     local field = view.sort == "rating" and "score" or "itemLevel"
-    local order = {}
-    for i, ev in ipairs(shownList) do order[ev] = i end
     table.sort(shownList, function(x, y)
       local a, b = Avg(x.members, field) or 0, Avg(y.members, field) or 0
       if a ~= b then return a > b end
-      return order[x] < order[y]
+      return ns.ApplicantFit.TieBefore(x, y)   -- the tiebreak chain (1.5.1)
     end)
   end
   evals = shownList
@@ -3863,8 +3943,11 @@ function UI:RefreshApplicants()
       c:SetAlpha(0.55)
     else
       c:SetAlpha(1)
-      if c.inPlan then c.chip:Set("IN PLAN", C.accent) else c.chip:Hide() end
+      if c.inPlan then c.chip:Set("IN PLAN", C.accent)
+      elseif closest[id] then c.chip:Set("CLOSEST", C.warn)
+      else c.chip:Hide() end
     end
+    c.chip.tip = (not skippedWhy[id] and not c.inPlan and closest[id]) and closestTip or nil
     -- The name stops before the tag (or the rating when there's none).
     c.name:ClearAllPoints()
     c.name:SetPoint("TOPLEFT", c.icon, "TOPRIGHT", 8, 0)
@@ -6091,6 +6174,10 @@ function UI:BuildSettings_fill(f)
   AddCheck(self, f, x2, yy, "Skip players the game sends no data for", function() return FillS().skipNoData ~= false end,
     function(v) FillS().skipNoData = v; ns:Fire("FILL_SETTINGS_CHANGED") end,
     "With a minimum on, an applicant without a rating or item level from the game is skipped. Off lets them through that filter."):SetWidth(400); yy = yy - 24
+  -- One player per class in each role (1.5.1, on by default).
+  AddCheck(self, f, x2, yy, "One player per class in each role", function() return FillS().oneClassPerRole ~= false end,
+    function(v) FillS().oneClassPerRole = v; ns:Fire("FILL_SETTINGS_CHANGED") end,
+    "Fill group never plans two players of one class in the same role, counting your party and reserved slots: Restoration and Elemental Shaman together is fine; two Shaman DPS aren't. Premades that repeat a class in a role are skipped.\nYour own Invite clicks aren't limited."):SetWidth(400); yy = yy - 24
   -- Past keys together (1.5.0): only among groups that already pass the level and the musts.
   AddCheck(self, f, x2, yy, "Prefer players I've timed with", function() return FillS().preferTimed == true end,
     function(v) FillS().preferTimed = v; ns:Fire("FILL_SETTINGS_CHANGED") end,
@@ -6108,7 +6195,7 @@ function UI:BuildSettings_fill(f)
   fw:SetPoint("LEFT", fwl, "RIGHT", 8, 0)
   fw.tooltip = "More failed keys than timed ones with you (what counts as failed: Settings > Group Finder). Lower priority: they count for less among groups that pass. Skip: like a filter, dimmed and tagged SKIPPED with the reason."
   self.fillFailedBtn = fw
-  yy = yy - 34
+  yy = yy - 30   -- 1.5.1: 4 px tighter (room for "One player per class in each role")
 
   SubHead(f, x2, yy, "Auto-fill"); yy = yy - 22
   AddCheck(self, f, x2, yy, "Turn Auto-fill on when I list a group", function() return FillS().autoArm == true end,
@@ -6135,7 +6222,7 @@ function UI:BuildSettings_fill(f)
   yy = yy - 28
   AddCheck(self, f, x2, yy, "Show a pop-up when the window is closed", function() return FillS().popup ~= false end,
     function(v) FillS().popup = v; UI:UpdateFillPopup() end,
-    "With the main window and the Group Finder closed, a small pop-up shows the plan, with Review and Fill group."):SetWidth(400); yy = yy - 30
+    "With the main window and the Group Finder closed, a small pop-up shows the plan, with Review and Fill group."):SetWidth(400); yy = yy - 26
   local wl = Text(f, 12, C.text); wl:SetPoint("TOPLEFT", x2, yy); wl:SetText("Wait before telling me")
   local wm = Button(f, "-", 22, 20, function() FillS().wait = math.max(0, (FillS().wait or 15) - 5); UI:RefreshSettings() end)
   wm:SetPoint("TOPLEFT", x2 + 230, yy + 3)

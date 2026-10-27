@@ -4868,7 +4868,9 @@ do
   ok(p.closest and p.closest.judge.fails[1] and p.closest.judge.fails[1].label == "Battle resurrection (only a fallback)",
     "closest group: only Intercession, which Strict doesn't take")
   -- 1.4.1 review (R4): at Strict a fallback can't count, so it's a pool gap with who could bring it.
-  ok(p.blocking == "Waiting for Battle resurrection: Death Knight, Druid or Warlock", "what's stopping it: " .. tostring(p.blocking))
+  -- 1.5.1: the band summarizes the closest group; who could bring it moves to the panel's row.
+  ok(p.blocking == "Closest group: short of 1 - passes Standard", "what's stopping it: " .. tostring(p.blocking))
+  ok(p.poolGaps[1] and FG.JoinOr(p.poolGaps[1].coverers) == "Death Knight, Druid or Warlock", "the pool gap still names who could bring it")
   -- Intercession passes Standard as a thin battle rez (no DK, Druid or Warlock in the group).
   p = plan(BASE, 10)
   local thinBrez
@@ -4880,7 +4882,8 @@ do
   ok(p.status == "none" and p.poolGaps[1] and p.poolGaps[1].label == "Bloodlust" and p.poolGaps[1].must, "pool gap: Bloodlust, a must")
   local cov = table.concat(p.poolGaps[1].coverers, ",")
   ok(cov:find("Shaman") and cov:find("Mage") and cov:find("Evoker") and cov:find("Hunter"), "who could bring it: " .. cov)
-  ok(p.blocking:find("^Waiting for Bloodlust: "), "the band says what it's waiting for")
+  ok(p.blocking == "Closest group: short of 2 (1 is a must)" and p.closest.mustMissing and not p.closest.passesAt,
+    "the band says the closest group is short of a must (1.5.1): " .. tostring(p.blocking))
   -- Not enough applicants.
   p = plan({ [1] = BASE[1], [2] = BASE[2] }, 10)
   ok(p.status == "short" and p.blocking == "Waiting for applicants: 2 DPS", "too few applicants: " .. tostring(p.blocking))
@@ -4986,7 +4989,7 @@ do
   ap.band:Click(); RunTimers()
   local function detail() local t = {} for i = 1, ap.detail.used do t[#t + 1] = ap.detail.pool[i]:GetText() end return table.concat(t, "\n") end
   ok(ap.detailTitle:GetText() == "FILL PLAN" and detail():find("4 invites, sent together with one click", 1, true)
-    and detail():find("WHY THIS GROUP", 1, true) and detail():find("(you)", 1, true) and detail():find("SKIPPED BY YOUR FILTERS (1)", 1, true)
+    and detail():find("WHY THIS GROUP", 1, true) and detail():find("(you)", 1, true) and detail():find("SKIPPED (1)", 1, true)
     and detail():find("Ensemble only invites when you click.", 1, true), "Fill plan: the group, why, who was skipped, the invite rule")
   ap.cards[1]:Click(); RunTimers()
   ok(ap.detailTitle:GetText() == "APPLICANT FIT", "clicking a card goes back to Applicant fit")
@@ -5455,7 +5458,8 @@ do
   for i, d in ipairs(dps) do pal[#pal + 1] = { { name = "D" .. i, class = d[1], role = "DAMAGER", spec = d[2], score = 3200 + i, ilvl = 320 } } end
   local p = plan(pal, 14)
   ok(p.status == "none" and p.checked <= 1 and not p.capped, "Strict, Intercession only: no group, " .. tostring(p.checked) .. " full analyses")
-  ok(p.blocking == "Waiting for Battle resurrection: Death Knight, Druid or Warlock", "Strict: the pool gap names who could bring it: " .. tostring(p.blocking))
+  ok(p.blocking == "Closest group: short of 1 - passes Standard" and FG.JoinOr(p.poolGaps[1].coverers) == "Death Knight, Druid or Warlock",
+    "Strict: the closest group passes Standard; the pool gap names who could bring it: " .. tostring(p.blocking))
   p = plan(pal, 10)
   ok(p.status == "ready", "Standard: Intercession still passes as a thin battle rez")
 
@@ -6725,6 +6729,204 @@ do
   ok(capText and capText:find(": +5, capped at 100.", 1, true), "N6: \"+5, capped at 100\" (" .. tostring(capText) .. ")")
   ok(plainText and plainText:find(": +5 = 95.", 1, true), "N6: unchanged when the cap doesn't apply")
 
+  APPLICANTS, APPLICANT_STATUS, LISTING, ROSTER, INSPECT_CACHE = {}, {}, nil, {}, {}
+end
+
+-- 80. 1.5.1 Fill group (approved October 26, 2026): one player per class in each role (a setting,
+-- on by default), the tiebreak chain (best timed here, this dungeon's score, M+ rating, item
+-- level, then the wait) in Fill group and every Applicants sort, and what Fill group leans toward
+-- when nothing passes (CLOSEST tags, the level the closest group would pass, the repeat-class
+-- group, "Best so far").
+do
+  EnsembleDB = nil
+  C_LFGList.GetApplicantDungeonScoreForListing = function(id, m)
+    local x = APPLICANTS[id] and APPLICANTS[id][m]
+    if not (x and x.best) then return nil end
+    return { mapScore = x.best[3] or 0, bestRunLevel = x.best[1], finishedSuccess = x.best[2] }
+  end
+  ROSTER = {
+    player = { guid = "P", name = "Faelan", class = "WARRIOR", spec = 73, role = "TANK" },
+    party1 = { guid = "V", name = "Vexa", class = "ROGUE", role = "DAMAGER" },
+  }
+  INSPECT_CACHE = { V = 260 }
+  LISTING = "Den of Nalorakk (Mythic Keystone)"
+  APPLICANT_STATUS = {}
+  APPLICANTS = {}
+  local ns80 = boot()
+  local FG, Fit, UI80 = ns80.FillGroup, ns80.ApplicantFit, ns80.UI
+  -- Musts off, so these cases test the class rule and the order, not the dungeon's needs.
+  for _, e in ipairs(FG:BossNeeds("DenOfNalorakk")) do FG:SetMust("DenOfNalorakk", e.req.id, false) end
+  FG:SetMust("DenOfNalorakk", "lust", false)
+  local s80 = ns80.db.settings
+  local function plan(apps, level)
+    APPLICANTS = apps
+    ns80.state.keyLevelOverride = level or 4
+    ns80.Tracker:Rescan()
+    Fit.ClearCache(); FG.ClearCache()
+    return FG:Current()
+  end
+  local function names(list) local t = {} for _, ev in ipairs(list or {}) do t[#t + 1] = ev.members[1].name end table.sort(t) return table.concat(t, ",") end
+  local function skippedBy(p) local t = {} for _, x in ipairs(p.skipped) do t[x.ev.members[1].name] = x.reason end return t end
+  local function one(name, class, role, spec, score, best, ilvl)
+    return { { name = name, class = class, role = role, spec = spec, score = score or 3000, ilvl = ilvl or 320, best = best } }
+  end
+
+  ok(s80.fill.oneClassPerRole == true, "one player per class in each role: on by default")
+  -- Your party's class holds its role; a premade repeating a class in a role is skipped; another
+  -- role of the same class is fine.
+  local pool = {
+    [1] = one("Rhia", "DRUID", "HEALER", 105, 3180),
+    [2] = one("Kael", "SHAMAN", "DAMAGER", 262, 3260),
+    [3] = one("Ruun", "SHAMAN", "DAMAGER", 263, 3205),
+    [4] = one("Doriah", "PRIEST", "DAMAGER", 258, 3240),
+    [5] = one("Zed", "ROGUE", "DAMAGER", 261, 3290),
+    [6] = { { name = "Twin1", class = "MAGE", role = "DAMAGER", spec = 63, score = 3000, ilvl = 320 },
+            { name = "Twin2", class = "MAGE", role = "DAMAGER", spec = 64, score = 3000, ilvl = 320 } },
+    [7] = { { name = "Duo1", class = "SHAMAN", role = "HEALER", spec = 264, score = 3000, ilvl = 320 },
+            { name = "Duo2", class = "EVOKER", role = "DAMAGER", spec = 1467, score = 3000, ilvl = 320 } },
+  }
+  local p = plan(pool)
+  local sk = skippedBy(p)
+  ok(sk.Zed == "same class as Vexa (DPS)", "a Rogue DPS applicant with a Rogue DPS in your party: skipped with the reason (" .. tostring(sk.Zed) .. ")")
+  ok(sk.Twin1 == "repeats a class in a role (2 Mage DPS)", "a premade with two Mage DPS: skipped (" .. tostring(sk.Twin1) .. ")")
+  ok(sk.Duo1 == nil, "a premade with a Shaman healer and an Evoker DPS isn't skipped")
+  ok(p.status == "ready", "a group passes with the rule on")
+  local shamanDPS = 0
+  for _, ev in ipairs(p.picks) do
+    for i, m in ipairs(ev.members) do if m.classFile == "SHAMAN" and ev.roles[i] == "DAMAGER" then shamanDPS = shamanDPS + 1 end end
+  end
+  ok(shamanDPS <= 1, "never two Shaman DPS in the plan")
+  -- Every group the search counts respects the rule; with the rule off it counts more.
+  local leavesOn = p.leaves
+  s80.fill.oneClassPerRole = false; FG.ClearCache()
+  local pOff = plan(pool)
+  ok(pOff.leaves > leavesOn and next(skippedBy(pOff)) ~= "Zed" and skippedBy(pOff).Zed == nil and skippedBy(pOff).Twin1 == nil,
+    "rule off: nobody skipped for their class, more groups counted (" .. leavesOn .. " -> " .. pOff.leaves .. ")")
+  s80.fill.oneClassPerRole = true; FG.ClearCache()
+  -- You hold your own class; a reserved slot and an invited player hold theirs.
+  local sk2 = skippedBy(plan({ [1] = one("Rhia", "DRUID", "HEALER", 105), [2] = one("Brick", "WARRIOR", "TANK", 73),
+    [3] = one("Arm", "WARRIOR", "DAMAGER", 71), [4] = one("Kael", "SHAMAN", "DAMAGER", 262), [5] = one("Doriah", "PRIEST", "DAMAGER", 258) }))
+  ok(sk2.Arm == nil, "a Warrior DPS isn't blocked by you tanking as a Warrior (another role)")
+  APPLICANT_STATUS = { [4] = "invited" }
+  local p3 = plan({ [1] = one("Rhia", "DRUID", "HEALER", 105), [4] = one("Kael", "SHAMAN", "DAMAGER", 262),
+    [5] = one("Ruun", "SHAMAN", "DAMAGER", 263), [6] = one("Doriah", "PRIEST", "DAMAGER", 258) })
+  ok(skippedBy(p3).Ruun == "same class as Kael (DPS)", "an invited Shaman DPS holds the class: " .. tostring(skippedBy(p3).Ruun))
+  APPLICANT_STATUS = {}
+  plan({ [1] = one("Rhia", "DRUID", "HEALER", 105) })
+  local okR = ns80.Players:Reserve(63, nil, false)
+  local p4 = plan({ [1] = one("Rhia", "DRUID", "HEALER", 105), [2] = one("Ilsa", "MAGE", "DAMAGER", 64), [3] = one("Kael", "SHAMAN", "DAMAGER", 262) })
+  ok(okR and skippedBy(p4).Ilsa == "same class as your reserved slot (DPS)", "a reserved Mage DPS holds the class: " .. tostring(skippedBy(p4).Ilsa))
+  ns80.Players:Release(1)
+  -- The per-role cut keeps at most two of a class, so a pool full of one class still plans.
+  local many = { [1] = one("Rhia", "DRUID", "HEALER", 105, 3000) }
+  for i = 2, 10 do many[i] = one("Sha" .. i, "SHAMAN", "DAMAGER", 262, 3400 + i) end
+  many[11] = one("Doriah", "PRIEST", "DAMAGER", 258, 2600)
+  local p5 = plan(many)
+  ok(p5.status == "ready" and names(p5.picks):find("Doriah", 1, true), "nine Shaman DPS and one Priest: the plan takes one Shaman and the Priest")
+  -- Only a repeat could pass: the repeat-class group is named, with the classes it repeats.
+  local p6 = plan({ [1] = one("Rhia", "DRUID", "HEALER", 105), [2] = one("Kael", "SHAMAN", "DAMAGER", 262), [3] = one("Ruun", "SHAMAN", "DAMAGER", 263) })
+  ok(p6.status == "short" and p6.classBlocked and p6.blocking == "Waiting for applicants of another class",
+    "two Shaman DPS for two DPS slots: waiting for another class (" .. tostring(p6.blocking) .. ")")
+  ok(p6.repeatGroup and p6.repeatGroup.dups == "2 Shaman DPS" and #p6.repeatGroup.picks == 3, "the repeat-class group: " .. tostring(p6.repeatGroup and p6.repeatGroup.dups))
+  ok(p6.bestSoFar and #p6.bestSoFar.picks == 2 and p6.bestSoFar.missing[1] and p6.bestSoFar.missing[1].role == "DAMAGER"
+    and p6.bestSoFar.missing[1].n == 1, "Best so far: the healer and one Shaman; one DPS slot open")
+  ok(p6.closestIDs[1] and (p6.closestIDs[2] or p6.closestIDs[3]) and not (p6.closestIDs[2] and p6.closestIDs[3]), "CLOSEST: the best so far, one Shaman")
+
+  -- The tiebreak chain.
+  local function ev(m, extra)
+    local e = { applicantID = extra and extra.id or 1, members = m }
+    return e
+  end
+  local A1 = ev({ { bestHere = { level = 14, timed = true, score = 300 }, score = 3310, itemLevel = 326, firstSeen = 50 } }, { id = 1 })
+  local B1 = ev({ { bestHere = { level = 12, timed = true, score = 320 }, score = 3420, itemLevel = 328, firstSeen = 10 } }, { id = 2 })
+  local c, step = Fit.TieCompare(A1, B1)
+  ok(c == -1 and step == 1, "step 1: the higher best timed level here wins (+14 over +12), even with a lower rating")
+  local A2 = ev({ { bestHere = { level = 12, timed = true, score = 330 }, score = 3000, itemLevel = 300 } }, { id = 3 })
+  c, step = Fit.TieCompare(A2, B1)
+  ok(c == -1 and step == 2, "step 2: same level, the higher score in this dungeon")
+  local A3 = ev({ { bestHere = { level = 12, timed = true, score = 320 }, score = 3500, itemLevel = 300 } }, { id = 4 })
+  c, step = Fit.TieCompare(A3, B1)
+  ok(c == -1 and step == 3, "step 3: then the M+ rating")
+  local A4 = ev({ { bestHere = { level = 12, timed = true, score = 320 }, score = 3420, itemLevel = 330 } }, { id = 5 })
+  c, step = Fit.TieCompare(A4, B1)
+  ok(c == -1 and step == 4, "step 4: then the item level")
+  local same = ev({ { bestHere = { level = 12, timed = true, score = 320 }, score = 3420, itemLevel = 328, firstSeen = 5 } }, { id = 6 })
+  ok(Fit.TieCompare(same, B1) == 0 and Fit.TieBefore(same, B1) and not Fit.TieBefore(B1, same), "a full tie: the longest wait goes first")
+  local over = ev({ { bestHere = { level = 16, timed = false, score = 290 }, score = 3420 } }, { id = 7 })
+  local none = ev({ { score = 3420 } }, { id = 8 })
+  ok(Fit.TieKey(over).timed == 0 and Fit.TieKey(none).timed == 0 and Fit.TieKey(none).map == 0,
+    "an over-time best run has no timed level; missing per-dungeon data counts as no run here")
+  ok(Fit.TieCompare(over, none) == -1, "an over-time run still beats no run on this dungeon's score")
+  local premade = ev({ { bestHere = { level = 14, timed = true, score = 300 }, score = 3000 }, { score = 3400 } }, { id = 9 })
+  ok(Fit.TieKey(premade).timed == 14 and Fit.TieKey(premade).rating == 3200, "a premade: the average of members with the value")
+
+  -- Two Demonology Warlocks at the same rating: Fill group and the Applicants sort pick the one
+  -- with the higher best timed run here (Brenna +14, Tor +12, though Tor's rating is higher).
+  local tiePool = {
+    [1] = one("Rhia", "DRUID", "HEALER", 105, 3180, { 14, true, 300 }),
+    [2] = one("Tor", "WARLOCK", "DAMAGER", 266, 3420, { 12, true, 310 }),
+    [3] = one("Brenna", "WARLOCK", "DAMAGER", 266, 3310, { 14, true, 300 }),
+    [4] = one("Kael", "SHAMAN", "DAMAGER", 262, 3260, { 15, true, 320 }),
+  }
+  local pt = plan(tiePool)
+  local ctx, evals = Fit:ForLiveGroup()
+  local by = {}
+  for i, e in ipairs(evals) do by[e.members[1].name] = i end
+  ok(by.Brenna and by.Tor and by.Brenna < by.Tor, "Applicants: Brenna above Tor (same rating; higher best timed here)")
+  ok(pt.status == "ready" and names(pt.picks) == "Brenna,Kael,Rhia", "Fill group picks Brenna, one Warlock only: " .. names(pt.picks))
+  ok(pt.runnerUp and pt.runnerUp.tied and pt.runnerUp.tieStep == 1 and pt.runnerUp.inn.members[1].name == "Tor",
+    "the next best group is the tie with Tor, decided by best timed here")
+  -- The interface: the Fit tooltip, "Why this group", the Rating sort's ties, CLOSEST tags.
+  UI80:Show("applicants"); RunTimers()
+  local ap = UI80.ap
+  ok(ap.sortBtns.fit.tooltip:find("Ties: best timed here, then this dungeon's score, M+ rating, item level, then who waited longest.", 1, true),
+    "the Fit sort's tooltip names the tiebreak order")
+  ap.band:Click(); RunTimers()
+  local function detail() local t = {} for i = 1, ap.detail.used do t[#t + 1] = ap.detail.pool[i]:GetText() end return table.concat(t, "\n") end
+  ok(detail():find("Tied with Tor in Brenna's place (fit", 1, true) and detail():find("Brenna's best timed here is higher, +14 vs +12.", 1, true),
+    "Why this group says what broke the tie")
+  -- Rating sort: equal ratings fall to the chain. Tie two DPS on rating; the higher best timed first.
+  APPLICANTS[3][1].score = 3420
+  ns80.db.settings.applicantView.sort = "rating"
+  Fit.ClearCache(); FG.ClearCache(); ns80.Tracker:Rescan(); UI80:Refresh()
+  local order = {}
+  for _, cd in ipairs(ap.cards) do if cd:IsShown() then order[#order + 1] = cd.name:GetText():gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "") end end
+  local iB, iT
+  for i, n in ipairs(order) do if n:find("Brenna") then iB = i end if n:find("Tor") then iT = i end end
+  ok(iB and iT and iB < iT, "Rating sort: a tie on rating goes to the higher best timed here (Brenna before Tor)")
+  ns80.db.settings.applicantView.sort = "fit"
+  -- Nothing passes at Strict: CLOSEST tags on the closest group, its rows, the level it would pass.
+  FG:SetMust("DenOfNalorakk", "lust", true)
+  APPLICANTS = { [1] = one("Rhia", "DRUID", "HEALER", 105, 3500), [3] = one("Brenna", "WARLOCK", "DAMAGER", 266, 3500),
+    [5] = one("Doriah", "PRIEST", "DAMAGER", 258, 3500), [6] = one("Faren", "DEMONHUNTER", "DAMAGER", 577, 3500) }
+  ns80.state.keyLevelOverride = 14
+  Fit.ClearCache(); FG.ClearCache(); ns80.Tracker:Rescan(); UI80:Refresh()
+  local pc = ap.plan
+  ok(pc and pc.status == "none" and pc.closest and pc.closest.mustMissing and pc.blocking:find("^Closest group: short of"),
+    "no Bloodlust applying: the closest group, short of a must (" .. tostring(pc and pc.blocking) .. ")")
+  local closestN, tip = 0, nil
+  for _, cd in ipairs(ap.cards) do
+    if cd:IsShown() and cd.chip:IsShown() and cd.chip.text:GetText() == "CLOSEST" then closestN = closestN + 1; tip = cd.chip.tip end
+  end
+  ok(closestN == 3 and tip and tip:find("^In the closest group: short of %d+%. See the Fill plan%.$"), "three cards tagged CLOSEST, one-line tooltip: " .. tostring(tip))
+  ok(not ap.band.line:GetText():find("Strict", 1, true), "the band's line stays short (no level or skipped count)")
+  ap.showPlan = true; UI80:Refresh()
+  local d = detail()
+  ok(d:find("CLOSEST GROUP", 1, true) and d:find("No Bloodlust: a must; nobody applying brings it", 1, true)
+    and d:find("A must blocks every level", 1, true), "Fill plan: the closest group, the Bloodlust row with its rule, the must hint")
+  -- No need named twice in the panel (the no-stacking rule).
+  local _, nLust = d:gsub("Bloodlust", "")
+  ok(nLust == 1, "Bloodlust is named once in the Fill plan (" .. nLust .. ")")
+  ok(not d:find("Nobody applying brings Bloodlust", 1, true), "the pool gap folds into its row")
+  -- The Settings checkbox and verify.
+  local vt = ns80.Verify:Build()
+  ok(vt:find("one player per class in each role: on", 1, true) and not vt:find("Brenna", 1, true) and not vt:find("Rhia", 1, true),
+    "verify: the class rule's state, counts only, no names")
+  local chk
+  for _, c in ipairs(UI80.checks or {}) do if c.label and c.label.GetText and tostring(c.label:GetText()):find("One player per class", 1, true) then chk = c end end
+  ok(chk ~= nil, "Settings > Fill group has \"One player per class in each role\"")
+
+  C_LFGList.GetApplicantDungeonScoreForListing = nil
   APPLICANTS, APPLICANT_STATUS, LISTING, ROSTER, INSPECT_CACHE = {}, {}, nil, {}, {}
 end
 

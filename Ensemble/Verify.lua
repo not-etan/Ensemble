@@ -611,6 +611,13 @@ local function CheckFill()
   Add(last and ((last:find("not taken") or last:find("blocked") or last:find("error")) and "WARN" or "OK") or "INFO",
     last or "no Fill group used since the last reload")
   if FG.planErrors and FG.planErrors > 0 then Add("FAIL", "plan errors: " .. FG.planErrors .. " (last: " .. tostring(FG.lastPlanError) .. ")") end
+  -- One player per class in each role (1.5.1): the setting, and how many it skips now (counts only).
+  local fs = ns.db and ns.db.settings and ns.db.settings.fill or {}
+  local nClass = 0
+  local cur = ns.Tracker and ns.Tracker.hosting and FG:Current()
+  for _, x in ipairs(cur and cur.skipped or {}) do if x.class then nClass = nClass + 1 end end
+  Add("INFO", "one player per class in each role: " .. (fs.oneClassPerRole ~= false and "on" or "off")
+    .. (cur and (" (" .. nClass .. " applicant" .. (nClass == 1 and "" or "s") .. " skipped for it now)") or ""))
   if ns.Tracker and ns.Tracker.hosting then
     local plan = FG:Current()
     if plan then
