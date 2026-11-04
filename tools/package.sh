@@ -4,10 +4,12 @@
 # uploads (BigWigs packager, .pkgmeta): one Ensemble/ folder with the code, media and
 # LICENSE.txt (a copy of LICENSE, kept identical; the tests check).
 # Also writes the store description dist/overview-curseforge.md (CurseForge, Markdown: the header graphic, the
-# links line, then the overview) and regenerates README.md.
+# links line, then the overview), regenerates README.md and Ensemble/Highlights.lua.
 set -e
 cd "$(dirname "$0")/.."
 rm -f Ensemble/README.md
+# What's new: Ensemble/Highlights.lua from CHANGELOG.md's "### Highlights" blocks.
+python3 tools/make_highlights.py > /dev/null
 VER=$(sed -n 's/^## Version: *//p' Ensemble/Ensemble.toc | tr -d '\r')
 mkdir -p dist
 rm -rf dist/stage && mkdir -p dist/stage

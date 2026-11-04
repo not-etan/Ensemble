@@ -29,6 +29,12 @@ local function boot(skipMeta)
   end
   -- The first-run tour would take over the window in every test; test 51 runs it on purpose.
   if ns.db and not KEEP_TOUR then ns.db.tourSeen = true end
+  -- First-time tips and What's new (1.6.0) likewise; block 83 runs them on purpose.
+  if ns.db and not KEEP_TIPS then
+    ns.db.tipsSeen = {}
+    for _, t in ipairs(ns.Tour and ns.Tour.TIPS or {}) do ns.db.tipsSeen[t.id] = true end
+    ns.db.lastSeenVersion = ns.VERSION
+  end
   return ns
 end
 
@@ -4425,10 +4431,12 @@ do
   GameTooltip.AddLine, GameTooltip.SetText = oldAdd, oldSet
   local tipText = table.concat(lines, "\n")
   ok(tipText:find("Mystery Spell", 1, true) and not tipText:find(".lua", 1, true), "R8: no file names in the link tooltip")
-  -- R9: tour text.
+  -- R9: tour text (1.6.0: the Plan step says what happens when chat is blocked, and no longer
+  -- claims the game blocks addon chat inside a key, which is unconfirmed).
   local steps = ns66.Tour.STEPS
-  ok(steps[2].text:find("the dungeon you're in", 1, true) and steps[5].text:find("may block addon chat", 1, true)
-    and steps[5].text:find("copy window", 1, true), "R9: tour says Auto's sources and that chat may be blocked")
+  ok(steps[1].text:find("the dungeon you're in", 1, true) and steps[4].text:find("copy window", 1, true)
+    and not steps[4].text:find("during a key", 1, true) and not steps[4].text:find("may block", 1, true),
+    "R9: tour says Auto's sources and what happens when chat is blocked, without the unconfirmed claim")
   -- R10: the Blizzard Options panel names every settings section.
   Settings = { RegisterCanvasLayoutCategory = function() return {} end, RegisterAddOnCategory = function() end }
   UI66.blizzCategory = nil
@@ -7306,6 +7314,347 @@ do
   C_FriendList, C_BattleNet, BNGetNumFriends, C_Club, C_CreatureInfo, C_GuildInfo, IsInGuild = nil, nil, nil, nil, nil, nil, nil
   GetMaxLevelForPlayerExpansion, GetPlayerInfoByGUID = nil, nil
   APPLICANTS, APPLICANT_STATUS, LISTING, ROSTER, INSPECT_CACHE = {}, {}, nil, {}, {}
+end
+
+-- 83. The tour revamp and What's new (1.6.0, approved October 29, 2026): a five-step tour, one
+-- step per tab; first-time tips (hosting, the boss window, a recorded key, the reserve dialog),
+-- once each, with Show tips / Show tips again; What's new from CHANGELOG.md's Highlights blocks
+-- (version compare with -beta, skipped versions, fresh installs, the header dot, Show me);
+-- nothing in combat or inside a key.
+do
+  local function slurp(path) local f = io.open(path, "rb"); if not f then return nil end local t = f:read("*a"); f:close(); return t end
+  local oldMeta = C_AddOns.GetAddOnMetadata
+  local function bootAt(version, db)
+    C_AddOns.GetAddOnMetadata = function(_, field) if field == "Version" then return version end return oldMeta() end
+    EnsembleDB = db
+    KEEP_TOUR, KEEP_TIPS = true, true
+    local n = boot()
+    KEEP_TOUR, KEEP_TIPS = nil, nil
+    return n
+  end
+
+  -- (a) Versions.
+  local n0 = boot()
+  local WN = n0.WhatsNew
+  ok(WN.Compare("1.6.0", "1.5.1") == 1 and WN.Compare("1.5.1", "1.6.0") == -1 and WN.Compare("1.6.0", "1.6.0") == 0,
+    "versions compare by number")
+  ok(WN.Compare("1.10.0", "1.9.9") == 1, "1.10.0 is newer than 1.9.9 (numbers, not text)")
+  ok(WN.Compare("1.6.0-beta", "1.6.0") == -1 and WN.Compare("1.6.0", "1.6.0-beta") == 1 and WN.Compare("v1.6.0-beta", "1.6.0-beta") == 0,
+    "a beta comes before its release; a leading v is fine")
+  ok(WN.Compare("1.6.1-beta", "1.6.0") == 1, "a beta of a later version is newer than the release before it")
+  ok(WN.Parse("dev") == nil and WN.Compare("dev", "1.6.0") == nil and WN.Parse("1.6") == nil and WN.Parse("1.6.0 beta") == nil,
+    "anything that isn't a version is refused")
+
+  -- (b) Highlights.lua matches CHANGELOG.md (the generator's own rules, read again here).
+  local text = slurp(ADDON_DIR .. "/../CHANGELOG.md") or ""
+  local fromLog = {}
+  local pos = 1
+  while true do
+    local s0, e0, ver = text:find("\n## (%d+%.%d+%.%d+)[ \t]*\n", pos)
+    if not s0 then break end
+    local nextS = text:find("\n## ", e0, true)
+    local body = text:sub(e0 + 1, (nextS or #text + 1) - 1)
+    local hs, he = body:find("### Highlights[ \t]*\n")
+    if hs then
+      local stop = body:find("\n#", he, true)
+      local block = body:sub(he + 1, stop or #body)
+      local items = {}
+      for line in block:gmatch("[^\n]+") do
+        local title, rest = line:match("^%- %*%*(.-)%*%*%s*(.-)%s*$")
+        if title then
+          local show = rest:match("<!%-%-%s*show:%s*([%w_-]+)%s*%-%->")
+          rest = rest:gsub("%s*<!%-%-.-%-%->", "")
+          title = title:gsub("[:%.]+$", "")
+          rest = rest:sub(1, 1):upper() .. rest:sub(2)
+          items[#items + 1] = { title = title, text = rest, show = show }
+        end
+      end
+      if #items > 0 then fromLog[#fromLog + 1] = { version = ver, items = items } end
+    end
+    pos = e0
+  end
+  local same = #fromLog == #(n0.HIGHLIGHTS or {}) and #fromLog > 0
+  for i, g in ipairs(fromLog) do
+    local h = n0.HIGHLIGHTS[i]
+    same = same and h and h.version == g.version and #h.items == #g.items
+    for j, it in ipairs(g.items) do
+      local hi = h and h.items[j]
+      same = same and hi and hi.title == it.title and hi.text == it.text and hi.show == it.show
+    end
+  end
+  ok(same, "Highlights.lua matches CHANGELOG.md's Highlights blocks (run tools/make_highlights.py)")
+  ok(fromLog[1] and fromLog[1].version == "1.6.0", "1.6.0's own highlights are the first entries")
+  local showOK = true
+  for _, g in ipairs(n0.HIGHLIGHTS) do
+    for _, it in ipairs(g.items) do if it.show and not WN.SHOW_ME[it.show] then showOK = false end end
+  end
+  ok(showOK, "every Show me target in the changelog exists")
+  ok((slurp(ADDON_DIR .. "/Ensemble.toc") or ""):find("\nHighlights.lua\nTour.lua", 1, true), "Highlights.lua loads before Tour.lua")
+
+  -- (c) The tour: five steps, one per tab, each naming the tab's question, each outlining
+  -- something on the tab it shows.
+  local Tour = n0.Tour
+  local tabsSeen, titlesOK, onTab = {}, true, true
+  ok(#Tour.STEPS == 5, "five tour steps")
+  local UI0 = n0.UI
+  UI0:Show(); RunTimers()
+  Tour:Start()
+  for i, st in ipairs(Tour.STEPS) do
+    if i > 1 then Tour.frame.next:Click() end
+    tabsSeen[#tabsSeen + 1] = st.tab
+    titlesOK = titlesOK and st.title:find("?", 1, true) ~= nil
+    local first = st.target()
+    onTab = onTab and UI0.currentTab == st.tab and first ~= nil and Tour.hl:IsShown()
+  end
+  ok(table.concat(tabsSeen, ",") == "composition,applicants,dungeons,plan,history", "one step per tab, History included")
+  ok(titlesOK, "each step names its tab's question")
+  ok(onTab, "each step shows its tab and outlines something on it")
+  Tour.frame.next:Click()
+  ok(not Tour:IsActive(), "Done ends the tour")
+  -- The callout grows with the text size and stays inside the window.
+  ok(Tour:CalloutWidth() == 300, "callout 300 px wide at 100%")
+  n0.db.settings.textSize = 125
+  ok(Tour:CalloutWidth() == 375, "callout 375 px wide at 125%")
+  n0.db.settings.textSize = 100
+  local win = { l = 0, r = 952, t = 600, b = 0 }
+  ok(Tour.Place({ l = 20, r = 400, t = 520, b = 300 }, win, 300, 140) == "below", "room below the target: below")
+  ok(Tour.Place({ l = 20, r = 400, t = 300, b = 60 }, win, 300, 140) == "above", "room only above: above")
+  ok(Tour.Place({ l = 12, r = 420, t = 540, b = 12 }, win, 300, 140) == "right", "a tall target with room beside it: beside it")
+  local where = Tour.Place({ l = 12, r = 940, t = 540, b = 12 }, win, 375, 200)
+  ok(where == "inside", "a target that fills the smallest window: the callout goes inside it, never off the window")
+  local _, side = Tour.Place({ l = 700, r = 940, t = 520, b = 300 }, win, 300, 140)
+  ok(side == "RIGHT", "near the window's right edge the callout aligns right")
+  -- Placement with real positions: the History step at the smallest window ends up inside.
+  rawset(UI0.frame, "_left", 0); rawset(UI0.frame, "_right", 952); rawset(UI0.frame, "_top", 600); rawset(UI0.frame, "_bottom", 0)
+  local runs = UI0.hp.runs.sf
+  rawset(runs, "_left", 12); rawset(runs, "_right", 520); rawset(runs, "_top", 520); rawset(runs, "_bottom", 12)
+  Tour:Start(); for _ = 1, 4 do Tour.frame.next:Click() end
+  ok(Tour.step == 5 and Tour.frame.placed ~= "above" and Tour.frame.placed ~= "below",
+    "the History step at the smallest window isn't pushed off the window (" .. tostring(Tour.frame.placed) .. ")")
+  Tour:Stop()
+  -- Never in combat or inside a key: the first open waits.
+  n0.db.tourSeen = nil
+  UI0:Hide()
+  InCombatLockdown = function() return true end
+  UI0:Show(); RunTimers()
+  ok(not Tour:IsActive() and not n0.db.tourSeen, "no tour in combat; it waits")
+  InCombatLockdown = function() return false end
+  ACTIVE_CHALLENGE = 2
+  UI0:Hide(); UI0:Show(); RunTimers()
+  ok(not Tour:IsActive() and not n0.db.tourSeen, "no tour inside a key")
+  ACTIVE_CHALLENGE = nil
+  UI0:Hide(); UI0:Show(); RunTimers()
+  ok(Tour:IsActive() and n0.db.tourSeen, "the next open after the key: the tour")
+  Tour:Stop(); UI0:Hide()
+
+  -- (d) A fresh install: the tour, no What's new; the version is recorded.
+  local nF = bootAt("1.6.0", nil)
+  ok(nF.db.lastSeenVersion == "1.6.0", "fresh install records the installed version")
+  ok(not nF.WhatsNew:HasUnseen(), "fresh install: nothing unseen")
+  nF.UI:Show(); RunTimers()
+  ok(nF.Tour:IsActive() and not (nF.UI.whatsNew and nF.UI.whatsNew:IsShown()), "fresh install: the tour, not What's new")
+  ok(not nF.UI.whatsNewBtn.dot:IsShown(), "fresh install: no dot")
+  nF.Tour:Stop(); nF.UI:Hide()
+
+  -- (e) Updating from before 1.6.0 (the tour was seen): What's new once, then a quiet button.
+  local nU = bootAt("1.6.0", { tourSeen = true })
+  ok(nU.db.lastSeenVersion == nU.WhatsNew.BEFORE_TRACKING, "an existing player starts from before version tracking")
+  ok(nU.WhatsNew:HasUnseen() and nU.WhatsNew:Unseen()[1].version == "1.6.0", "1.6.0's highlights are unseen")
+  nU.UI:Show(); RunTimers()
+  local wnp = nU.UI.whatsNew
+  ok(wnp and wnp:IsShown() and not nU.Tour:IsActive(), "the first open after the update shows What's new, not the tour")
+  local listText = {}
+  for i = 1, wnp.list.used do listText[#listText + 1] = wnp.list.pool[i]:GetText() or "" end
+  listText = table.concat(listText, "\n")
+  ok(listText:find("1.6.0", 1, true) and listText:find("A new tour", 1, true) and listText:find("Show me", 1, true),
+    "the panel lists 1.6.0's highlights with Show me")
+  ok(nU.db.lastSeenVersion == "1.6.0" and not nU.UI.whatsNewBtn.dot:IsShown(), "opened: seen, no dot")
+  wnp:Hide(); nU.UI:Hide(); nU.UI:Show(); RunTimers()
+  ok(not wnp:IsShown(), "shown once: the next open is quiet")
+  -- The button opens it any time (the list from before, under no NEW tag).
+  nU.UI.whatsNewBtn:Click()
+  ok(wnp:IsShown(), "the header button opens it")
+  -- Show me: the panel closes and a one-step tour points at the spot.
+  local showRow
+  for i = 1, wnp.list.bused do
+    local b = wnp.list.bpool[i]
+    if b:IsShown() and b._scripts.OnClick then showRow = showRow or b end
+  end
+  showRow:Click()
+  ok(not wnp:IsShown() and nU.Tour:IsActive() and #nU.Tour.steps == 5, "the tour highlight's Show me runs the tour")
+  nU.Tour:Stop()
+  nU.WhatsNew:ShowMe("whatsnew")
+  ok(nU.Tour:IsActive() and #nU.Tour.steps == 1 and nU.Tour.steps[1].target() == nU.UI.whatsNewBtn
+    and nU.Tour.frame.next.text:GetText() == "Done" and not nU.Tour.frame.skip:IsShown(),
+    "a one-step Show me outlines the What's new button, with Done only")
+  nU.Tour:Stop()
+  nU.WhatsNew:ShowMe("tips")
+  ok(nU.UI.currentTab == "settings" and nU.UI.settingsSection == "general" and nU.Tour.steps[1].target() == nU.UI.tipsRow,
+    "Show me for tips opens Settings > General on the tips row")
+  nU.Tour:Stop(); nU.UI:Hide()
+  ok(nU.WhatsNew:ShowMe("nope") == false, "an unknown Show me does nothing")
+
+  -- (f) Skipped versions: every one since the last seen, newest first; never a future one.
+  local nS = bootAt("1.8.0", { tourSeen = true, lastSeenVersion = "1.6.0" })
+  nS.HIGHLIGHTS = {
+    { version = "1.9.0", items = { { title = "Future", text = "Not yet." } } },
+    { version = "1.7.0", items = { { title = "Seven", text = "From 1.7.0." } } },
+    { version = "1.8.0", items = { { title = "Eight", text = "From 1.8.0." } } },
+    { version = "1.6.0", items = { { title = "Six", text = "Already seen." } } },
+  }
+  local un = nS.WhatsNew:Unseen()
+  ok(#un == 2 and un[1].version == "1.8.0" and un[2].version == "1.7.0", "skipped versions: both, newest first, not the future one")
+  nS.UI:Show(); RunTimers()
+  local L = nS.UI.whatsNew.list
+  local all = {}
+  for i = 1, L.used do all[#all + 1] = L.pool[i]:GetText() or "" end
+  all = table.concat(all, "\n")
+  local p8, p7, pE, p6 = all:find("Eight", 1, true), all:find("Seven", 1, true), all:find("EARLIER", 1, true), all:find("Six", 1, true)
+  ok(p8 and p7 and pE and p6 and p8 < p7 and p7 < pE and pE < p6 and not all:find("Future", 1, true),
+    "the panel: new versions first, then Earlier, nothing from a later version")
+  nS.UI.whatsNew:Hide(); nS.UI:Hide()
+  -- A version without highlights opens nothing; a beta of the same version doesn't count as newer.
+  local nN = bootAt("1.8.1", { tourSeen = true, lastSeenVersion = "1.8.0" })
+  nN.HIGHLIGHTS = { { version = "1.8.0", items = { { title = "Eight", text = "x" } } } }
+  ok(not nN.WhatsNew:HasUnseen(), "a version with no highlights (minor fixes) shows nothing")
+  local nB = bootAt("1.8.0", { tourSeen = true, lastSeenVersion = "1.8.0-beta" })
+  nB.HIGHLIGHTS = { { version = "1.8.0", items = { { title = "Eight", text = "x" } } } }
+  ok(nB.WhatsNew:HasUnseen(), "from the 1.8.0 beta to the release, 1.8.0's highlights are new")
+
+  -- (g) Opened on a tab (a new listing), in combat or inside a key: the dot waits.
+  local nD = bootAt("1.6.0", { tourSeen = true })
+  nD.UI:Show("applicants"); RunTimers()
+  ok(not (nD.UI.whatsNew and nD.UI.whatsNew:IsShown()) and nD.UI.whatsNewBtn.dot:IsShown(), "opened on a tab: no panel, the dot shows")
+  nD.UI:Hide()
+  InCombatLockdown = function() return true end
+  nD.UI:Show(); RunTimers()
+  ok(not (nD.UI.whatsNew and nD.UI.whatsNew:IsShown()), "no What's new in combat")
+  InCombatLockdown = function() return false end
+  nD.UI:Hide(); ACTIVE_CHALLENGE = 2
+  nD.UI:Show(); RunTimers()
+  ok(not (nD.UI.whatsNew and nD.UI.whatsNew:IsShown()) and nD.UI.whatsNewBtn.dot:IsShown(), "none inside a key; the dot stays")
+  ACTIVE_CHALLENGE = nil
+  nD.UI:Hide(); nD.UI:Show(); RunTimers()
+  ok(nD.UI.whatsNew:IsShown() and not nD.UI.whatsNewBtn.dot:IsShown(), "after the key, the next plain open shows it")
+  nD.UI.whatsNew:Hide(); nD.UI:Hide()
+  -- Never on login: nothing opens the window by itself.
+  ok(not nD.UI.frame:IsShown(), "What's new never opens the window by itself")
+  -- A full reset isn't an update: What's new stays seen, tips and the tour start over.
+  nD.db.tipsSeen = { hosting = true }
+  nD:ResetDB()
+  ok(nD.db.lastSeenVersion == "1.6.0" and nD.db.tipsSeen == nil and nD.db.tourSeen == nil, "a reset keeps What's new seen, forgets tips and the tour")
+
+  -- (h) Saved data and settings.
+  local nZ = bootAt("1.6.0", { tourSeen = "yes", tipsSeen = { hosting = true, [3] = true, history = "no" }, lastSeenVersion = 7,
+    settings = { tips = "maybe" } })
+  ok(nZ.db.tipsSeen.hosting == true and nZ.db.tipsSeen[3] == nil and nZ.db.tipsSeen.history == nil, "seen tips cleaned")
+  ok(nZ.db.tourSeen == nil and nZ.db.settings.tips == true, "bad tour flag dropped, tips setting back to on")
+  ok(nZ.db.lastSeenVersion == "1.6.0", "a bad saved version is dropped (then recorded fresh)")
+  local gen = table.concat(nZ.UI.SECTION_KEYS.general, ",")
+  ok(gen:find("tips", 1, true), "General's Reset section covers Show tips")
+  nZ.db.settings.tips = false
+  nZ.UI:ResetSettingsSection("general")
+  ok(nZ.db.settings.tips == true, "Reset section turns tips back on")
+
+  -- (i) First-time tips: each trigger once, one at a time.
+  local nT = bootAt("1.6.0", { tourSeen = true, lastSeenVersion = "1.6.0" })
+  local T, UIT = nT.Tour, nT.UI
+  local function tipID() return T.tipShowing and T.tipShowing.id or nil end
+  -- History: a recorded key and the window open elsewhere.
+  UIT:Show("composition"); RunTimers()
+  ok(tipID() == nil, "no tip before anything applies")
+  nT.db.history = { { dungeon = "MurderRow", level = 10, result = "timed", time = 0 } }
+  nT:Fire("HISTORY_CHANGED"); RunTimers()
+  ok(tipID() == "history" and T.tip:IsShown() and T.tip.hl:IsShown() and nT.db.tipsSeen.history == true,
+    "a recorded key: the History tip on the History tab, saved as seen")
+  ok(T.tipShowing.target() == UIT.tabButtons.history, "it outlines the History tab")
+  T.tip.next:Click()
+  ok(not T.tip:IsShown() and tipID() == nil, "Got it closes it")
+  UIT:Refresh()
+  ok(tipID() == nil, "shown once")
+  -- Hosting: a listing, the Applicants tab with the Fill group band.
+  LISTING = "Murder Row (Mythic Keystone)"
+  APPLICANTS = {}
+  nT.Tracker:Enable(); nT.Tracker:Rescan()
+  UIT:Show("applicants"); RunTimers()
+  ok(tipID() == "hosting" and T.tipShowing.target() == UIT.ap.band, "first listing: the Fill group tip on the band")
+  -- One at a time: the boss window's tip waits while this one shows.
+  nT.BossWindow:Show()
+  ok(tipID() == "hosting" and not nT.db.tipsSeen.bosswindow, "one tip at a time")
+  T:HideTip()
+  -- The boss window (its own window: the tip takes its strata, above it).
+  nT.BossWindow:Hide(); nT.BossWindow:Show()
+  ok(tipID() == "bosswindow" and T.tip:GetFrameStrata() == nT.BossWindow.frame:GetFrameStrata()
+    and T.tip:GetFrameLevel() > nT.BossWindow.frame:GetFrameLevel(), "the boss window tip sits above the boss window")
+  nT.BossWindow:Hide()
+  ok(tipID() == nil and not T.tip:IsShown(), "the tip closes with its window")
+  -- The reserve dialog: reserve mode only.
+  UIT:OpenReserveDialog("save")
+  ok(tipID() == nil, "no reserve tip when adding a saved player")
+  UIT.reserveDialog:Hide()
+  UIT:OpenReserveDialog("reserve")
+  local a, b
+  if T.tipShowing then a, b = T.tipShowing.target() end
+  ok(tipID() == "reserve" and a == UIT.reserveDialog.name and b == UIT.reserveDialog.browse
+    and T.tip:GetFrameStrata() == "DIALOG", "first reserve: the tip on the name box and Browse, over the dialog")
+  UIT.reserveDialog:Hide()
+  ok(tipID() == nil, "closing the dialog closes its tip")
+  ok(nT.db.tipsSeen.hosting and nT.db.tipsSeen.bosswindow and nT.db.tipsSeen.reserve and nT.db.tipsSeen.history, "every tip seen once")
+  -- Show tips again, combat and keys, the setting, the tour and What's new (the main window
+  -- closed, so only the boss window's tip applies).
+  UIT:Hide()
+  T:ResetTips()
+  InCombatLockdown = function() return true end
+  nT.BossWindow:Show()
+  ok(tipID() == nil, "no tip in combat")
+  InCombatLockdown = function() return false end
+  nT:Fire("BOSS_COMBAT", false); RunTimers()
+  ok(tipID() == "bosswindow", "after combat, the waiting tip shows")
+  nT:Fire("BOSS_COMBAT", true)
+  ok(tipID() == nil and not T.tip:IsShown(), "combat starting hides a tip")
+  nT.BossWindow:Hide()
+  T:ResetTips()
+  ACTIVE_CHALLENGE = 2
+  nT.BossWindow:Show()
+  ok(tipID() == nil, "no tip inside a key")
+  ACTIVE_CHALLENGE = nil
+  nT.BossWindow:Hide()
+  T:ResetTips()
+  nT.db.settings.tips = false
+  nT.BossWindow:Show()
+  ok(tipID() == nil, "Show tips off: none")
+  nT.BossWindow:Hide()
+  nT.db.settings.tips = true
+  T:Start()
+  nT.BossWindow:Show()
+  ok(tipID() == nil, "no tip during the tour")
+  T:Stop(); nT.BossWindow:Hide()
+  UIT:ShowWhatsNew()
+  nT.BossWindow:Show()
+  ok(tipID() == nil, "no tip over What's new")
+  UIT.whatsNew:Hide(); RunTimers()
+  ok(tipID() == "bosswindow", "after What's new closes, the tip shows")
+  T.tip.skip:Click()
+  ok(nT.db.settings.tips == false and not T.tip:IsShown(), "No more tips turns tips off")
+  nT.BossWindow:Hide()
+  -- Settings > General: the row and the button.
+  UIT:OpenSettings("general")
+  ok(UIT.tipsRow and UIT.tipsReset and UIT.tipsRow.Sync, "Settings > General has Show tips and Show tips again")
+  UIT.tipsRow:Click()
+  ok(nT.db.settings.tips == true, "the row turns tips back on")
+  nT.db.tipsSeen = { reserve = true }
+  UIT.tipsReset:Click()
+  ok(next(nT.db.tipsSeen) == nil and UIT.tipsResetNote:GetText():find("show again", 1, true), "Show tips again forgets every seen tip")
+  UIT:Hide()
+  -- No names, no API without a guard: the tips read only our own state and frames.
+  local src = slurp(ADDON_DIR .. "/Tour.lua") or ""
+  ok(not src:find("PVEFrame", 1, true) and not src:find("LFGListFrame", 1, true), "tips never anchor to Blizzard's frames")
+  ok(src:find("pcall(C_ChallengeMode.GetActiveChallengeMapID)", 1, true) ~= nil, "the key check is guarded")
+
+  C_AddOns.GetAddOnMetadata = oldMeta
+  APPLICANTS, APPLICANT_STATUS, LISTING, ROSTER = {}, {}, nil, {}
+  InCombatLockdown = function() return false end
+  ACTIVE_CHALLENGE = nil
 end
 
 print(string.format("%d passed, %d failed", passes, fails))

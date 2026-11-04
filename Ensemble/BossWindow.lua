@@ -314,6 +314,7 @@ function BW:Show()
   if ns.Tracker then ns.Tracker:Acquire("bosswindow") end
   self.frame:Show()
   self:Refresh()
+  if ns.Tour then ns.Tour:PumpTips() end   -- the first time: a tip on the window
 end
 
 function BW:Hide(byUser)

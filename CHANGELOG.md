@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.6.0
+### Highlights
+- **A new tour, and tips when they help:** the tour is now five short steps, one for each tab. Tips for hosting, the boss window, your first recorded key and reserving a slot show once, the first time each comes up; turn them off in Settings > General. <!-- show: tour -->
+- **What's new:** after an update, its highlights show once when you open the window. The button beside "?" brings them back, with a dot while there's something you haven't seen. <!-- show: whatsnew -->
+
+### Changes
+- **Tour:** one step for each tab (Composition, Applicants, Dungeon, Plan, History), each naming the question it answers. It now covers History, the Dungeon tab and the boss cards, hosting with Fill group and Reserve a slot, and applying with the Group Finder's listing ratings. Each step outlines something on the tab it shows, and the box stays inside the window at larger text sizes and the smallest window size. Replay it from Settings > General.
+- **First-time tips:** a short tip the first time you host a listing (Fill group), the boss window opens, a key is recorded (History) and you reserve a slot. Each shows once. Settings > General has "Show tips" and "Show tips again"; "No more tips" on a tip turns them off.
+- **What's new:** the highlights of every update you haven't seen yet, newest first (all of them if you skipped a version), with "Show me" to point each one out. A fresh install gets the tour instead.
+- **Never in your way:** the tour, tips and What's new never open in combat or inside a key; they wait for the next time.
+- **Fixes:** the tour no longer says the game may block addon chat inside a key (that's unconfirmed); it says what happens instead: when chat is blocked, the text opens in a copy window. A full reset now also forgets which tips you've seen.
+
 ## 1.5.1
 Includes everything from 1.5.0 (below), which wasn't released on its own.
 

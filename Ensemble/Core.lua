@@ -262,6 +262,8 @@ ns.DEFAULTS = {
     chatStyle = "full",
     -- Record every Mythic+ key you run (History tab).
     history = true,
+    -- First-time tips (1.6.0): a short callout the first time something comes up.
+    tips = true,
     minimap = { hide = false, angle = 215 },
     window = { point = "CENTER", relPoint = "CENTER", x = 0, y = 0, width = 952, height = 630, locked = false },
     -- Text size in percent (80-125), independent of the window size.
@@ -500,6 +502,13 @@ local function SanitizeDB(db)
     if type(db.history[i]) ~= "table" then table.remove(db.history, i) else CleanRun(db.history[i]) end
   end
   if type(db.activeRun) == "table" then CleanRun(db.activeRun) elseif db.activeRun ~= nil then db.activeRun = nil end
+  -- Tour, tips and What's new (1.6.0): tips seen (id -> true), the last version whose
+  -- highlights were shown.
+  if type(db.tipsSeen) ~= "table" then db.tipsSeen = {} end
+  for id, v in pairs(db.tipsSeen) do if type(id) ~= "string" or v ~= true then db.tipsSeen[id] = nil end end
+  if db.lastSeenVersion ~= nil and type(db.lastSeenVersion) ~= "string" then db.lastSeenVersion = nil end
+  if db.tourSeen ~= nil and db.tourSeen ~= true then db.tourSeen = nil end
+  if type(db.settings) == "table" and type(db.settings.tips) ~= "boolean" then db.settings.tips = true end
   -- Settings that no longer exist (1.3.0: the Mythic Dungeon Tools route switch).
   if type(db.settings) == "table" then db.settings.routePlan = nil end
 end
@@ -527,11 +536,13 @@ function ns:InitDB()
 end
 
 -- What a full reset wipes, in plain words (the /ens reset prompt and Settings > Data say it).
-ns.RESET_WIPES = "saved comps, the planner comp, every setting, run history, saved players and reserved slots, boss-card edits, Bloodlust timing, boss order, Fill group musts and the error log"
+ns.RESET_WIPES = "saved comps, the planner comp, every setting, run history, saved players and reserved slots, boss-card edits, Bloodlust timing, boss order, Fill group musts, the tips you've seen and the error log"
 
 function ns:ResetDB()
   EnsembleDB = Util.DeepCopy(ns.DEFAULTS)
   self.db = EnsembleDB
+  -- What's new stays seen (a reset isn't an update); the tour and tips start over.
+  if ns.WhatsNew and ns.WhatsNew.Parse(ns.VERSION) then EnsembleDB.lastSeenVersion = ns.VERSION end
   -- Session state that would otherwise outlive the reset: assignments chosen by hand and the
   -- boss window's progress through the current key.
   if ns.Assignments and ns.Assignments.ClearOverrides then ns.Assignments:ClearOverrides() end

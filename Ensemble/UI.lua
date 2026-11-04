@@ -628,6 +628,10 @@ UI.OVER_WINDOW_STRATA, UI.OVER_WINDOW_LEVEL = "HIGH", 200
 UI.LOGO = "Interface\\AddOns\\Ensemble\\Media\\LogoMark"   -- emblem only (no tile), so it reads larger
 UI.LOGO_SIZE = 38
 UI.NAME = "Ensemble"
+-- Title-bar buttons right of the tabs: close (26) and the lock (64) with their gaps (~50 in all
+-- before 1.6.0), "?" (24) and What's new (UI.WHATS_NEW_W), 4 px apart.
+UI.WHATS_NEW_W = 76
+UI.HEADER_RIGHT_W = 140 + UI.WHATS_NEW_W + 4
 UI.SUBTITLE = "A Mythic+ Companion"
 
 -- Tabs follow the three questions: who to bring (Composition, Applicants), what to know
@@ -722,7 +726,8 @@ function UI:Build()
   -- Fit the brand and the tab row beside the title-bar buttons (~140px on the right) at
   -- the narrowest window: first tighten the tabs' padding, and only if a client font is
   -- still too wide, drop the subtitle (the tabs always stay).
-  local room = UI.MIN_W - 140
+  -- Right of the tabs: What's new, "?", the lock and the close button (UI.HEADER_RIGHT_W).
+  local room = UI.MIN_W - UI.HEADER_RIGHT_W
   local function RowWidth(pad, minW)
     local w = 0
     for _, b in ipairs(tabList) do
@@ -760,6 +765,16 @@ function UI:Build()
   help:SetPoint("RIGHT", self.lockBtn, "LEFT", -4, 0)
   help.tooltip = "Glossary: what the addon's terms mean"
   self.helpBtn = help
+  -- What's new (1.6.0): this version's highlights; a dot while there's something unseen.
+  local wn = FlatButton(header, "What's new", UI.WHATS_NEW_W, 24, function() UI:ShowWhatsNew() end)
+  wn:SetPoint("RIGHT", help, "LEFT", -4, 0)
+  wn.tooltip = "What's new in Ensemble: the highlights of each update"
+  wn.dot = wn:CreateTexture(nil, "OVERLAY")
+  wn.dot:SetSize(7, 7); wn.dot:SetPoint("TOPRIGHT", -3, -3)
+  wn.dot:SetColorTexture(unpack(C.good))
+  wn.dot:Hide()
+  self.whatsNewBtn = wn
+  self:SyncWhatsNewDot()
 
   local line = f:CreateTexture(nil, "ARTWORK")
   line:SetPoint("TOPLEFT", 1, -41); line:SetPoint("TOPRIGHT", -1, -41); line:SetHeight(1)
@@ -990,8 +1005,16 @@ function UI:Show(tab)
   tab = tab and (self.TAB_ALIAS[tab] or tab)
   if tab then self.currentTab = tab end
   if self.frame:IsShown() then self:SetTab(tab or self.currentTab) else self.frame:Show() end
-  -- First time the window opens (no particular tab asked for): the short tour.
+  -- First time the window opens (no particular tab asked for): the short tour; after an update
+  -- with highlights, What's new (once). Opened on a tab (a new listing), the dot waits instead.
   if not tab and ns.Tour then ns.Tour:MaybeStart() end
+  if not tab and ns.WhatsNew then ns.WhatsNew:MaybeShow() end
+  self:SyncWhatsNewDot()
+end
+
+function UI:SyncWhatsNewDot()
+  local b = self.whatsNewBtn
+  if b and b.dot then b.dot:SetShown(ns.WhatsNew and ns.WhatsNew:HasUnseen() or false) end
 end
 function UI:Hide() if self.frame then self.frame:Hide() end end
 function UI:Toggle()
@@ -1022,6 +1045,7 @@ function UI:Refresh()
     UI:SyncFillTabDot()
   end)
   if not ok and geterrorhandler then geterrorhandler()(err) end
+  if ns.Tour then ns.Tour:PumpTips() end   -- a first-time tip, if one applies now
 end
 
 ---------------------------------------------------------------------------
@@ -3128,6 +3152,7 @@ function UI:OpenReserveDialog(mode)
   self:SyncReserveDialog()
   d:Show()
   if d.name.SetFocus then d.name:SetFocus() end
+  if ns.Tour then ns.Tour:PumpTips() end   -- the first reserve: a tip on the name box and Browse
 end
 
 function UI:SyncReserveDialog()
@@ -4100,6 +4125,7 @@ function UI:BuildApplicantsPage()
   band:SetScript("OnLeave", function(self) self:SetBackdropColor(unpack(C.btn)); if GameTooltip then GameTooltip:Hide() end end)
   band:Hide()
   ap.band = band
+  ap.left = left   -- the tour's Applicants step outlines the card column
   local sf = CreateFrame("ScrollFrame", nil, left)
   sf:SetPoint("TOPLEFT", 8, -8); sf:SetPoint("BOTTOMRIGHT", -4, 8)
   ap.sf = sf
@@ -5308,6 +5334,64 @@ function UI:ShowGlossary()
   self.glossary:Show()
 end
 
+-- What's new (1.6.0): each version's highlights from ns.HIGHLIGHTS (CHANGELOG.md's
+-- "### Highlights" blocks), newest first. Versions you haven't seen yet come first (every one
+-- since the last you saw, for a player who skipped updates); the rest under "Earlier". Each
+-- highlight can have a "Show me" (a one-step tour on that spot). Opening it marks this version
+-- seen. Our own panel, like the glossary.
+UI.WHATS_NEW_SIZE = { 520, 400 }
+function UI:ShowWhatsNew()
+  self:Build()
+  local WN = ns.WhatsNew
+  if not self.whatsNew then
+    local p = CreateFrame("Frame", nil, self.frame, "BackdropTemplate")
+    p:SetSize(self.WHATS_NEW_SIZE[1], self.WHATS_NEW_SIZE[2]); p:SetPoint("CENTER")
+    p:SetFrameStrata("DIALOG")
+    p:EnableMouse(true)
+    Skin(p, C.bg, C.accent)
+    Accent(p, "border")
+    p.title = AccentText(p); p.title:SetPoint("TOPLEFT", 12, -10); p.title:SetText("What's new")
+    local close = Button(p, "Close", 80, 22, function() p:Hide() end); close:SetPoint("TOPRIGHT", -10, -6)
+    p.list = LineList(p, self.WHATS_NEW_SIZE[1] - 20, self.WHATS_NEW_SIZE[2] - 50):Fill(8, -34, -8, 8)
+    p:SetScript("OnHide", function() if ns.Tour then C_Timer.After(0, function() ns.Tour:PumpTips() end) end end)
+    self.whatsNew = p
+  end
+  local unseen = WN and WN:Unseen() or {}
+  local isNew = {}
+  for _, g in ipairs(unseen) do isNew[g.version] = true end
+  local older = {}
+  for _, g in ipairs(ns.HIGHLIGHTS or {}) do
+    if not isNew[g.version] and (not WN or (WN.Compare(g.version, ns.VERSION) or 1) <= 0) then older[#older + 1] = g end
+  end
+  if WN then table.sort(older, function(a, b) return WN.Compare(a.version, b.version) == 1 end) end
+  local L = self.whatsNew.list
+  L:Clear()
+  local function Group(g, tag)
+    L:Header("Ensemble " .. g.version .. (tag and ("   " .. HEX.good .. tag .. "|r") or ""))
+    for _, it in ipairs(g.items) do
+      L:Add(HEX.text .. it.title .. "|r", { indent = 4, size = 12, gap = 2 })
+      L:Add(HEX.muted .. it.text .. "|r", { indent = 4, size = 11, gap = it.show and 2 or 8 })
+      if it.show and WN and WN.SHOW_ME[it.show] then
+        L:Add(HEX.accent .. "> Show me|r", { indent = 4, size = 11, gap = 8,
+          onClick = function() WN:ShowMe(it.show) end, tooltip = "Point it out in the window" })
+      end
+    end
+  end
+  for _, g in ipairs(unseen) do Group(g, "NEW") end
+  if #older > 0 then
+    if #unseen > 0 then L:Space(6); L:Header("Earlier") end
+    for _, g in ipairs(older) do Group(g) end
+  end
+  if #unseen == 0 and #older == 0 then
+    L:Add(HEX.muted .. "Nothing listed for this version. The full list of changes is in the changelog on CurseForge and GitHub.|r", { size = 11 })
+  end
+  L:Finish()
+  if WN then WN:MarkSeen() end
+  self.frame:Show()
+  self.whatsNew:Show()
+  return self.whatsNew
+end
+
 -- Sources: the guides the data comes from, grouped by use, each link in a read-only box to
 -- copy (addons can't open a browser or show clickable web links).
 function UI:ShowSources()
@@ -5988,7 +6072,7 @@ UI.SETTINGS_SECTIONS = {
 
 -- Settings each section's Reset puts back to their defaults.
 UI.SECTION_KEYS = {
-  general = { "compact", "explain", "liveAutoDungeon", "autoOpenOnListing", "minimap", "compMode" },
+  general = { "compact", "explain", "liveAutoDungeon", "autoOpenOnListing", "minimap", "compMode", "tips" },
   checks = { "ignoredNeeds", "hideLowSeverity", "countTalentSources", "checks", "dungeonCategories" },
   finder = { "applicantPanel", "finderPanel", "compApplicants", "finderTooltip", "applicantView", "listingMarker",
              "listingHidePoor", "listingTooltip", "applyLine", "pastKeys" },
@@ -6171,10 +6255,25 @@ function UI:BuildSettings_general(f)
     AddRadio(self, f, 8, y, def[2], "compMode", def[1], "Also in the mode menu on the Composition and Plan tabs.")
     y = y - 24
   end
-  local nb = Note(f, 8, y - 8, 520, "These settings can also be opened from Blizzard's Options > AddOns.")
+  SubHead(f, 8, y - 6, "Tour and tips")
+  y = y - 28
+  -- First-time tips (1.6.0): on or off, and all of them again.
+  self.tipsRow = AddCheck(self, f, 8, y, "Show tips", function() return S().tips ~= false end,
+    function(v) S().tips = v; if not v and ns.Tour then ns.Tour:HideTip() end end,
+    "A short tip the first time something comes up: hosting a listing, the boss window, your first recorded key, reserving a slot. Each shows once.")
+  y = y - 30
   local tour = Button(f, "Take the tour", 130, 24, function() if ns.Tour then ns.Tour:Start() end end)
-  tour:SetPoint("TOPLEFT", nb, "BOTTOMLEFT", 0, -10)
-  tour.tooltip = "A seven-step look at the window"
+  tour:SetPoint("TOPLEFT", 8, y)
+  tour.tooltip = "Five steps, one for each tab"
+  self.tipsReset = Button(f, "Show tips again", 130, 24, function()
+    if ns.Tour then ns.Tour:ResetTips() end
+    UI.tipsResetNote:SetText("Tips will show again as each comes up.")
+  end)
+  self.tipsReset:SetPoint("LEFT", tour, "RIGHT", 8, 0)
+  self.tipsReset.tooltip = "Every tip shows once more, the next time it applies"
+  self.tipsResetNote = Text(f, 11, C.muted)
+  self.tipsResetNote:SetPoint("LEFT", self.tipsReset, "RIGHT", 10, 0); self.tipsResetNote:SetWidth(240)
+  Note(f, 8, y - 34, 520, "These settings can also be opened from Blizzard's Options > AddOns.")
 end
 
 -- What to check: every need, grouped like the Readiness panel. A group's switch turns all
