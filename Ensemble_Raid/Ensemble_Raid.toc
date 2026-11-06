@@ -1,0 +1,18 @@
+## Interface: 120105
+## Title: Ensemble: Raid (test build)
+## Notes: Raid test module for Ensemble, for the author's in-game testing. Not released. Needs Ensemble 1.6.0 or later.
+## Author: Ensemble
+## Version: 0.1.0-test
+## Dependencies: Ensemble
+## SavedVariables: EnsembleRaidDB
+## IconTexture: Interface\AddOns\Ensemble\Media\Logo
+## Category: Dungeons & Raids
+
+Core.lua
+Data.lua
+Roster.lua
+Needs.lua
+Plan.lua
+UI.lua
+BossWindow.lua
+Verify.lua
