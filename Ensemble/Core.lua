@@ -8,8 +8,12 @@
 --   EnsembleDB                          (SavedVariables, declared in the .toc)
 --   SLASH_ENSEMBLE1                     (slash command registration: /ens)
 --   Ensemble_OnAddonCompartmentClick/Enter/Leave (referenced from the .toc)
+--   EnsembleCore                        (this namespace, for an optional companion folder such as
+--                                        a raid module that declares Ensemble as a dependency;
+--                                        it reads the addon's code from here instead of copying it)
 
 local ADDON_NAME, ns = ...
+EnsembleCore = ns
 
 ns.ADDON_NAME = "Ensemble"
 ns.SCHEMA_VERSION = 4

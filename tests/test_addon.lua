@@ -7657,5 +7657,19 @@ do
   ACTIVE_CHALLENGE = nil
 end
 
+-- 84. The companion hook (November 6, 2026, approved by the author): the namespace is published
+-- as EnsembleCore so an optional folder that depends on Ensemble (the raid test module) can use the
+-- addon's code natively; the shared widgets are on UI.Kit.
+do
+  local nH = boot()
+  ok(EnsembleCore == nH, "EnsembleCore is this load's namespace")
+  ok(EnsembleCore.UI and EnsembleCore.UD and EnsembleCore.Util and EnsembleCore.On, "the namespace carries the modules")
+  local K = nH.UI.Kit
+  for _, k in ipairs({ "Panel", "Tab", "Dropdown", "AccentText", "SliderCtl", "EditBox", "Check", "SetSpecIcon",
+                       "SpecLabel", "LineList", "PageFrame", "Button", "FlatButton", "Text", "Skin", "Accent" }) do
+    ok(type(K[k]) == "function", "UI.Kit." .. k .. " is published")
+  end
+end
+
 print(string.format("%d passed, %d failed", passes, fails))
 return fails

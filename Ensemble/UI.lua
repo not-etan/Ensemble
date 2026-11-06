@@ -533,6 +533,11 @@ local function LineList(parent, width, height)
   return L
 end
 
+-- The shared widgets, also for a companion folder that reads EnsembleCore (BossWindow.lua uses
+-- the first set above).
+for k, v in pairs({ Panel = Panel, Tab = Tab, Dropdown = Dropdown, AccentText = AccentText, SliderCtl = SliderCtl,
+  EditBox = EditBox, Check = Check, SetSpecIcon = SetSpecIcon, SpecLabel = SpecLabel, LineList = LineList }) do UI.Kit[k] = v end
+
 ---------------------------------------------------------------------------
 -- Popup menu (custom-skinned; replaces Blizzard dropdowns)
 ---------------------------------------------------------------------------
@@ -956,6 +961,7 @@ local function PageFrame(parent)
   p:Hide()
   return p
 end
+UI.Kit.PageFrame = PageFrame
 
 -- Composition (and Plan) work on your party when you're in one or have a listing, else on
 -- the planner; Settings > General or the Composition tab's mode button can fix either.
