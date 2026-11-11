@@ -6,6 +6,7 @@
   python3 tests/run_tests.py --examples # print sample kick/dispel plans and chat posts
   python3 tests/run_tests.py --data     # print the game data as tables (for update sessions)
   python3 tests/run_tests.py --fit      # fit rating measurement report (spread and band counts)
+  python3 tests/run_tests.py --fit-rework  # pick rating rework: today's scale vs the candidate
 
 Exit code is non-zero when any test fails. The stub (wowstub.lua) fakes just enough of the
 WoW API; lines like "[FAIL] spec 102 ... unknown to the client" are /ens verify output run
@@ -31,7 +32,8 @@ def main():
             pass
     if not engines:
         engines = [("default", lupa)]
-    for flag, script in (("--examples", "plan_examples.lua"), ("--data", "data_report.lua"), ("--fit", "fit_report.lua")):
+    for flag, script in (("--examples", "plan_examples.lua"), ("--data", "data_report.lua"),
+                         ("--fit-rework", "fit_rework.lua"), ("--fit", "fit_report.lua")):
         if flag in sys.argv:
             L = runtime(engines[0][1])
             L.execute(open(os.path.join(HERE, script), encoding="utf-8").read())
