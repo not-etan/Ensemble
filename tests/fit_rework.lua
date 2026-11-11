@@ -341,7 +341,7 @@ end
 print("\n## Premades: a two-DPS premade for two open DPS slots (every cross-class pair)")
 do
   local pm = { groups = 0, n = 0, today = { great = 0, good = 0, fair = 0, poor = 0 }, cand = { great = 0, good = 0, fair = 0, poor = 0 },
-               topToday = {}, underT = 0, underC = 0, greedyOK = 0 }
+               topToday = {}, underT = 0, underC = 0, overT = 0, overC = 0, greedyOK = 0 }
   local PSEED = { { 581, 264, 63 }, { 73, 256, 577 }, { 250, 270, 70 }, { 104, 1468, 253 }, { 66, 105, 259 }, { 268, 65, 266 } }
   local DPS = UD:SpecsForRole("DAMAGER")
   for gi, specs in ipairs(PSEED) do
@@ -369,7 +369,8 @@ do
       end
       local gbest, gworst = Greedy(1), Greedy(-1)
       local spread = gbest - gworst
-      local sStakes = math.min(1, spread / CAND.STAKES_FULL)
+      -- Stakes scale with the number of players applying: two slots hold twice what one does.
+      local sStakes = math.min(1, spread / (CAND.STAKES_FULL * 2))
       local top, trueBest = 0, nil
       for i = 1, #DPS do for j = i + 1, #DPS do
         local a, b = DPS[i], DPS[j]
@@ -386,6 +387,8 @@ do
           if ev.score > top then top = ev.score end
           if ev.score < (single[a].today + single[b].today) / 2 - 5 then pm.underT = pm.underT + 1 end
           if c < (single[a].cand + single[b].cand) / 2 - 5 then pm.underC = pm.underC + 1 end
+          if c > (single[a].cand + single[b].cand) / 2 + 5 then pm.overC = pm.overC + 1 end
+          if ev.score > (single[a].today + single[b].today) / 2 + 5 then pm.overT = pm.overT + 1 end
         end
       end end
       pm.groups = pm.groups + 1
@@ -396,8 +399,8 @@ do
   table.sort(pm.topToday)
   local function Sh(t) return string.format("Great %4.1f%%  Good %4.1f%%  Fair %4.1f%%  Poor %4.1f%%", 100 * t.great / pm.n, 100 * t.good / pm.n, 100 * t.fair / pm.n, 100 * t.poor / pm.n) end
   print(string.format("  %d groups, %d pairs", pm.groups, pm.n))
-  print("  today     " .. Sh(pm.today) .. string.format("  | rated 5+ points under the average of their two members alone: %4.1f%%", 100 * pm.underT / pm.n))
-  print("  candidate " .. Sh(pm.cand) .. string.format("  | rated 5+ points under the average of their two members alone: %4.1f%%", 100 * pm.underC / pm.n))
+  print("  today     " .. Sh(pm.today) .. string.format("  | against the average of their two members alone: %4.1f%% rate 5+ under, %4.1f%% 5+ over", 100 * pm.underT / pm.n, 100 * pm.overT / pm.n))
+  print("  candidate " .. Sh(pm.cand) .. string.format("  | against the average of their two members alone: %4.1f%% rate 5+ under, %4.1f%% 5+ over", 100 * pm.underC / pm.n, 100 * pm.overC / pm.n))
   print(string.format("  Today the best pair in a group scores %d at the lowest, %d at the median, %d at the highest (a single applicant's best is 100).",
     pm.topToday[1], pm.topToday[math.ceil(#pm.topToday / 2)], pm.topToday[#pm.topToday]))
   print(string.format("  The greedy best pair is within a quarter point of the true best pair in %d of %d groups.", pm.greedyOK, pm.groups))
