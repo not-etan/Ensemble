@@ -205,6 +205,7 @@ local function Rec(fam, which, scores)
 end
 local low = { n = 0, both = 0, ranges = {} }
 local agree = { n = 0, best = 0, great = 0, topDrop = 0 }
+local perSpec = {}
 local exp = { today = { great = 0, good = 0, fair = 0, poor = 0, n = 0 }, cand = { great = 0, good = 0, fair = 0, poor = 0, n = 0 } }
 
 local function Scenario(fam, specs, role, dk, level)
@@ -214,6 +215,12 @@ local function Scenario(fam, specs, role, dk, level)
   for i, r in ipairs(rows) do t[i], c[i] = r.today, r.cand end
   Rec(fam, "today", t); Rec(fam, "cand", c)
   if fam == "last DPS slot" then
+    for _, r in ipairs(rows) do
+      local ps = perSpec[r.id] or { n = 0, today = 0, cand = 0, tb = { great = 0, good = 0, fair = 0, poor = 0 }, cb = { great = 0, good = 0, fair = 0, poor = 0 } }
+      perSpec[r.id] = ps
+      ps.n, ps.today, ps.cand = ps.n + 1, ps.today + r.today, ps.cand + r.cand
+      ps.tb[Band(r.today)] = ps.tb[Band(r.today)] + 1; ps.cb[Band(r.cand)] = ps.cb[Band(r.cand)] + 1
+    end
     -- low stakes: under 12 penalty points (less than one missing medium dungeon need) between best and weakest
     if info.spread < 12 then
       low.n = low.n + 1
@@ -292,6 +299,110 @@ print(string.format("  Candidate, those groups: ratings span %d points at the me
   Pct(low.ranges, 0.5), Pct(low.ranges, 0.9), low.ranges[#low.ranges] or 0))
 Check(Pct(low.ranges, 0.5) <= 20, string.format("case 3: with little at stake the ratings keep a narrow spread (about 15): median %d, 90th percentile %d", Pct(low.ranges, 0.5), Pct(low.ranges, 0.9)))
 print(string.format("  Today's best pick is still the (joint) best on the candidate in %d of %d groups with a real difference.", agree.best, agree.n))
+
+---------------------------------------------------------------------------
+-- Who applies: average rating per spec, and how much the band shares move if some specs
+-- are three times as common among applicants as the rest.
+---------------------------------------------------------------------------
+print("\n## Last DPS slot by spec (mean rating today > candidate; Poor share today > candidate)")
+do
+  local list = {}
+  for id, ps in pairs(perSpec) do list[#list + 1] = { id = id, ps = ps, mean = ps.cand / ps.n } end
+  table.sort(list, function(a, b) if a.mean ~= b.mean then return a.mean > b.mean end return a.id < b.id end)
+  for _, e in ipairs(list) do
+    local ps = e.ps
+    print(string.format("  %-26s %3.0f > %3.0f   Poor %3.0f%% > %3.0f%%", Name(e.id), ps.today / ps.n, ps.cand / ps.n, 100 * ps.tb.poor / ps.n, 100 * ps.cb.poor / ps.n))
+  end
+  local third = math.floor(#list / 3)
+  local function Shares(weightOf, key)
+    local t, n = { great = 0, good = 0, fair = 0, poor = 0 }, 0
+    for i, e in ipairs(list) do
+      local w = weightOf(i)
+      for b, c in pairs(e.ps[key]) do t[b] = t[b] + w * c; n = n + w * c end
+    end
+    return string.format("Great %4.1f%%  Good %4.1f%%  Fair %4.1f%%  Poor %4.1f%%", 100 * t.great / n, 100 * t.good / n, 100 * t.fair / n, 100 * t.poor / n)
+  end
+  print("  If applicants aren't evenly spread (party make-up unchanged):")
+  for _, c in ipairs({ { "every spec equally common", function() return 1 end },
+                       { "the 9 highest-rated specs 3x as common", function(i) return i <= third and 3 or 1 end },
+                       { "the 9 lowest-rated specs 3x as common", function(i) return i > #list - third and 3 or 1 end } }) do
+    print(string.format("    %-40s today     %s", c[1], Shares(c[2], "tb")))
+    print(string.format("    %-40s candidate %s", "", Shares(c[2], "cb")))
+  end
+end
+
+---------------------------------------------------------------------------
+-- Premades: two DPS applying together for two open DPS slots.
+-- Today the scale for a premade runs from the sum of each role's weakest single pick to the
+-- sum of each role's best single pick. No pair reaches that top (two players can't close the
+-- same gap twice), so premades rate low. Candidate: the ladder, measured against the best and
+-- the weakest PAIR found greedily (best single, then the best partner for it), plus stakes.
+---------------------------------------------------------------------------
+print("\n## Premades: a two-DPS premade for two open DPS slots (every cross-class pair)")
+do
+  local pm = { groups = 0, n = 0, today = { great = 0, good = 0, fair = 0, poor = 0 }, cand = { great = 0, good = 0, fair = 0, poor = 0 },
+               topToday = {}, underT = 0, underC = 0, greedyOK = 0 }
+  local PSEED = { { 581, 264, 63 }, { 73, 256, 577 }, { 250, 270, 70 }, { 104, 1468, 253 }, { 66, 105, 259 }, { 268, 65, 266 } }
+  local DPS = UD:SpecsForRole("DAMAGER")
+  for gi, specs in ipairs(PSEED) do
+    for _, level in ipairs({ 8, 12 }) do
+      local dk = DKS[((gi - 1) * 2 + (level == 12 and 1 or 0)) % #DKS + 1]
+      local members = Members(specs)
+      local ctx = Fit:BuildContext(members, dk, settings, level)
+      local lbase = LadderTotal(ctx.base, level)
+      local single, lsingle = {}, {}
+      local rowsS = RateSlot(members, "DAMAGER", dk, level)
+      for _, r in ipairs(rowsS) do single[r.id] = r end
+      -- greedy best and weakest pair on the ladder
+      local function Greedy(sign)
+        local first, fg
+        for _, id in ipairs(DPS) do
+          local g = lbase - LadderTotal(A:Analyze(With(members, id), dk, settings), level)
+          if not fg or sign * g > sign * fg then first, fg = id, g end
+        end
+        local m1, sg = With(members, first), nil
+        for _, id in ipairs(DPS) do
+          local g = lbase - LadderTotal(A:Analyze(With(m1, id), dk, settings), level)
+          if not sg or sign * g > sign * sg then sg = g end
+        end
+        return sg
+      end
+      local gbest, gworst = Greedy(1), Greedy(-1)
+      local spread = gbest - gworst
+      local sStakes = math.min(1, spread / CAND.STAKES_FULL)
+      local top, trueBest = 0, nil
+      for i = 1, #DPS do for j = i + 1, #DPS do
+        local a, b = DPS[i], DPS[j]
+        if UD:GetSpec(a).class ~= UD:GetSpec(b).class then
+          local ev = Fit:Evaluate(ctx, { applicantID = 1, members = {
+            { name = "A", specID = a, classFile = UD:GetSpec(a).class }, { name = "B", specID = b, classFile = UD:GetSpec(b).class } } })
+          local lg = lbase - LadderTotal(ev.after, level)
+          trueBest = (not trueBest or lg > trueBest) and lg or trueBest
+          local p = spread > 1e-6 and math.min(1, math.max(0, (lg - gworst) / spread)) or 0.5
+          local c = math.floor(sStakes * p * 100 + (1 - sStakes) * CAND.STAKES_MID + 0.5)
+          pm.n = pm.n + 1
+          pm.today[Band(ev.score)] = pm.today[Band(ev.score)] + 1
+          pm.cand[Band(c)] = pm.cand[Band(c)] + 1
+          if ev.score > top then top = ev.score end
+          if ev.score < (single[a].today + single[b].today) / 2 - 5 then pm.underT = pm.underT + 1 end
+          if c < (single[a].cand + single[b].cand) / 2 - 5 then pm.underC = pm.underC + 1 end
+        end
+      end end
+      pm.groups = pm.groups + 1
+      pm.topToday[#pm.topToday + 1] = top
+      if trueBest - gbest < 0.26 then pm.greedyOK = pm.greedyOK + 1 end
+    end
+  end
+  table.sort(pm.topToday)
+  local function Sh(t) return string.format("Great %4.1f%%  Good %4.1f%%  Fair %4.1f%%  Poor %4.1f%%", 100 * t.great / pm.n, 100 * t.good / pm.n, 100 * t.fair / pm.n, 100 * t.poor / pm.n) end
+  print(string.format("  %d groups, %d pairs", pm.groups, pm.n))
+  print("  today     " .. Sh(pm.today) .. string.format("  | rated 5+ points under the average of their two members alone: %4.1f%%", 100 * pm.underT / pm.n))
+  print("  candidate " .. Sh(pm.cand) .. string.format("  | rated 5+ points under the average of their two members alone: %4.1f%%", 100 * pm.underC / pm.n))
+  print(string.format("  Today the best pair in a group scores %d at the lowest, %d at the median, %d at the highest (a single applicant's best is 100).",
+    pm.topToday[1], pm.topToday[math.ceil(#pm.topToday / 2)], pm.topToday[#pm.topToday]))
+  print(string.format("  The greedy best pair is within a quarter point of the true best pair in %d of %d groups.", pm.greedyOK, pm.groups))
+  Check(pm.cand.great > 0, "premades: a premade can reach Great on the candidate (today none does)")
+end
 
 print("\n## Reference checks")
 for _, c in ipairs(checks) do print(c) end
