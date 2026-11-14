@@ -16,7 +16,7 @@
 -- join?" is the separate res.groupAfter status, never a score. Affixes count only when the key
 -- level can be read from the title.
 --
--- API (long-standing, all pcall-guarded; /ens verify reports which are present):
+-- API (long-standing, all pcall-guarded; /ens report reports which are present):
 --   C_LFGList.GetSearchResultInfo(resultID) -> { activityIDs | activityID, numMembers, isDelisted }
 --   C_LFGList.GetSearchResultPlayerInfo(resultID, i) -> { classFilename, specName, assignedRole, specID? }
 --   C_LFGList.GetSearchResultMemberInfo(resultID, i) -> role, classFile, className, specName (older;
@@ -280,23 +280,23 @@ end
 -- assumed profile as group members (GroupProfile), so the comparison is on equal terms.
 -- Cached: the same group appears on every refresh while you scroll; cleared with each new search.
 local gainCache = {}
-local function RoleRange(members, sig, dungeonKey, settings, role, basePenalty, opts, level, baseCritical)
+local function RoleRange(members, sig, dungeonKey, settings, role, baseLadder, opts, level, baseCritical)
   local key = sig .. "|" .. role
   local c = gainCache[key]
   if c then return c[1], c[2], c[3], c[4] end
-  local best, worst = 0, nil
+  local best, worst
   local list, gains = {}, {}
   for i, m in ipairs(members) do list[i] = m end
   for _, specID in ipairs(UD:SpecsForRole(role)) do
     list[#members + 1] = { specID = specID, profile = GroupProfile(specID) }
     local r = A:Analyze(list, dungeonKey, settings, opts)
-    local g = basePenalty - A:Penalty(r, level)
-    if g > best then best = g end
+    local g = baseLadder - A:LadderTotal(r, level)
+    if not best or g > best then best = g end
     if not worst or g < worst then worst = g end
     local cc = Fit.CriticalClose(baseCritical, r)
     gains[#gains + 1] = { gain = g, kind = cc and cc.kind or nil }
   end
-  worst = math.min(worst or 0, best)
+  best, worst = best or 0, worst or 0
   local fullFloor, partialFloor = Fit.CritFloors(gains, best, worst)
   gainCache[key] = { best, worst, fullFloor, partialFloor }
   return best, worst, fullFloor, partialFloor
@@ -321,7 +321,7 @@ function LF:Evaluate(members, dungeonKey, me, settings, level, levelSource)
   for i, m in ipairs(members) do withMe[i] = m end
   withMe[#withMe + 1] = me
   local after = A:Analyze(withMe, dungeonKey, settings, opts)
-  local bp = A:Penalty(base, level)
+  local bp = A:LadderTotal(base, level)   -- the same ladder as applicant ratings (1.6.5)
   -- The rating rates you like the specs you're compared with: the group-member profile
   -- (talents uncertain, Bloodlust assumed). "What you'd add" below keeps your known talents.
   local rateProfile = (me.specID and GroupProfile(me.specID)) or me.profile
@@ -332,7 +332,7 @@ function LF:Evaluate(members, dungeonKey, me, settings, level, levelSource)
     rated[#rated + 1] = { specID = me.specID, profile = rateProfile, role = me.role, label = me.label }
     afterRate = A:Analyze(rated, dungeonKey, settings, opts)
   end
-  local gain = bp - A:Penalty(afterRate, level)
+  local gain = bp - A:LadderTotal(afterRate, level)
 
   local res = { dungeonKey = dungeonKey, level = level, levelSource = level and (levelSource or "title") or "none", gain = gain,
                 adds = {}, maybeAdds = {}, maybe = {}, still = {}, members = members }
@@ -345,18 +345,20 @@ function LF:Evaluate(members, dungeonKey, me, settings, level, levelSource)
   local best, worst, fullFloor, partialFloor = RoleRange(members, dungeonKey .. "|" .. tostring(level) .. "|" .. MembersSig(members),
     dungeonKey, settings, role, bp, opts, level, baseCritical)
   res.best, res.worst = best, worst
-  local rel = Fit.Relative(gain, best, worst)
-  res.flat = (rel == nil) and not res.roleConflict
-  res.rawImmediate = rel and math.floor(rel * 100 + 0.5) or nil
+  local pos = Fit.Position(gain, best, worst)
+  local stakes, flat = Fit.Stakes(best, worst, 1)
+  res.position, res.stakes = math.floor(pos * 100 + 0.5), stakes
+  res.flat = flat and not res.roleConflict
+  res.rawImmediate = Fit.Staked(pos, stakes)
   -- Critical-gap rule, as for applicants: a full close never rates below a spec that doesn't
   -- fully close one; a partial close (weak source only) is floored at the partial share.
   res.critClose = Fit.CriticalClose(baseCritical, afterRate)
   res.closesCritical = res.critClose ~= nil
   res.closesCriticalFull = res.critClose ~= nil and res.critClose.kind == "full"
-  local score = res.flat and (H.FIT_FLAT_SCORE or 70) or (res.rawImmediate or 0)
-  if rel and res.critClose and not res.roleConflict then
+  local score = res.rawImmediate
+  if res.critClose and not res.roleConflict then
     local floorRel = res.closesCriticalFull and fullFloor or partialFloor
-    res.critFloor = floorRel and math.floor(floorRel * 100 + 0.5) or nil
+    res.critFloor = floorRel and Fit.Staked(floorRel, stakes) or nil
     if res.critFloor and score < res.critFloor then score, res.critFloored = res.critFloor, res.critClose.kind end
   end
   if res.roleConflict then score = math.min(score, 15) end

@@ -5,7 +5,7 @@
 --
 -- Read-only: nothing here touches Blizzard's frames, and nothing is stored (picking a name never
 -- saves it; the dialog's "Save this player" does). Every call is existence-checked and in pcall,
--- every value goes through issecretvalue, and names never reach /ens verify or /ens report
+-- every value goes through issecretvalue, and names never reach /ens report
 -- (verify counts only). No source gives a spec: the picker narrows the spec menu to the class.
 --
 -- APIs (Blizzard's generated docs for 12.1.5, build 70575):

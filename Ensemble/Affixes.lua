@@ -199,10 +199,15 @@ function AF:Requirements(dungeonKey, level, ids)
   return out
 end
 
--- Key level used for affixes: the Applicants tab's override, else your own keystone's
--- level when it is for this dungeon, else unknown (nil).
+-- Key level used for affixes: the Applicants tab's override, else the key that is running in
+-- this dungeon (1.6.5: someone else's key included), else your own keystone's level when it
+-- is for this dungeon, else unknown (nil).
 function AF:KeyLevel(dungeonKey)
   if ns.state and ns.state.keyLevelOverride then return ns.state.keyLevelOverride end
+  if dungeonKey and ns.ActiveKeyLevel then
+    local running = ns:ActiveKeyLevel(dungeonKey)
+    if running then return running end
+  end
   if dungeonKey and ns.OwnKeystoneDungeon then
     local key, level = ns:OwnKeystoneDungeon()
     if key == dungeonKey and level then return level end

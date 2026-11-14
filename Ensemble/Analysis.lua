@@ -181,7 +181,7 @@ local function Generic(r, resolved, settings)
     abilities[p.entry.name] = true
   end
   I.distinctAbilities = ns.Util.Count(abilities)
-  if checks.interrupts ~= false and n > 0 then
+  if n > 0 then
     if I.count == 0 then
       AddFinding(r, "interrupts", "critical", "No interrupts in the group.", "no interrupts", "interrupt")
     else
@@ -217,7 +217,7 @@ local function Generic(r, resolved, settings)
   r.brez.count = #brez
   r.brez.providers = brez
   r.brez.fallbackOnly = (#brez > 0 and brez[1].entry.fallback) and true or false
-  if checks.brez ~= false and n > 0 then
+  if n > 0 then
     if #brez == 0 then
       AddFinding(r, "brez", "high", "No battle resurrection.", "no battle rez", "battle_rez")
     elseif r.brez.fallbackOnly then
@@ -232,7 +232,7 @@ local function Generic(r, resolved, settings)
   local lust = r.caps.bloodlust
   r.lust.present = #lust > 0
   r.lust.providers = lust
-  if checks.lust ~= false and n > 0 then
+  if n > 0 then
     if #lust == 0 then
       AddFinding(r, "lust", "high", "No Bloodlust/Heroism.", "no Bloodlust", "bloodlust")
     else
@@ -248,12 +248,12 @@ local function Generic(r, resolved, settings)
   for _, key in ipairs(FRIENDLY_DISPELS) do
     local ps = r.caps[key]
     table.insert(r.dispels, { key = key, label = UD:CapLabel(key), count = #ps, providers = ps })
-    if checks.dispels ~= false and n > 0 and #ps == 0 then
+    if n > 0 and #ps == 0 then
       local label = UD:CapLabel(key)
       AddFinding(r, "dispels", "medium", "No " .. label .. ".", "no " .. label, key)
     end
   end
-  if checks.dispels ~= false and n > 0 then
+  if n > 0 then
     if #r.caps.purge == 0 then AddFinding(r, "dispels", "low", "No offensive purge.", "no purge", "purge") end
     if #r.caps.soothe == 0 then AddFinding(r, "dispels", "low", "No soothe (enrage removal).", "no soothe", "soothe") end
   end
@@ -273,7 +273,7 @@ local function Generic(r, resolved, settings)
   for _, t in ipairs(UD.CC_TYPES) do if C.types[t] > 0 then C.typeCount = C.typeCount + 1 end end
   C.stops = #r.caps.stop
   C.aoeStops = #r.caps.aoe_stop
-  if checks.cc ~= false and n > 0 then
+  if n > 0 then
     if C.stops == 0 then
       AddFinding(r, "cc", "high", "No stop-capable CC (stun/fear/incapacitate) to end channels.", "no stops", "stop")
     elseif C.aoeStops == 0 then
@@ -296,7 +296,7 @@ local function Generic(r, resolved, settings)
   local roles = { TANK = 0, HEALER = 0, DAMAGER = 0 }
   for _, m in ipairs(resolved) do if m.role then roles[m.role] = roles[m.role] + 1 end end
   r.roles = roles
-  if checks.utility ~= false and n > 0 then
+  if n > 0 then
     if #r.caps.group_stealth == 0 then AddFinding(r, "utility", "info", "No group stealth/invis for skips.", "no skip tools", "group_stealth") end
     if #r.caps.movement == 0 then AddFinding(r, "utility", "info", "No group movement-speed cooldown.", "no group speed", "movement") end
   end
@@ -936,15 +936,6 @@ Analysis.READY_GROUPS = {
   { key = "throughput", label = "Throughput",       caps = { "bloodlust" }, buffs = true },
   { key = "mobility",   label = "Mobility & skips", caps = { "freedom", "movement", "group_stealth" } },
 }
--- Generic check that governs each capability (Settings > Generic checks).
-local CAP_CHECK = {
-  interrupt = "interrupts", stop = "cc", aoe_stop = "cc", knockback = "cc", root = "cc",
-  dispel_magic = "dispels", dispel_curse = "dispels", dispel_poison = "dispels", dispel_disease = "dispels",
-  dispel_bleed = "dispels", purge = "dispels", soothe = "dispels",
-  battle_rez = "brez", external_defensive = "utility", group_defensive = "utility", bloodlust = "lust",
-  freedom = "utility", movement = "utility", group_stealth = "utility",
-}
-Analysis.CAP_CHECK = CAP_CHECK
 local CHIPS = {
   { cap = "bloodlust", short = "Lust" }, { cap = "battle_rez", short = "Brez" }, { cap = "interrupt", short = "Kicks" },
   { cap = "dispel_magic", short = "Magic" }, { cap = "dispel_curse", short = "Curse" }, { cap = "dispel_poison", short = "Poison" },
@@ -989,8 +980,6 @@ function Analysis:Readiness(r, settings)
     local providers = r.caps[cap] or {}
     local items = itemsBy[cap] or {}
     local fs = findBy[cap] or {}
-    local checkOn = checks[CAP_CHECK[cap] or ""] ~= false
-    if not checkOn and #items == 0 and not (cap == "interrupt" and aggregate) then return nil end
     -- Generic status
     local gen, sev
     for _, f in ipairs(fs) do
@@ -1168,12 +1157,49 @@ function Analysis:PenaltyParts(r, keyLevel)
   return parts, (r.synergyPoints or 0)
 end
 
+-- The same gaps in LADDER points (1.6.5): what pick ratings measure. Each gap counts by its
+-- severity step (DungeonData.HEURISTICS.FIT_LADDER), a thin need a share of a missing one, an
+-- unconfirmed dungeon item half; the second return is raid buff synergy in ladder points.
+-- Needs, suggestions and Best key keep the penalty above.
+function Analysis:LadderParts(r, keyLevel)
+  local H = ns.Dungeons and ns.Dungeons.HEURISTICS or {}
+  local ladder = H.FIT_LADDER or { critical = 5, high = 4, medium = 2, low = 0.5 }
+  local thin = (keyLevel and H.HIGH_KEY_LEVEL and keyLevel >= H.HIGH_KEY_LEVEL) and (H.FIT_THIN_HIGH_KEY or 0.55) or (H.FIT_THIN or 0.4)
+  local parts = {}
+  for _, f in ipairs(r.findings) do
+    if f.check ~= "pending" and (SEV_WEIGHT[f.severity] or 0) > 0 then
+      local id = "g:" .. f.check .. ":" .. (f.short or f.text)
+      parts[id] = { label = f.short or f.text, points = ladder[f.severity] or 0, severity = f.severity }
+    end
+  end
+  if r.dungeon and r.dungeon.items then
+    for _, it in ipairs(r.dungeon.items) do
+      if it.status ~= "covered" and (SEV_WEIGHT[it.req.severity] or 0) > 0 then
+        local w = ladder[it.req.severity] or 0
+        if it.status ~= "missing" then w = w * thin end
+        if it.unconfirmed then w = w * (H.FIT_UNCONFIRMED or 0.5) end
+        local name = ((it.req.source or ""):match("^([^,(]+)") or ""):gsub("%s+$", "")
+        parts["d:" .. tostring(it.req.id)] = { points = w, severity = it.req.severity, status = it.status,
+          label = (it.aggregate and "kick count for this dungeon")
+            or (UD:CapLabel(it.req.need) .. " for " .. name) }
+      end
+    end
+  end
+  return parts, (r.synergyPoints or 0) / (H.FIT_SYNERGY_DIV or 8)
+end
+
+-- A group's gaps as one ladder number (lower is better; synergy subtracts).
+function Analysis:LadderTotal(r, keyLevel)
+  local parts, syn = self:LadderParts(r, keyLevel)
+  local t = 0
+  for _, p in pairs(parts) do t = t + p.points end
+  return t - syn
+end
+
 -- What changes between two analyses, as scored lines: closed gaps (+), new gaps (-),
 -- and raid buff synergy. Returns { { points, text, kind = "fix"|"gap"|"synergy" } }
 -- sorted by size.
-function Analysis:ScoreDelta(base, after, keyLevel)
-  local bp, bs = self:PenaltyParts(base, keyLevel)
-  local ap, as = self:PenaltyParts(after, keyLevel)
+local function DeltaLines(bp, bs, ap, as)
   local out = {}
   for id, p in pairs(bp) do
     local now = ap[id] and ap[id].points or 0
@@ -1202,6 +1228,20 @@ function Analysis:ScoreDelta(base, after, keyLevel)
     return a.text < b.text
   end)
   return out
+end
+
+-- In penalty points (the planner's slot preview).
+function Analysis:ScoreDelta(base, after, keyLevel)
+  local bp, bs = self:PenaltyParts(base, keyLevel)
+  local ap, as = self:PenaltyParts(after, keyLevel)
+  return DeltaLines(bp, bs, ap, as)
+end
+
+-- In ladder points (pick ratings' "Why N?").
+function Analysis:LadderDelta(base, after, keyLevel)
+  local bp, bs = self:LadderParts(base, keyLevel)
+  local ap, as = self:LadderParts(after, keyLevel)
+  return DeltaLines(bp, bs, ap, as)
 end
 
 ---------------------------------------------------------------------------

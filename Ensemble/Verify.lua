@@ -1,7 +1,13 @@
 -- Ensemble / Verify.lua
--- /ens verify: checks, in the live client, everything the addon could not confirm at build
--- time (12.1 API availability, spec IDs, spell IDs, dungeon list, Group Finder data) and
--- shows a plain-text report in a copyable box. Read-only: it changes nothing.
+-- The checks behind /ens report (1.6.5: /ens verify was folded into it): in the live client,
+-- everything the addon could not confirm at build time (12.1 API availability, spec IDs, spell
+-- IDs, dungeon list, Group Finder data). Read-only: it changes nothing.
+--   Verify:Build()   every check as one line (the full list; tests and the report read it)
+--   Verify:Report()  the same checks consolidated for the report: every FAIL and WARN as a
+--                    problem, a check that only confirms something exists folded into its
+--                    section's count, a line kept when it carries a value someone would compare,
+--                    a part that doesn't apply right now as one "not checked" line
+--   /ens report season (Verify:RunSeason): the season-update dump, unchanged.
 
 local _, ns = ...
 
@@ -16,18 +22,37 @@ function Verify.IsNameField(k)
     or l:find("activity", 1, true) or l:find("map", 1, true) or l:find("zone", 1, true))
 end
 
-local lines, counts
+local lines, counts, sections
 local function Util_Count(t) local n = 0 for _ in pairs(t) do n = n + 1 end return n end
 
-local function Add(status, text)
+-- status: OK, WARN, FAIL, INFO, or SKIP (a part that doesn't apply right now: "not hosting, not
+-- checked"; never a problem). fold (OK lines only): true or a number = this line only confirms
+-- that something exists, so the report counts it (as that many) instead of printing it; false =
+-- always printed; nil = decided by Verify.Folds.
+local function Add(status, text, fold)
   counts[status] = (counts[status] or 0) + 1
   lines[#lines + 1] = string.format("[%s] %s", status, text)
+  local sec = sections[#sections]
+  if sec then sec.items[#sec.items + 1] = { status = status, text = text, fold = fold } end
 end
-local function Section(title)
+-- word: what the folded checks of this section are called in the report ("present", "matched").
+local function Section(title, word)
   lines[#lines + 1] = ""
   lines[#lines + 1] = "== " .. title .. " =="
+  sections[#sections + 1] = { title = title, word = word or "present", items = {} }
 end
-local function Note(text) lines[#lines + 1] = "      " .. text end
+local function Note(text)
+  lines[#lines + 1] = "      " .. text
+  local sec = sections[#sections]
+  if sec then sec.items[#sec.items + 1] = { status = "NOTE", text = text } end
+end
+
+-- An OK line with nothing to compare (no number, no "label: value") only says "it's there".
+function Verify.Folds(item)
+  if item.status ~= "OK" then return false end
+  if item.fold ~= nil then return item.fold and true or false end
+  return not (item.text:find("%d") or item.text:find(": ", 1, true))
+end
 
 -- Resolve "C_Spell.GetSpellInfo" style paths without erroring.
 local function Lookup(path)
@@ -97,7 +122,8 @@ local function CheckAPIs()
       Add("FAIL", "missing: " .. path); missing = missing + 1
     end
   end
-  if missing == 0 then Add("OK", #API_FUNCTIONS .. " functions present") end
+  if missing == 0 then Add("OK", #API_FUNCTIONS .. " functions present", #API_FUNCTIONS)
+  elseif missing < #API_FUNCTIONS then Add("OK", (#API_FUNCTIONS - missing) .. " of " .. #API_FUNCTIONS .. " functions present", #API_FUNCTIONS - missing) end
 
   -- Widget methods the UI relies on.
   local f = CreateFrame("Frame")
@@ -112,11 +138,11 @@ local function CheckAPIs()
   Add(GameTooltip and GameTooltip.SetSpellByID and "OK" or "FAIL", "GameTooltip:SetSpellByID")
   Add(type(LFGListApplicantMember_OnEnter) == "function" and "OK" or "WARN",
     "LFGListApplicantMember_OnEnter (fit ratings in Group Finder tooltips) "
-    .. (type(LFGListApplicantMember_OnEnter) == "function" and "found" or "not found - open the Group Finder once and re-run"))
+    .. (type(LFGListApplicantMember_OnEnter) == "function" and "found" or "not found (it loads with the Group Finder: open it once)"))
   local hasSettings = Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory
   Add(hasSettings and "OK" or "WARN", "Blizzard Options > AddOns entry (Settings.RegisterCanvasLayoutCategory) "
     .. (hasSettings and ((ns.UI and ns.UI.blizzCategory) and "registered" or "available, not registered") or "not available"))
-  Add(PVEFrame and "OK" or "WARN", "PVEFrame (Group Finder window) " .. (PVEFrame and "found" or "not loaded yet - open the Group Finder once and re-run"))
+  Add(PVEFrame and "OK" or "WARN", "PVEFrame (Group Finder window) " .. (PVEFrame and "found" or "not loaded yet (open the Group Finder once)"))
   f:Hide()
 
   -- Events (RegisterEvent errors on unknown names).
@@ -134,7 +160,7 @@ local function CheckAPIs()
     if not pcall(probe.RegisterEvent, probe, ev) then bad[#bad + 1] = ev end
   end
   probe:UnregisterAllEvents()
-  if #bad == 0 then Add("OK", "all " .. #EVENTS .. " game events the addon uses accepted")
+  if #bad == 0 then Add("OK", "all " .. #EVENTS .. " game events the addon uses accepted", #EVENTS)
   else Add("FAIL", "unknown events: " .. table.concat(bad, ", ")) end
 
   -- "Post gaps to party chat"
@@ -169,7 +195,7 @@ local function CheckAPIs()
       local okI, inside = pcall(IsInInstance)
       inInstance = okI and inside and true or false
     end
-    if not inInstance then Note("Re-run inside a Mythic+ key with a party to check party units too.") end
+    if not inInstance then Add("SKIP", "party units inside a key: not in an instance, not checked") end
     if IsInGroup and IsInGroup() and UnitExists("party1") then
       local _, pcls = UnitClass("party1")
       local role = UnitGroupRolesAssigned and UnitGroupRolesAssigned("party1")
@@ -183,11 +209,11 @@ local function CheckAPIs()
   if R then
     local BG = rawget(_G, "BugGrabber")
     if R.captureActive then
-      Add("OK", "error capture for /ens report active")
+      Add("OK", "error capture for /ens report active", true)
     elseif type(BG) == "table" and type(BG.GetDB) == "function" then
       Add("OK", "BugGrabber handles Lua errors: /ens report includes its errors from this addon")
     else
-      Add("INFO", "error capture for /ens report not active (another addon owns the error handler, or the client refused): /ens report still works, without the error list")
+      Add("INFO", "error capture not active (another addon owns the error handler, or the client refused): the report has no error list")
     end
   end
 end
@@ -274,14 +300,14 @@ local function CheckSpells()
 end
 
 local function CheckDungeons()
-  Section("Dungeons")
+  Section("Dungeons", "matched")
   local DD = ns.Dungeons
   if not (C_ChallengeMode and C_ChallengeMode.GetMapTable) then
     Add("FAIL", "C_ChallengeMode.GetMapTable missing: no dungeon icons"); return
   end
   local ok, maps = pcall(C_ChallengeMode.GetMapTable)
   if not ok or type(maps) ~= "table" or #maps == 0 then
-    Add("WARN", "season dungeon list empty (Mythic+ data may not be loaded yet - open the Group Finder's Mythic+ tab and re-run)")
+    Add("WARN", "season dungeon list empty (Mythic+ data may not be loaded yet: the game sends it once the Group Finder's Mythic+ tab has been opened)")
     return
   end
   local found = {}
@@ -292,7 +318,7 @@ local function CheckDungeons()
       found[key] = true
       local nameNote = (name and DD:FindKey(name) == key) and "" or (" (name '" .. tostring(name) .. "' differs - matched by ID)")
       Add(tex and "OK" or "WARN", string.format("%s (map %d, instance %s) -> %s by ID, icon %s%s", tostring(name), mapID,
-        tostring(instanceMapID), key, tex and "yes" or "MISSING", nameNote))
+        tostring(instanceMapID), key, tex and "yes" or "MISSING", nameNote), nameNote == "" and true or nil)
     else
       Add("FAIL", string.format("season dungeon not in the addon: %s (map %d)", tostring(okInfo and name), mapID))
     end
@@ -308,7 +334,7 @@ local function CheckDungeons()
     Add("OK", string.format("your keystone: %s +%s (matched to %s)", tostring(kname), tostring(okL and klvl or "?"),
       tostring(ns:DungeonFromMapID(kmap))))
   else
-    Add("OK", "no keystone in your bags (keystone-level detection not tested)")
+    Add("SKIP", "your keystone: none in your bags, not checked")
   end
   -- Zone detection (Live/Applicants default when there's no listing).
   local okI, iname, itype = pcall(GetInstanceInfo)
@@ -317,7 +343,22 @@ local function CheckDungeons()
     Add(zk and "OK" or "WARN", string.format("current dungeon: %s (%s) -> %s", tostring(iname), tostring(itype),
       zk and DD.list[zk].name or "not matched"))
   else
-    Add("INFO", "not inside a dungeon (zone detection not tested; run /ens verify inside one)")
+    Add("SKIP", "zone detection: not inside a dungeon, not checked")
+  end
+  -- The key that is running (1.6.5, B1): its level drives the affixes and ratings shown while
+  -- you're inside someone else's key.
+  if not (C_ChallengeMode and C_ChallengeMode.GetActiveKeystoneInfo) then
+    Add("WARN", "C_ChallengeMode.GetActiveKeystoneInfo missing: inside another player's key the level isn't known (set it on Applicants)")
+  else
+    local okK, rk, rl, ra = pcall(ns.ActiveKey, ns)
+    if okK and rk then
+      Add(rl and "OK" or "WARN", string.format("running key: %s %s, affix IDs %s", DD.list[rk].name,
+        rl and ("+" .. rl) or "level not readable (hidden by the game?)", (ra and #ra > 0) and table.concat(ra, ", ") or "none read"))
+    elseif not okK then
+      Add("FAIL", "running key: error - " .. tostring(rk))
+    else
+      Add("SKIP", "running key: not inside a key, not checked")
+    end
   end
   local eff, src = ns:GetEffectiveDungeon(false)
   Add("INFO", "Planner default dungeon: " .. (eff and DD.list[eff].name or "none") .. " (" .. tostring(src or "nothing detected") .. ")")
@@ -332,7 +373,7 @@ local function CheckAffixes()
   AF:Refresh()
   local cur = AF:Current()
   if #cur == 0 then
-    Add("WARN", "this week's affixes not loaded yet - open the Group Finder's Mythic+ tab and re-run"); return
+    Add("WARN", "this week's affixes not loaded yet (the game sends them once the Group Finder's Mythic+ tab has been opened)"); return
   end
   for i, a in ipairs(cur) do
     local how = a.def and ((function() for _, id in ipairs(a.def.ids) do if id == a.id then return "by ID" end end return "by name" end)()) or nil
@@ -385,7 +426,7 @@ local function CheckHistory()
         "party names: %d of %d from another realm, %d of those written with spaces or hyphens (matched without them)%s",
         xr, inParty, raw, hidden > 0 and ("; " .. hidden .. " hidden by the game") or ""))
     else
-      Add("INFO", "party names: not in a party (re-run with a cross-realm party member to see how realms read)")
+      Add("SKIP", "party names: not in a party, not checked")
     end
   end
   if ns.Tracker and ns.Tracker.hosting then
@@ -413,7 +454,7 @@ local function CheckHistory()
     inKey = ok and id and true or false
   end
   if not inKey then
-    Add("INFO", "boss splits: run /ens verify inside a key to check the boss objectives, the timer and the death count")
+    Add("SKIP", "boss splits: not inside a key, not checked")
   else
     local before = H.secretReads or 0
     local list, why = H:BossCriteria()
@@ -441,7 +482,7 @@ local function CheckHistory()
     Add((lw.status and lw.raw) and "OK" or "WARN", "last wipe: " .. (lw.status and (tostring(lw.units or 0) .. " boss unit(s), highest remaining health raw "
       .. tostring(lw.raw) .. " (read as a percent)") or "no boss health with it (encounterUnitStatus missing or hidden): the wipe still counts"))
   else
-    Add("INFO", "wipes per boss: no failed pull seen since the last reload (a wipe inside a key shows the boss health the game sends)")
+    Add("SKIP", "wipes per boss: no failed pull since the last reload, not checked")
   end
   -- Boss window kill matching (1.5.1): by encounter ID first, then name, then the card on screen.
   local BC = ns.BossCards
@@ -461,9 +502,9 @@ local function CheckGroupFinder()
   if not has then
     local n = (GetNumGroupMembers and GetNumGroupMembers()) or 0
     if n >= 5 then
-      Add("INFO", "no active listing: the game closes a listing once the group is full. To test this part, list with an open spot (ideally with applicants) and re-run")
+      Add("SKIP", "Group Finder: not hosting (the game closes a listing once the group is full), not checked")
     else
-      Add("WARN", "no active listing - list a group (ideally with applicants) and re-run to test this part")
+      Add("SKIP", "Group Finder: not hosting, not checked")
     end
     return
   end
@@ -487,7 +528,7 @@ local function CheckGroupFinder()
   end
   local okA, apps = pcall(C_LFGList.GetApplicants)
   if not okA or type(apps) ~= "table" then Add("FAIL", "GetApplicants failed"); return end
-  if #apps == 0 then Add("WARN", "no applicants right now - re-run once someone applies to test spec detection"); return end
+  if #apps == 0 then Add("SKIP", "applicants: none right now, not checked"); return end
   local withSpec, total, leaverRead = 0, 0, 0
   for _, aid in ipairs(apps) do
     local okI, info = pcall(C_LFGList.GetApplicantInfo, aid)
@@ -616,7 +657,7 @@ local function CheckFill()
         (r == nil and i == nil) and " (none set, or the fields are named differently: \"From my listing\" finds nothing)" or ""))
     end
   else
-    Add("INFO", "listing minimums: list a group to check the fields \"From my listing\" reads")
+    Add("SKIP", "listing minimums: not hosting, not checked")
   end
   Add(C_LFGList.InviteApplicant and "OK" or "FAIL", "C_LFGList.InviteApplicant (Fill group and Invite buttons)")
   Add(C_LFGList.GetNumInvitedApplicantMembers and "OK" or "INFO",
@@ -673,7 +714,7 @@ local function CheckSearch()
   Section("Group Finder search (your fit)")
   local FS = ns.FinderSearch
   Add(type(LFGListSearchEntry_Update) == "function" and "OK" or "WARN",
-    "LFGListSearchEntry_Update (listing markers) " .. (type(LFGListSearchEntry_Update) == "function" and "found" or "not found - open the Group Finder once and re-run"))
+    "LFGListSearchEntry_Update (listing markers) " .. (type(LFGListSearchEntry_Update) == "function" and "found" or "not found (it loads with the Group Finder: open it once)"))
   Add(type(LFGListUtil_SetSearchEntryTooltip) == "function" and "OK" or "WARN",
     "LFGListUtil_SetSearchEntryTooltip (your fit in listing tooltips) " .. (type(LFGListUtil_SetSearchEntryTooltip) == "function" and "found" or "not found"))
   if FS and FS.Hook then FS:Hook() end
@@ -714,7 +755,7 @@ local function CheckSearch()
   local ok, a, b = pcall(C_LFGList.GetSearchResults)
   local list = (type(b) == "table" and b) or (type(a) == "table" and a) or {}
   if not ok or #list == 0 then
-    Add("WARN", "no search results - search for a Mythic+ dungeon in the Group Finder and re-run to test this part")
+    Add("SKIP", "search results: none (no Mythic+ search in the Group Finder yet), not checked")
     return
   end
   local LFt = ns.ListingFit
@@ -781,7 +822,10 @@ end
 local function CheckGroup()
   Section("Party")
   local n = GetNumGroupMembers and GetNumGroupMembers() or 0
-  if n <= 1 then Add("WARN", "not in a group - join a party and re-run to test inspect-based spec detection"); return end
+  -- The always-on spec-change listener (1.6.5, B2).
+  Add(ns.Tracker.specWatchOK and "OK" or "WARN", "spec-change listener " .. (ns.Tracker.specWatchOK and "registered"
+    or "not registered: a party member's spec change while the window is closed isn't noticed until the next inspect"), ns.Tracker.specWatchOK and true or nil)
+  if n <= 1 then Add("SKIP", "Party: not in a group, not checked"); return end
   local T = ns.Tracker
   T:Acquire("verify")
   T:Rescan()
@@ -789,14 +833,14 @@ local function CheckGroup()
   for _, m in ipairs(T.members) do if m.pending then pending = pending + 1 else known = known + 1 end end
   T:Release("verify")
   Add(pending == 0 and "OK" or "WARN", string.format("party specs read: %d known, %d pending%s", known, pending,
-    pending > 0 and " (inspects finish over a few seconds - re-run in ~10s)" or ""))
+    pending > 0 and " (inspects finish over a few seconds)" or ""))
   -- In-key checks: roster reads the game hid (secret values) and roster scans that errored.
   local inKey = C_ChallengeMode and C_ChallengeMode.GetActiveChallengeMapID and select(2, pcall(C_ChallengeMode.GetActiveChallengeMapID))
   local hidden, errs = T.secretReads or 0, T.rescanErrors or 0
   if hidden > 0 then
     Add("WARN", string.format("party reads hidden by the game (secret values): %d since login; those members show as spec pending", hidden))
   else
-    Add(inKey and "OK" or "INFO", "party reads hidden by the game: none" .. (inKey and " during this key" or " so far (re-run inside a key to check)"))
+    Add(inKey and "OK" or "INFO", "party reads hidden by the game: none" .. (inKey and " during this key" or " so far (not inside a key)"))
   end
   if errs > 0 then
     Add("FAIL", string.format("roster scans or inspects that errored: %d (last: %s); the next roster change tries again", errs, tostring(T.lastRescanError)))
@@ -846,7 +890,7 @@ local function ListFlags()
       end
     end
   end
-  if n == 0 then Add("OK", "nothing left unconfirmed") end
+  if n == 0 then Add("OK", "nothing left unconfirmed", false) end
 end
 
 -- Boss cards: the events the window follows, the encounter journal, and (inside a dungeon)
@@ -935,7 +979,7 @@ local function CheckBosses()
     Add("INFO", string.format("inside %s: showing boss %d, killed %d", ns.Dungeons.list[dk].name, BC.state.index or 0,
       Util_Count(BC.state.killed or {})))
   else
-    Add("INFO", "not inside a Season dungeon (run /ens verify inside one to check boss matching)")
+    Add("SKIP", "boss matching: not inside a Season dungeon, not checked")
   end
 end
 
@@ -971,7 +1015,7 @@ local function ShowReport(text, title)
     sel:SetScript("OnClick", function() eb:SetFocus(); eb:HighlightText() end)
     Verify.frame = f
   end
-  f.title:SetText("Ensemble - " .. (title or "verify report") .. "   (click in the box, Ctrl+A then Ctrl+C to copy)")
+  f.title:SetText("Ensemble - " .. (title or "report") .. "   (click in the box, Ctrl+A then Ctrl+C to copy)")
   f.report = text
   f.edit:SetText(text)
   f:Show()
@@ -986,7 +1030,7 @@ end
 ---------------------------------------------------------------------------
 -- Build the report without showing it: returns text, counts, lines.
 function Verify:Build()
-  lines, counts = {}, {}
+  lines, counts, sections = {}, {}, {}
   local version, build, date, toc = "?", "?", "?", "?"
   if GetBuildInfo then version, build, date, toc = GetBuildInfo() end
   lines[#lines + 1] = string.format("Ensemble %s - client %s (%s, toc %s) - locale %s",
@@ -1004,14 +1048,50 @@ function Verify:Build()
   Try("party", CheckGroup)
   Try("boss cards", CheckBosses)
   Try("flags", ListFlags)
-  table.insert(lines, 2, string.format("Summary: %d OK, %d WARN, %d FAIL, %d INFO",
-    counts.OK or 0, counts.WARN or 0, counts.FAIL or 0, counts.INFO or 0))
+  table.insert(lines, 2, string.format("Summary: %d OK, %d WARN, %d FAIL, %d INFO, %d not checked",
+    counts.OK or 0, counts.WARN or 0, counts.FAIL or 0, counts.INFO or 0, counts.SKIP or 0))
   local text = table.concat(lines, "\n")
-  return text, counts, lines
+  return text, counts, lines, sections
+end
+
+-- The checks consolidated for /ens report. Returns { counts, problems = { "Section: [FAIL] text" },
+-- checks = { lines } }. Nothing that is a FAIL or a WARN is left out: each is a problem line.
+function Verify:Report()
+  local _, c, _, secs = self:Build()
+  local problems, checks = {}, {}
+  for _, tag in ipairs({ "FAIL", "WARN" }) do
+    for _, sec in ipairs(secs) do
+      for _, it in ipairs(sec.items) do
+        if it.status == tag then problems[#problems + 1] = string.format("[%s] %s: %s", tag, sec.title, it.text) end
+      end
+    end
+  end
+  for _, sec in ipairs(secs) do
+    local folded, bad, kept, onlySkip = 0, 0, {}, true
+    for _, it in ipairs(sec.items) do
+      if it.status == "FAIL" or it.status == "WARN" then bad = bad + 1; onlySkip = false
+      elseif Verify.Folds(it) then folded = folded + (type(it.fold) == "number" and it.fold or 1); onlySkip = false
+      else
+        kept[#kept + 1] = it
+        if it.status ~= "SKIP" then onlySkip = false end
+      end
+    end
+    if onlySkip and #kept > 0 then
+      -- A part that doesn't apply right now: its "not checked" line(s), nothing else.
+      for _, it in ipairs(kept) do checks[#checks + 1] = it.text end
+    else
+      local head = {}
+      if folded > 0 then head[#head + 1] = folded .. " " .. sec.word end
+      if bad > 0 then head[#head + 1] = bad .. " under Problems" end
+      checks[#checks + 1] = sec.title .. ":" .. (#head > 0 and (" " .. table.concat(head, ", ")) or "")
+      for _, it in ipairs(kept) do checks[#checks + 1] = "  " .. it.text end
+    end
+  end
+  return { counts = c, problems = problems, checks = checks }
 end
 
 ---------------------------------------------------------------------------
--- /ens verify season: the raw facts a season (or patch) update starts from, in one block to
+-- /ens report season: the raw facts a season (or patch) update starts from, in one block to
 -- paste into an update session: the game's Mythic+ dungeon pool with challenge and
 -- instance map IDs and timers, each dungeon's bosses and their journal abilities with
 -- spell IDs, and this week's affixes; each marked as known to the addon or NEW.
@@ -1069,7 +1149,7 @@ function Verify:BuildSeason()
   if C_ChallengeMode and C_ChallengeMode.GetMapTable then okM, maps = pcall(C_ChallengeMode.GetMapTable) end
   local inGame = {}
   if not okM or type(maps) ~= "table" or #maps == 0 then
-    add("(not loaded yet - open the Group Finder's Mythic+ tab and run /ens verify season again)")
+    add("(not loaded yet - open the Group Finder's Mythic+ tab and run /ens report season again)")
   else
     table.sort(maps)
     for _, mapID in ipairs(maps) do
@@ -1122,13 +1202,3 @@ function Verify:RunSeason()
   return text
 end
 
-function Verify:Run()
-  local text, counts = self:Build()
-  self.lastReport = text
-  ns:Print(string.format("Verify: %d OK, %d WARN, %d FAIL. Copy the report from the window and paste it back.",
-    counts.OK or 0, counts.WARN or 0, counts.FAIL or 0))
-  local ok = pcall(ShowReport, text)
-  if not ok then ns:Print("Could not open the report window; the report is in EnsembleDB.lastVerify after /reload.") end
-  if ns.db then ns.db.lastVerify = text end
-  return text
-end

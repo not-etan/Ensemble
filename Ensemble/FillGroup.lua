@@ -48,18 +48,18 @@ local SEV_RANK = { critical = 1, high = 2, medium = 3, low = 4, info = 5 }
 FG.LEVELS = { "relaxed", "standard", "strict" }
 FG.LEVEL_LABEL = { auto = "Match the key level", relaxed = "Relaxed", standard = "Standard", strict = "Strict" }
 
--- The generic needs (What to check's generic checks) a level can ask for, with the severity
--- the needs model gives a group that has none. Each follows its What to check switch.
+-- The generic needs a level can ask for, with the severity the needs model gives a group that
+-- has none. Each follows its What to check box (`ignoredNeeds`).
 local GENERIC = {
-  { cap = "interrupt", sev = "critical", check = "interrupts" },
-  { cap = "bloodlust", sev = "high", check = "lust" },
-  { cap = "battle_rez", sev = "high", check = "brez" },
-  { cap = "stop", sev = "high", check = "cc" },
-  { cap = "aoe_stop", sev = "medium", check = "cc" },
-  { cap = "dispel_magic", sev = "medium", check = "dispels" },
-  { cap = "dispel_curse", sev = "medium", check = "dispels" },
-  { cap = "dispel_poison", sev = "medium", check = "dispels" },
-  { cap = "dispel_disease", sev = "medium", check = "dispels" },
+  { cap = "interrupt", sev = "critical" },
+  { cap = "bloodlust", sev = "high" },
+  { cap = "battle_rez", sev = "high" },
+  { cap = "stop", sev = "high" },
+  { cap = "aoe_stop", sev = "medium" },
+  { cap = "dispel_magic", sev = "medium" },
+  { cap = "dispel_curse", sev = "medium" },
+  { cap = "dispel_poison", sev = "medium" },
+  { cap = "dispel_disease", sev = "medium" },
 }
 FG.GENERIC = GENERIC
 
@@ -414,7 +414,7 @@ end
 
 local function GenericOn(g, settings)
   local s = Settings(settings)
-  return (s.checks or {})[g.check] ~= false and not (s.ignoredNeeds or {})[g.cap]
+  return not (s.ignoredNeeds or {})[g.cap]
 end
 
 local function ShortSource(src) return src and (src:gsub("%s*%(.-%)", "")) or "" end
@@ -889,6 +889,7 @@ function FG:Plan(ctx, evals, settings, opts)
   -- need specs (1,792 groups at 4 open slots with 8 per role).
   local leaves, chosen, left = {}, {}, {}
   for r, n in pairs(open) do left[r] = n end
+  for _, c in ipairs(kept) do c.weight = (c.ev.score or 0) * math.max(1, #(c.ev.members or {})) end
   local counts, nspecs = {}, #specs
   for i = 1, nspecs do counts[i] = baseCounts[i] or 0 end
   local total, wait, adj, tie, rankSum = 0, 0, 0, 0, 0
@@ -917,12 +918,14 @@ function FG:Plan(ctx, evals, settings, opts)
       for r, n in pairs(c.need) do left[r] = left[r] - n; seats = seats + n end
       if classRule then for _, k in ipairs(c.keys) do used[k] = true end end
       for k = 1, nspecs do counts[k] = counts[k] + (c.counts[k] or 0) end
-      total, wait = total + (c.ev.score or 0), wait + (c.ev.members[1].firstSeen or 0)
+      -- A premade's rating counts once per member (1.6.5, approved November 12, 2026): as one
+      -- application at most 100, a pair could never out-total two single applicants (up to 200).
+      total, wait = total + c.weight, wait + (c.ev.members[1].firstSeen or 0)
       adj, tie, rankSum = adj + c.adj, tie + c.tie, rankSum + (c.rank or 0)
       chosen[#chosen + 1] = c
       rec(i + 1, remaining - seats)
       chosen[#chosen] = nil
-      total, wait = total - (c.ev.score or 0), wait - (c.ev.members[1].firstSeen or 0)
+      total, wait = total - c.weight, wait - (c.ev.members[1].firstSeen or 0)
       adj, tie, rankSum = adj - c.adj, tie - c.tie, rankSum - (c.rank or 0)
       if classRule then for _, k in ipairs(c.keys) do used[k] = nil end end
       for k = 1, nspecs do counts[k] = counts[k] - (c.counts[k] or 0) end
@@ -1144,6 +1147,10 @@ function FG:Current()
     self.lastPlanSig = planSig
     self.planChangedAt = GetTime and GetTime() or 0
   end
+  if ns.Activity then
+    local what = plan.status .. (plan.status == "ready" and (", " .. #(plan.picks or {}) .. " application(s)") or "")
+    if what ~= self.lastPlanLog then self.lastPlanLog = what; ns.Activity:Log("fill plan", what) end
+  end
   return plan
 end
 
@@ -1217,7 +1224,7 @@ function FG:ButtonText(plan)
 end
 
 -- The click. `shownSig` is the plan the player saw. Re-plans on fresh data and invites only if
--- the group is unchanged; returns ok, message. Records the attempt for /ens verify.
+-- the group is unchanged; returns ok, message. Records the attempt for /ens report.
 function FG:Fill(shownSig)
   Init()
   local T = ns.Tracker
@@ -1235,6 +1242,7 @@ function FG:Fill(shownSig)
     build = GameBuild() }
   self.lastFill = rec
   self.fillWindowUntil = rec.at + 3
+  if ns.Activity then ns.Activity:Log("invite", "Fill group: " .. n .. " of " .. #todo .. " application(s) on this click") end
   for i = 1, n do
     local ev = todo[i]
     rec.attempted = rec.attempted + 1
@@ -1274,7 +1282,7 @@ function FG:ConfirmFill(rec)
   rec.confirmed, rec.stuck = confirmed, stuck
   if stuck > 0 and confirmed > 0 then Learn(string.format("%d of %d invites went out", confirmed, #rec.ids))
   elseif stuck == 0 and confirmed == #rec.ids and #rec.errors == 0 and not rec.blocked and ns.db then
-    -- Every invite went out on one click: remember it for this build, so /ens verify still says
+    -- Every invite went out on one click: remember it for this build, so /ens report still says
     -- so after a /reload (1.4.1 review, R8). Never replaces a learned "one per click" for the build.
     local m = ns.db.fillInvite
     if not (type(m) == "table" and m.oneAtATime and m.build == GameBuild()) then
@@ -1298,7 +1306,7 @@ if blockWatch then
   end)
 end
 
--- One line for /ens verify and the bug report.
+-- One line for /ens report and the bug report.
 function FG:LastFillText()
   local rec = self.lastFill
   if not rec then return nil end
@@ -1376,7 +1384,7 @@ end
 -- default) or the game's ready check. The chime falls back to the ready check when the file
 -- can't play (PlaySoundFile missing, or the client says it won't play it). Master channel, as
 -- before, so it's heard with game sounds turned down. FG.lastSound records what played, for
--- /ens verify. Returns "chime", "readycheck" or nil.
+-- /ens report. Returns "chime", "readycheck" or nil.
 FG.SOUNDS = { chime = "Ensemble chime", readycheck = "Game ready check" }
 FG.SOUND_ORDER = { "chime", "readycheck" }
 function FG:PlayReadySound(choice)

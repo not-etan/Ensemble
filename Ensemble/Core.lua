@@ -228,11 +228,10 @@ ns.DEFAULTS = {
   schema = ns.SCHEMA_VERSION,
   settings = {
     compact = false,
-    -- Generic (Feature 4) checks the user can switch off.
-    checks = {
-      buffs = true, interrupts = true, brez = true, lust = true,
-      dispels = true, cc = true, utility = true,
-    },
+    -- Raid buffs and synergy in the checks (What to check > Also). The six per-topic switches
+    -- that sat here up to 1.6.0 had no control in the window (each need has its own check box,
+    -- `ignoredNeeds`); they were removed in 1.6.5 and SanitizeDB drops any saved value.
+    checks = { buffs = true },
     -- Dungeon (Feature 5) requirement categories the user can switch off.
     dungeonCategories = { interrupts = true, dispels = true, stops = true, tank = true, other = true, affixes = true },
     -- Count talent-dependent sources (e.g. Cauterizing Flame) as providers.
@@ -339,7 +338,24 @@ ns.DEFAULTS = {
 -- never edit old ones.
 local MIGRATIONS = {}
 
+-- Settings whose saved type differs from the default's are replaced by the default (1.6.5, S1:
+-- a hand-edited or damaged SavedVariables file could put a string where a table is read and
+-- error on every refresh). Settings subtree only; keys the defaults don't have are left alone.
+local function FixSettingTypes(cur, def)
+  for k, d in pairs(def) do
+    if type(cur[k]) ~= type(d) then
+      cur[k] = Util.DeepCopy(d)
+    elseif type(d) == "table" then
+      FixSettingTypes(cur[k], d)
+    end
+  end
+end
+
 local function SanitizeDB(db)
+  if type(db.settings) ~= "table" then db.settings = Util.DeepCopy(ns.DEFAULTS.settings) end
+  FixSettingTypes(db.settings, ns.DEFAULTS.settings)
+  -- The control-less check switches (1.6.5, S10): only `buffs` is left.
+  for k in pairs(db.settings.checks) do if k ~= "buffs" then db.settings.checks[k] = nil end end
   if type(db.currentComp) ~= "table" then db.currentComp = { 0, 0, 0, 0, 0 } end
   for i = 1, ns.NUM_SLOTS do
     if type(db.currentComp[i]) ~= "number" then db.currentComp[i] = 0 end
@@ -512,9 +528,12 @@ local function SanitizeDB(db)
   for id, v in pairs(db.tipsSeen) do if type(id) ~= "string" or v ~= true then db.tipsSeen[id] = nil end end
   if db.lastSeenVersion ~= nil and type(db.lastSeenVersion) ~= "string" then db.lastSeenVersion = nil end
   if db.tourSeen ~= nil and db.tourSeen ~= true then db.tourSeen = nil end
+  if db.tipsBaseline ~= nil and db.tipsBaseline ~= true then db.tipsBaseline = nil end
   if type(db.settings) == "table" and type(db.settings.tips) ~= "boolean" then db.settings.tips = true end
   -- Settings that no longer exist (1.3.0: the Mythic Dungeon Tools route switch).
   if type(db.settings) == "table" then db.settings.routePlan = nil end
+  -- One report since 1.6.5: the separate verify log is gone (db.lastReport holds the report).
+  db.lastVerify = nil
 end
 
 function ns:InitDB()
@@ -547,6 +566,7 @@ function ns:ResetDB()
   self.db = EnsembleDB
   -- What's new stays seen (a reset isn't an update); the tour and tips start over.
   if ns.WhatsNew and ns.WhatsNew.Parse(ns.VERSION) then EnsembleDB.lastSeenVersion = ns.VERSION end
+  EnsembleDB.tipsBaseline = true   -- History is empty now, so the first-key tip stays for the next key
   -- Session state that would otherwise outlive the reset: assignments chosen by hand and the
   -- boss window's progress through the current key.
   if ns.Assignments and ns.Assignments.ClearOverrides then ns.Assignments:ClearOverrides() end
@@ -574,7 +594,7 @@ ns.state = {
 ---------------------------------------------------------------------------
 -- Dungeon detection
 -- C_MythicPlus.GetOwnedKeystoneChallengeMapID / C_ChallengeMode.GetMapUIInfo confirmed in
--- 12.1.0 (build 69933) by /ens verify. C_ChallengeMode.GetActiveChallengeMapID and
+-- 12.1.0 (build 69933) by /ens report. C_ChallengeMode.GetActiveChallengeMapID and
 -- GetInstanceInfo are long-standing retail APIs; all calls are pcall-guarded.
 ---------------------------------------------------------------------------
 local mapKeyCache = {}
@@ -619,6 +639,49 @@ function ns:CurrentInstanceDungeon()
       return ns.Dungeons:KeyForInstanceMap(instanceMapID) or (name and ns.Dungeons:FindKey(name))
     end
   end
+  return nil
+end
+
+-- The key that is running right now: dungeon key, level, affix IDs (1.6.5, B1). Inside
+-- another player's key the keystone in your bags says nothing about this run, so the level
+-- comes from the game's own "active keystone". nil outside a key, when the map isn't a Season
+-- dungeon, or when the game hides the values (secret values inside an instance).
+function ns:ActiveKey()
+  local CM = C_ChallengeMode
+  if not (CM and CM.GetActiveChallengeMapID and CM.GetActiveKeystoneInfo) then return nil end
+  local function plain(v)
+    if v == nil then return nil end
+    if issecretvalue then
+      local ok, secret = pcall(issecretvalue, v)
+      if not ok or secret then return nil end
+    end
+    return v
+  end
+  local okM, mapID = pcall(CM.GetActiveChallengeMapID)
+  mapID = okM and plain(mapID) or nil
+  if type(mapID) ~= "number" or mapID <= 0 then return nil end
+  local key = self:DungeonFromMapID(mapID)
+  if not key then return nil end
+  local okK, level, affixes = pcall(CM.GetActiveKeystoneInfo)
+  level = okK and plain(level) or nil
+  if type(level) ~= "number" or level <= 0 then return key, nil, nil end
+  local ids
+  affixes = okK and plain(affixes) or nil
+  if type(affixes) == "table" then
+    ids = {}
+    for _, id in ipairs(affixes) do
+      id = plain(id)
+      if type(id) == "number" then ids[#ids + 1] = id end
+    end
+  end
+  return key, level, ids
+end
+
+-- The level of the key running in `dungeonKey`, or nil.
+function ns:ActiveKeyLevel(dungeonKey)
+  if not dungeonKey then return nil end
+  local key, level = self:ActiveKey()
+  if key == dungeonKey then return level end
   return nil
 end
 
@@ -810,6 +873,54 @@ boot:SetScript("OnEvent", function(self, event, arg1)
 end)
 
 ---------------------------------------------------------------------------
+-- Recent activity (1.6.5): the addon's last few events, for /ens report
+---------------------------------------------------------------------------
+-- A session-only ring buffer (never saved) of what the addon did just before a report was
+-- built: tab changes, a listing made or ended, group and applicant counts, key start and end,
+-- boss kills and wipes, Fill plan changes, invites sent, planner / party switches. Counts,
+-- specs and dungeon names only: callers never pass a player's name.
+local Activity = { list = {}, MAX = 25 }
+ns.Activity = Activity
+function Activity:Log(kind, text)
+  kind, text = tostring(kind or "?"), tostring(text or "")
+  local now = GetTime and GetTime() or 0
+  local last = self.list[#self.list]
+  if last and last.kind == kind and last.text == text then
+    last.t, last.n = now, (last.n or 1) + 1   -- the same thing again: count it, don't fill the list
+    return
+  end
+  self.list[#self.list + 1] = { t = now, kind = kind, text = text }
+  while #self.list > self.MAX do table.remove(self.list, 1) end
+end
+-- Newest first: "  12s ago  tab: plan".
+function Activity:Lines()
+  local out = {}
+  local now = GetTime and GetTime() or 0
+  for i = #self.list, 1, -1 do
+    local e = self.list[i]
+    local ago = math.max(0, math.floor(now - e.t + 0.5))
+    local when = ago >= 3600 and string.format("%dh %02dm ago", math.floor(ago / 3600), math.floor(ago % 3600 / 60))
+      or ago >= 60 and string.format("%dm %02ds ago", math.floor(ago / 60), ago % 60) or (ago .. "s ago")
+    out[#out + 1] = string.format("  %s  %s%s%s", when, e.kind, e.text ~= "" and (": " .. e.text) or "", e.n and (" (x" .. e.n .. ")") or "")
+  end
+  return out
+end
+function Activity:Clear() self.list = {} end
+-- Group and applicant counts, whenever the roster the windows see changes.
+ns:On("LIVE_ROSTER_CHANGED", function()
+  local T = ns.Tracker
+  if not T then return end
+  local apps = 0
+  local ok, groups = pcall(T.GetApplicantGroups, T)
+  if ok and type(groups) == "table" then apps = #groups end
+  local sig = #(T.members or {}) .. "/" .. apps .. "/" .. (T.hosting and "h" or "-")
+  if sig == Activity.rosterSig then return end
+  Activity.rosterSig = sig
+  Activity:Log("group", string.format("%d in the group, %d application%s%s", #(T.members or {}), apps, apps == 1 and "" or "s",
+    T.hosting and ", hosting" or ""))
+end)
+
+---------------------------------------------------------------------------
 -- Slash commands
 ---------------------------------------------------------------------------
 -- Only what has no button in the window, or must work when the window can't help: everything
@@ -818,9 +929,8 @@ end)
 local HELP = {
   "/ens - open or close the window",
   "/ens minimap - show or hide the minimap button",
-  "/ens verify - check this client and print a report to paste back",
-  "/ens verify season - the game's dungeon pool, bosses, ability IDs and affixes (for updates)",
-  "/ens report - a copyable bug report (version, setup, recent errors) to paste with your issue",
+  "/ens report - check the addon against your game and build a report to copy (what you were doing, problems found, recent errors)",
+  "/ens report season - the game's dungeon pool, bosses, ability IDs and affixes (for updates)",
   "/ens reset confirm - wipe all Ensemble data: " .. ns.RESET_WIPES,
   "/ens help - this list",
 }
@@ -836,12 +946,11 @@ SlashCmdList["ENSEMBLE"] = function(msg)
   elseif cmd == "minimap" then
     ns.db.settings.minimap.hide = not ns.db.settings.minimap.hide
     ns:Fire("SETTINGS_CHANGED")
-  elseif cmd == "verify" then
-    if ns.Verify then
-      if rest:lower() == "season" then ns.Verify:RunSeason() else ns.Verify:Run() end
-    end
   elseif cmd == "report" then
-    if ns.Report then ns.Report:Run() end
+    -- One command (1.6.5): the checks that used to be /ens report are part of the report.
+    if rest:lower() == "season" then
+      if ns.Verify then ns.Verify:RunSeason() end
+    elseif ns.Report then ns.Report:Run() end
   elseif cmd == "reset" then
     if rest:lower() == "confirm" then
       ns:ResetDB(); ns:Print("All Ensemble data reset.")

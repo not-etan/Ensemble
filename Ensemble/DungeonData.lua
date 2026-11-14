@@ -56,6 +56,12 @@
 -- Row's barrel radius visual (October 16) is a visual; Guardian Druid's Rebirth mana cost in
 -- Bear Form (October 14) doesn't change who can battle-rez. The rest is Labyrinth, Delves,
 -- items, quests and PvP.
+-- Hotfix cross-check (November 14, 2026): Blizzard's hotfix post through November 6, 2026 (the
+-- newest; entries on October 26, 27 and 30, November 5 and 6), read in full. Nothing changes this
+-- file: October 26 is interface and Labyrinth fixes; October 27 is class damage and healing
+-- tuning (Feral, Restoration Druid, Marksmanship, Fire, Subtlety, Affliction, Destruction), a
+-- Mistweaver Mistline fix and PvP-only changes, none of it a tracked utility; October 30 is
+-- housing, items and the Labyrinth; November 5 and 6 are The Venomous Abyss (the raid) and a delve.
 
 local _, ns = ...
 
@@ -63,9 +69,9 @@ local DD = { list = {}, order = {} }
 ns.Dungeons = DD
 
 -- How current the game data is: shown in the Dungeons tab, Settings > Data, /ens report and
--- /ens verify. Update both with every data pass.
+-- /ens report. Update both with every data pass.
 DD.DATA_PATCH = "12.1.5"
-DD.DATA_CHECKED = "October 23, 2026"   -- newest hotfix post the data was checked against
+DD.DATA_CHECKED = "November 6, 2026"   -- newest hotfix post the data was checked against
 function DD:FreshnessText()
   return "Data for patch " .. self.DATA_PATCH .. ", checked against Blizzard's hotfixes through " .. self.DATA_CHECKED .. "."
 end
@@ -110,20 +116,36 @@ DD.HEURISTICS = {
   -- Keystone level from which thin coverage is weighted as heavily as a missing one
   -- (less slack for a single kicker/dispeller dying or being out of range).
   HIGH_KEY_LEVEL = 12,
-  -- Fit score = a PICK rating: where this player's gap reduction sits between the weakest
-  -- (0) and the best (100) spec of the same role for this slot. Rating bands on that score
-  -- (tuned from the measurement report, `python3 tests/run_tests.py --fit`):
-  -- 1.2.0 report (768 ratings): Great 15%, Good 25%, Fair 33%, Poor 27%. Covering a missing
-  -- need usually lands Fair or better; Poor is left for picks that add next to nothing.
+  -- Fit score = a PICK rating: how much this player closes of the group's gaps, placed between
+  -- the weakest (0) and the best (100) pick of the same role for this slot. Rating bands on
+  -- that score (measurement reports: `python3 tests/run_tests.py --fit`):
+  -- 1.2.0 report (768 ratings): Great 15%, Good 25%, Fair 33%, Poor 27%.
   -- 1.2.1 report (1,024 ratings, Temple of Sethraliss added): Great 15%, Good 25%, Fair 31%, Poor 29%.
+  -- 1.6.5 (the ladder and stakes below; same cut-offs): see the 1.6.5 report in the notes.
   FIT_GREAT = 80,
   FIT_GOOD = 45,
   FIT_FAIR = 15,
-  -- "No real difference": when the best and weakest pick for the slot are less than this many
-  -- penalty points apart (about two low-severity gaps), everyone gets FIT_FLAT_SCORE and the
-  -- card says to decide on experience.
-  FIT_FLAT_SPREAD = 5,
-  FIT_FLAT_SCORE = 70,
+  -- The rating ladder (1.6.5, approved November 11, 2026; tuned in `tests/fit_rework.lua`).
+  -- Pick ratings measure gaps in ladder points, not in the penalty points Needs, suggestions and
+  -- Best key use: the penalty climbs so steeply with severity (2 / 8 / 20 / 40) that one heavy
+  -- item set the whole scale and everything under it read Poor. A gap counts by its severity
+  -- step; a thin need counts a share of a missing one (a larger share from HIGH_KEY_LEVEL up);
+  -- an unconfirmed dungeon item counts half; raid buff synergy = its penalty points / FIT_SYNERGY_DIV.
+  FIT_LADDER = { critical = 5, high = 4, medium = 2, low = 0.5 },
+  FIT_THIN = 0.4,
+  FIT_THIN_HIGH_KEY = 0.55,
+  FIT_UNCONFIRMED = 0.5,
+  FIT_SYNERGY_DIV = 8,
+  -- Stakes: the full 0-100 scale is used only when the best and the weakest pick are at least
+  -- this many ladder points apart per player applying (6 = more than one high-severity fix).
+  -- With less at stake, ratings are pulled toward FIT_STAKES_MID instead of being stretched:
+  --   s = min(1, spread / (FIT_STAKES_FULL x players)); score = s x position x 100 + (1 - s) x FIT_STAKES_MID.
+  -- This replaces 1.2.0's flat rule (everyone 70 under a 5-point spread).
+  FIT_STAKES_FULL = 6,
+  FIT_STAKES_MID = 70,
+  -- Under this many ladder points of spread per player applying, the card also says "no real
+  -- difference between picks: decide on experience" (the ratings then sit within about 17 points).
+  FIT_STAKES_FLAT = 1,
   -- Critical-gap rule (1.2.1). A FULL close (a critical need leaves MISSING through a solid
   -- source of theirs) never rates below anyone who doesn't fully close one. A PARTIAL close
   -- (only through a weak source: a talent, pet, long cooldown, conditional, unconfirmed or

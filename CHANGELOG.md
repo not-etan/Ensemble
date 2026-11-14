@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.6.5
+### Highlights
+- **Fairer pick ratings:** a rating now counts each gap a player closes by how serious it is, so one very heavy mechanic no longer pushes every other useful pick down to Poor. When little separates the picks, ratings stay close together instead of being stretched from 0 to 100. Every rating changes a little.
+- **Groups applying together rate fairly:** a premade is measured against the best group that could really fill its slots, so a strong pair can read Great (none could before), and Fill group counts a pair's rating once for each of its players.
+- **One report command:** /ens report now also checks the addon against your game: what was on screen, every problem found, recent errors and what the addon just did, in one block to copy. /ens verify is gone.
+
+### Changes
+- **Pick ratings, the new scale:** gaps count 5 (critical), 4 (high), 2 (medium) or half a point (low); a thin need counts less than half of a missing one (a little more from +12), and raid buff synergy adds a little. A player who brings your only battle rez now reads Good even when someone else covers a critical dispel. The best pick is no longer always 100: with little at stake, ratings sit around 70 a few points apart, and the card says when there's no real difference. Experience counts in the score in that case too. The Great, Good, Fair and Poor cut-offs are unchanged, and the same scale rates you for the listings you browse. Needs, class suggestions and Best key are unchanged.
+- **Why N?:** the breakdown reads in the new points ("+4 fixes missing battle rez"), shows how much is at stake when that moved the rating, and for a group applying together names the best group it was measured against.
+- **Fill group and premades:** a group applying together still gets one rating and one all-or-nothing invite, but its rating now counts once for each of its players when groups are compared. Before, a pair could never out-total two single applicants. Coverage still comes first: a group that doesn't pass never wins.
+- **`/ens report`:** one report, most useful first: three lines to fill in, your version and client, a "Right now" section (tab, window and text size, interface scale and screen size, dungeon and key level with where each came from, your group, hosting, the boss window, your spec), every problem the checks found, the addon's recent errors with the tab that was open, its recent activity, changed settings, and the checks' facts with existence-only checks folded into counts. Parts that don't apply say "not checked" instead of asking you to run it again. `/ens report season` replaces `/ens verify season`. Never player names.
+- **Recent activity:** the report lists the last 25 or so things the addon did this session (tab changes, listings, group and application counts, key start and end, boss kills, Fill plan changes, invites), with how long ago. Counts and specs only; never saved.
+- **An error says so once:** the first time in a session that Ensemble catches an error of its own, one chat line points to `/ens report`. Never in combat or inside a key.
+- **Inside someone else's key:** the key level (and so the affixes and ratings) now comes from the key that is running, not only from your own keystone. Before, everything read "key level unknown: assuming +10" in another player's key.
+- **Fixes, group and specs:** a party member who changes spec while the window is closed no longer comes back with the old spec; a spec that doesn't match a player's assigned role is checked again; a player who joins from your listing gets one check that their spec is still the one they applied with. A recorded key can no longer be saved with the previous group's players.
+- **Fixes, tour and tips:** a tip no longer opens underneath What's new or the tour (and gets used up unseen); a tip goes away when you leave the tab it points at; clicking a tab during the tour moves the tour to that tab (or ends it on Settings). "Your first key is recorded" no longer shows to players who already have recorded keys.
+- **Fixes, boss window:** re-entering a dungeon you already finished opens on the first boss again, not on the last one marked defeated.
+- **Fixes, other:** the Dungeon tab's Auto follows a new listing right away; a damaged settings file can no longer break the window (a setting of the wrong kind goes back to its default); the Expert preset's tooltip says "shorter chat posts".
+- **Data:** checked against Blizzard's hotfixes through November 6, 2026 (nothing changed for the dungeons or class utility).
+
 ## 1.6.0
 ### Highlights
 - **A new tour, and tips when they help:** the tour is now five short steps, one for each tab. Tips for hosting, the boss window, your first recorded key and reserving a slot show once, the first time each comes up; turn them off in Settings > General. <!-- show: tour -->
@@ -13,8 +33,6 @@
 - **Fixes:** the tour no longer says the game may block addon chat inside a key (that's unconfirmed); it says what happens instead: when chat is blocked, the text opens in a copy window. A full reset now also forgets which tips you've seen.
 
 ## 1.5.1
-Includes everything from 1.5.0 (below), which wasn't released on its own.
-
 - **One player per class in each role:** Fill group never plans two players of one class in the same role (a Restoration and an Elemental Shaman together is fine; two Shaman DPS aren't), counting your party, players you've invited and reserved slots. An applicant whose class already holds that role shows as skipped with the reason, and a premade that repeats a class in a role is skipped. On by default; turn it off in Settings > Fill group. Your own Invite clicks aren't limited.
 - **Tiebreaks:** when two applicants rate the same (two Demonology Warlocks, say), the one with the higher best timed run in this dungeon goes first, then the higher score in this dungeon, M+ rating and item level, then whoever waited longer. Fill group and every Applicants sort use the same order, and the Fill plan says what broke a tie.
 - **What Fill group leans toward:** when no group passes, the closest group's cards are tagged CLOSEST and the Fill plan lists each thing it's short of once, with the rule it breaks ("Strict wants it not thin", "a must") and who could bring it. It also says when that group would pass at a lower level, names a group that would pass with a repeat class, and shows the best applicant so far for each open slot when there aren't enough applicants yet. Fill group still only invites a full group, and only when you click.

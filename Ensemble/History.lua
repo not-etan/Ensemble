@@ -56,7 +56,28 @@ function H:Snapshot()
   for _, m in ipairs(comp) do if m.specID then known = known + 1 end end
   local prevKnown = 0
   for _, m in ipairs(run.comp or {}) do if m.specID and m.specID ~= 0 then prevKnown = prevKnown + 1 end end
-  if not run.comp or #comp > #run.comp or known >= prevKnown then
+  -- A different set of players always replaces the saved one (1.6.5, B3: the previous group's
+  -- roster could stay because it had more specs read). "Different" = someone in the group now
+  -- matches nobody saved: by full name when both have one, else by class (inside a key the
+  -- game may hide names, and a hidden name must not look like a new player).
+  local differs = false
+  if run.comp and #run.comp > 0 then
+    local used = {}
+    local function match(m)
+      if m.full then
+        for i, p in ipairs(run.comp) do
+          if not used[i] and p.full == m.full then used[i] = true; return true end
+        end
+      end
+      for i, p in ipairs(run.comp) do
+        if not used[i] and (not m.full or not p.full) and p.classFile == m.classFile then used[i] = true; return true end
+      end
+      return false
+    end
+    for _, m in ipairs(comp) do if not match(m) then differs = true end end
+  end
+  if not run.comp or differs or #comp > #run.comp or known >= prevKnown then
+    if differs then run.comp = {} end   -- no names carried over from other players
     local out = {}
     for i, m in ipairs(comp) do
       -- full = "Name-Realm" (1.5.0, for past keys together; only runs saved with it count).
@@ -358,6 +379,7 @@ function H:OnStart()
     mapID = mapID, key = key, level = level, affixes = type(affixes) == "table" and affixes or {},
     started = Now(), comp = {}, splits = {},
   }
+  if ns.Activity then ns.Activity:Log("key", "started: " .. tostring(key or mapID) .. (type(level) == "number" and (" +" .. level) or "")) end
   ns.Tracker:Acquire("history")
   self:Snapshot()
   -- Specs come in through inspect over the first seconds of the countdown.
@@ -394,6 +416,7 @@ function H:Finish(result, info)
   if run.wipes and #run.wipes == 0 then run.wipes = nil end
   ns.db.activeRun = nil
   ns.Tracker:Release("history")
+  if ns.Activity then ns.Activity:Log("key", "ended: " .. tostring(result) .. ((info and info.practiceRun) and " (practice)" or "")) end
   if info and info.practiceRun then return end
   run.result = result
   run.ended = Now()
@@ -665,7 +688,7 @@ function H:PastPoints(level)
   return t[level] or 0
 end
 
--- Runs that can count (saved with full names), for /ens verify: counts only, no names.
+-- Runs that can count (saved with full names), for /ens report: counts only, no names.
 function H:PastStats()
   local runs, withNames = 0, 0
   for _, run in ipairs(ns.db and ns.db.history or {}) do

@@ -297,7 +297,7 @@ local function CC(name, ccType, opts)
 end
 
 local TAL = { talent = true }
--- For entries a guide doesn't confirm (none at the moment): /ens verify lists them.
+-- For entries a guide doesn't confirm (none at the moment): /ens report lists them.
 local VER = { verify = true }
 local TAL_VER = { talent = true, verify = true }
 local CORE = { talent = true, core = true }

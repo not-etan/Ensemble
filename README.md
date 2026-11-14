@@ -67,7 +67,7 @@ Ensemble is a Mythic+ companion that helps players of every skill level learn du
 |---|---|
 | `/ens` | Open or close the window |
 | `/ens minimap` | Show or hide the minimap button |
-| `/ens verify` · `/ens report` | Check the addon against your client, or build a bug report |
+| `/ens report` | Check the addon against your game and build a report to copy |
 | `/ens reset confirm` | Reset all saved data and settings |
 
 ---
@@ -92,13 +92,13 @@ Everything runs inside the game. There's no companion app, no web service and no
 No. It doesn't pull live data from other sites or addons.
 
 📚 **Where does the information come from?**
-The same current-patch guides most players already use, like **Wowhead**, **Method.gg**, **Icy Veins** and **Raider.IO**, gathered into one place and checked in game.
+The same current-patch guides most players already use, like **Wowhead**, **Method.gg**, **Icy Veins** and **Raider.IO**, gathered into one place.
 
 🧩 **Do I need any other addons?**
 No. Everything works on its own.
 
 🚦 **Does the rating judge people by their M+ score?**
-No. It rates how well a spec fits your group and this dungeon, plus their best run of it this season. Their overall M+ rating and item level are shown, and only break ties when sorting.
+No. It rates how well a spec fits your group and this dungeon, plus their best run of it this season. Their overall M+ rating and item level are shown, and only break ties when sorting. Fill group does have a minimum M+ rating and item level for who it invites, on by default from +7; change or turn them off in Settings › Fill group.
 
 🗓️ **What happens when a new season starts?**
 The addon notices the dungeon pool changed and warns you until it's updated. Between seasons, the data is checked against every hotfix.
@@ -113,7 +113,7 @@ Type **`/ens report`** in game (or use Settings › Data). Fill in the first few
 
 ## 🤖 AI disclaimer
 
-Ensemble was built with help from Claude, which wrote much of the code and data. Everything is checked against current guides and tested in game, but if something looks off, let me know. The addon itself doesn't use AI.
+Ensemble was built with help from Claude, which wrote much of the code and data. The data is checked against current guides and I test in game as I play. If something looks off, `/ens report` checks the addon against your game and builds a report to send me. The addon itself doesn't use AI.
 
 ---
 

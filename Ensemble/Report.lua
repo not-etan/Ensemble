@@ -1,9 +1,11 @@
 -- Ensemble / Report.lua
--- /ens report: one copyable block for bug reports. It holds everything a fix needs that a
--- player wouldn't think to mention: addon version, client build and language, where they
--- were (tab, dungeon, key level, affixes, listing), the group's specs (never player
--- names), settings changed from the defaults, addons that share the same screens, the
--- addon's own recent Lua errors, and the /ens verify summary with every WARN and FAIL line.
+-- /ens report: the one command for "something looks off" (1.6.5: /ens verify was folded in).
+-- One copyable block with everything a fix needs that a player wouldn't think to mention:
+-- addon version, client build and language, what was on screen right now (tab, sizes and
+-- scale, dungeon, key level and where each came from, the group's specs, hosting state, the
+-- boss window), every problem the checks found, the addon's own recent Lua errors with the tab
+-- open at the time, its recent activity, settings changed from the defaults, addons that share
+-- the same screens, and the checks' facts. Never player names.
 -- Read-only: building a report changes nothing.
 --
 -- Error log: the addon keeps the last few Lua errors that came from its own files (found by
@@ -55,8 +57,20 @@ end
 
 function Report:Record(msg, stack)
   if not Ours(msg, stack) then return end
+  -- The tab open at the time (a window that is closed says so).
+  local UI = ns.UI
+  local tab
+  if UI and UI.frame then
+    local okS, shown = pcall(UI.frame.IsShown, UI.frame)
+    tab = (okS and shown) and tostring(UI.currentTab) or "window closed"
+  end
   Store({ msg = tostring(msg):sub(1, 400), stack = stack and tostring(stack):sub(1, 600) or nil,
-          time = (time and time()) or 0, version = tostring(ns.VERSION), count = 1 })
+          time = (time and time()) or 0, version = tostring(ns.VERSION), count = 1, tab = tab })
+  -- Once per session, a chat line pointing at /ens report (it waits out combat and keys).
+  if not self.hinted then
+    self.hintPending = true
+    if C_Timer and C_Timer.After then C_Timer.After(0, function() pcall(self.MaybeHint, self) end) end
+  end
 end
 
 function Report:InstallErrorCapture()
@@ -183,49 +197,77 @@ local function DungeonName(key)
 end
 
 ---------------------------------------------------------------------------
+-- The one-time error hint (1.6.5)
+---------------------------------------------------------------------------
+-- When the addon catches a Lua error of its own, one chat line per session says how to report
+-- it. Never in combat or inside a key: it waits (checked again when combat ends, when a key is
+-- recorded and when the window opens).
+function Report:MaybeHint()
+  if self.hinted or not self.hintPending or not ns.db then return false end
+  if (ns.API and ns.API.InCombat and ns.API.InCombat()) or (ns.InKey and ns:InKey()) then return false end
+  self.hinted, self.hintPending = true, nil
+  ns:Print("Ensemble hit an error: /ens report builds a report.")
+  return true
+end
+local function HintSoon()
+  if Report.hinted then return end
+  if C_Timer and C_Timer.After then C_Timer.After(1, function() pcall(Report.MaybeHint, Report) end)
+  else pcall(Report.MaybeHint, Report) end
+end
+ns:On("BOSS_COMBAT", function(inCombat) if not inCombat and Report.hintPending then HintSoon() end end)
+ns:On("HISTORY_CHANGED", function() if Report.hintPending then HintSoon() end end)
+
+---------------------------------------------------------------------------
 -- The report
 ---------------------------------------------------------------------------
-function Report:Build()
-  local L = {}
-  local function add(s) L[#L + 1] = s end
-  local version, build, _, toc = "?", "?", "?", "?"
-  if GetBuildInfo then version, build, _, toc = GetBuildInfo() end
+-- Layout, most useful first (1.6.5, one report command):
+--   1 what happened (three lines to fill in)   2 header   3 Right now   4 Problems (every FAIL
+--   and WARN from the checks)   5 Lua errors, then Recent activity   6 settings changed, other
+--   addons   7 Checks, consolidated (Verify:Report).
+-- Specs, counts and settings only: never a player's name.
+local function Safe(fn, ...)
+  local ok, a, b, c = pcall(fn, ...)
+  if ok then return a, b, c end
+  return nil
+end
 
-  add("=== Ensemble bug report ===")
-  add("What happened:  ")
-  add("What you expected:  ")
-  add("Steps to see it again (if you know them):  ")
-  add("")
-  add(string.format("Addon %s | client %s (%s, toc %s) | %s | %s", tostring(ns.VERSION), tostring(version),
-    tostring(build), tostring(toc), tostring(GetLocale and GetLocale() or "?"),
-    date and date("%Y-%m-%d %H:%M") or "?"))
-  add(ns.Dungeons:FreshnessText())
-
-  -- Where the player was
-  local UI = ns.UI
+function Report:RightNow(add)
+  local UI, db = ns.UI, ns.db
+  local set = db and db.settings or {}
+  -- Window, sizes and scale (layout reports need these)
   local shown = UI and UI.frame and UI.frame:IsShown()
-  local tab = UI and UI.currentTab or (ns.db and ns.db.lastTab) or "?"
-  local where = "Window: " .. (shown and ("open on " .. tostring(tab)) or ("closed (last tab " .. tostring(tab) .. ")"))
-  if ns.db and ns.db.settings then
-    local w = ns.db.settings.window or {}
-    where = where .. string.format(" | size %sx%s | text %s%%", tostring(w.width), tostring(w.height), tostring(ns.db.settings.textSize))
-  end
-  add(where)
+  local tab = UI and UI.currentTab or (db and db.lastTab) or "?"
+  local w = set.window or {}
+  add("Window: " .. (shown and ("open on " .. tostring(tab)) or ("closed (last tab " .. tostring(tab) .. ")"))
+    .. string.format(" | size %sx%s | text %s%%", tostring(w.width), tostring(w.height), tostring(set.textSize)))
+  local scale = Safe(function() return UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() end)
+  local sw = Safe(function() return GetScreenWidth and GetScreenWidth() end)
+  local sh = Safe(function() return GetScreenHeight and GetScreenHeight() end)
+  local pw, ph = Safe(function() if GetPhysicalScreenSize then return GetPhysicalScreenSize() end end)
+  add(string.format("Screen: UI scale %s | UI size %sx%s | screen %sx%s",
+    type(scale) == "number" and string.format("%.2f", scale) or "?",
+    type(sw) == "number" and math.floor(sw + 0.5) or "?", type(sh) == "number" and math.floor(sh + 0.5) or "?",
+    tostring(pw or "?"), tostring(ph or "?")))
 
-  local ok, key, source = pcall(ns.GetEffectiveDungeon, ns)
-  local level
-  if ok and key and ns.Affixes then
-    local okL, lv = pcall(ns.Affixes.KeyLevel, ns.Affixes, key)
-    level = okL and lv or nil
+  -- Dungeon and key level, each with where it came from
+  local key, source = Safe(ns.GetEffectiveDungeon, ns)
+  local level, levelSource
+  if key and ns.ApplicantFit and ns.ApplicantFit.GetKeyLevel then
+    level, levelSource = Safe(ns.ApplicantFit.GetKeyLevel, ns.ApplicantFit, key)
   end
-  local pick = ns.db and ns.db.selectedDungeon or "?"
-  add("Dungeon: " .. (ok and key and (DungeonName(key) .. (level and (" +" .. level) or "") .. " (" .. tostring(source) .. ")")
-    or ("none (pick " .. tostring(pick) .. ")")))
-  local okK, kKey, kLevel = pcall(ns.OwnKeystoneDungeon, ns)
-  if okK and kKey then add("Your keystone: " .. tostring(DungeonName(kKey) or kKey) .. (kLevel and (" +" .. kLevel) or "")) end
+  local pick = db and db.selectedDungeon or "?"
+  add("Dungeon: " .. (key and (tostring(DungeonName(key)) .. " (" .. tostring(source) .. ")") or ("none (pick " .. tostring(pick) .. ")"))
+    .. " | key level: " .. (level and ("+" .. level .. " (" .. tostring(levelSource or "?") .. ")") or "unknown (+10 assumed)"))
+  local kKey, kLevel = Safe(ns.OwnKeystoneDungeon, ns)
+  local rKey, rLevel, rAffixes = Safe(ns.ActiveKey, ns)
+  local inKey = ns.InKey and Safe(ns.InKey, ns)
+  add("In a key: " .. (rKey and (tostring(DungeonName(rKey)) .. (rLevel and (" +" .. rLevel) or " (level hidden)")
+      .. ((rAffixes and #rAffixes > 0) and (", affix IDs " .. table.concat(rAffixes, ", ")) or ""))
+      or (inKey and "yes (a run is being recorded)" or "no"))
+    .. " | your keystone: " .. (kKey and (tostring(DungeonName(kKey) or kKey) .. (kLevel and (" +" .. kLevel) or "")) or "none"))
   if ns.Affixes and ns.Affixes.Current then
-    local okA, list = pcall(ns.Affixes.Current, ns.Affixes)
-    if okA and type(list) == "table" and #list > 0 then
+    local list = Safe(ns.Affixes.Current, ns.Affixes)
+    if type(list) == "table" and #list > 0 then
       local names = {}
       for _, a in ipairs(list) do names[#names + 1] = tostring(a.name or a.label or a.key or a.id) end
       add("Affixes this week: " .. table.concat(names, ", "))
@@ -233,8 +275,18 @@ function Report:Build()
   end
 
   -- Group (specs only, never names)
+  local T = ns.Tracker
+  local mode = ns.state and ns.state.mode == "live" and "party" or "planner"
+  local members, known = (T and T.members) or {}, 0
+  for _, m in ipairs(members) do if m.specID then known = known + 1 end end
+  local inGroup = IsInGroup and IsInGroup()
+  local inInstance, instType = false, nil
+  if IsInInstance then inInstance, instType = IsInInstance() end
+  add(string.format("Group: %s | Composition shows the %s (setting: %s) | roster read: %d member(s), specs %d known, %d pending | in an instance: %s",
+    inGroup and "in a group" or "solo", mode, tostring(set.compMode), #members, known, #members - known,
+    inInstance and tostring(instType) or "no"))
   local comp = {}
-  for i, id in ipairs((ns.db and ns.db.currentComp) or {}) do comp[#comp + 1] = (SpecLabel(id) or "empty") end
+  for _, id in ipairs((db and db.currentComp) or {}) do comp[#comp + 1] = (SpecLabel(id) or "empty") end
   add("Planner slots: " .. (#comp > 0 and table.concat(comp, ", ") or "?"))
   local r = UI and UI.cp and UI.cp.lastAnalysis
   if r and r.members and #r.members > 0 then
@@ -246,26 +298,78 @@ function Report:Build()
     end
     add("Last checked group: " .. table.concat(live, ", "))
   end
-  local inGroup = IsInGroup and IsInGroup()
-  local inInstance, instType = false, nil
-  if IsInInstance then inInstance, instType = IsInInstance() end
-  local listing = false
-  if C_LFGList and C_LFGList.HasActiveEntryInfo then
-    local okE, has = pcall(C_LFGList.HasActiveEntryInfo); listing = okE and has or false
-  end
-  add(string.format("In a group: %s | in an instance: %s | hosting a listing: %s",
-    inGroup and "yes" or "no", inInstance and tostring(instType) or "no", listing and "yes" or "no"))
-  local _, mySpec = pcall(function() return ns.API and ns.API.GetPlayerSpecID and ns.API.GetPlayerSpecID() end)
-  if mySpec then add("Your spec: " .. tostring(SpecLabel(mySpec))) end
 
-  -- Settings and other addons
-  local changed = self:ChangedSettings()
-  add("Settings changed from defaults: " .. (#changed > 0 and table.concat(changed, ", ") or "none"))
-  local neighbors, total = self:OtherAddons()
-  add("Other addons loaded: " .. (total and tostring(total) or "?")
-    .. (#neighbors > 0 and (" (including " .. table.concat(neighbors, ", ") .. ")") or ""))
+  -- Hosting
+  local listing = false
+  if C_LFGList and C_LFGList.HasActiveEntryInfo then listing = Safe(C_LFGList.HasActiveEntryInfo) and true or false end
+  local FG = ns.FillGroup
+  local reservedN = (db and type(db.reserved) == "table" and type(db.reserved.list) == "table") and #db.reserved.list or 0
+  if listing then
+    local apps = T and Safe(T.GetApplicantGroups, T)
+    local view = set.applicantView or {}
+    add(string.format("Hosting: yes | %s application(s) | sort %s%s | Fill plan: %s | Auto-fill: %s | reserved slots: %d",
+      type(apps) == "table" and #apps or "?", tostring(view.sort), view.hidePoor and ", Hide Poor on" or "",
+      tostring(FG and FG.lastPlanLog or "not looked at yet"), (FG and FG.armed) and "armed" or "off", reservedN))
+  else
+    add("Hosting: no" .. (reservedN > 0 and (" | reserved slots: " .. reservedN) or ""))
+  end
+
+  -- Boss window
+  local BW, BC = ns.BossWindow, ns.BossCards
+  local bw = set.bossWindow or {}
+  local bwShown = BW and BW.IsShown and Safe(BW.IsShown, BW)
+  add(string.format("Boss window: %s | boss %s%s | size %sx%s | text %s",
+    bwShown and "open" or "closed", tostring(BC and BC.state and BC.state.index or "-"),
+    (BC and BC.state and BC.state.dk) and (" in " .. tostring(DungeonName(BC.state.dk))) or "",
+    tostring(bw.width or "default"), tostring(bw.height or "default"), tostring(bw.fontSize)))
+
+  local mySpec = Safe(function() return ns.API and ns.API.GetPlayerSpecID and ns.API.GetPlayerSpecID() end)
+  local spec = mySpec and ns.UD and ns.UD:GetSpec(mySpec)
+  add("Your spec: " .. (mySpec and (tostring(SpecLabel(mySpec)) .. (spec and spec.role and (" (" .. spec.role .. ")") or "")) or "not read"))
+end
+
+-- No "short version" (decided at the 1.6.5 build): in town the whole report is about 70 lines.
+function Report:Build()
+  local L = {}
+  local function add(s) L[#L + 1] = s end
+  local version, build, _, toc = "?", "?", "?", "?"
+  if GetBuildInfo then version, build, _, toc = GetBuildInfo() end
+
+  add("=== Ensemble report ===")
+  add("What happened:  ")
+  add("What you expected:  ")
+  add("Steps to see it again (if you know them):  ")
+  add("")
+  add(string.format("Addon %s | client %s (%s, toc %s) | %s | %s", tostring(ns.VERSION), tostring(version),
+    tostring(build), tostring(toc), tostring(GetLocale and GetLocale() or "?"),
+    date and date("%Y-%m-%d %H:%M") or "?"))
+  add(ns.Dungeons:FreshnessText())
+
+  add("")
+  add("-- Right now --")
+  local okR, errR = pcall(self.RightNow, self, add)
+  if not okR then add("(this part errored: " .. tostring(errR) .. ")") end
+
+  -- The checks run once; their problems come first, their facts last.
+  local checks
+  if ns.Verify and ns.Verify.Report then
+    local okV, res = pcall(ns.Verify.Report, ns.Verify)
+    checks = okV and res or nil
+    if not okV then self.lastCheckError = tostring(res) end
+  end
+  add("")
+  if checks then
+    local c = checks.counts
+    add(string.format("-- Problems: %d FAIL, %d WARN (%d checks OK, %d not checked) --", c.FAIL or 0, c.WARN or 0, c.OK or 0, c.SKIP or 0))
+    if #checks.problems == 0 then add("none found") end
+    for _, l in ipairs(checks.problems) do add(l) end
+  else
+    add("-- Problems --")
+    add("the checks could not run" .. (self.lastCheckError and (": " .. self.lastCheckError) or ""))
+  end
 
   -- Errors
+  add("")
   local errs = self:Errors()
   local bg = BugGrabberErrors()
   if #errs == 0 and #bg == 0 then
@@ -274,15 +378,16 @@ function Report:Build()
     local BG = rawget(_G, "BugGrabber")
     local why = (type(BG) == "table" and type(BG.GetDB) == "function") and " (BugGrabber is catching errors; none from this addon)"
       or (self.captureActive and "" or " (error capture not active in this client)")
-    add("Lua errors from this addon: none recorded" .. why)
+    add("-- Lua errors from this addon: none recorded" .. why .. " --")
   else
-    add("Lua errors from this addon (newest first):")
+    add("-- Lua errors from this addon (newest first) --")
     local seen = {}
     local function addErr(e)
       if seen[e.msg] then return end
       seen[e.msg] = true
-      add(string.format("  [x%d%s%s] %s", e.count or 1, e.version and (", v" .. e.version) or "",
-        (e.time and date and e.time > 0) and (", " .. date("%m-%d %H:%M", e.time)) or "", e.msg))
+      add(string.format("[x%d%s%s%s] %s", e.count or 1, e.version and (", v" .. e.version) or "",
+        (e.time and date and e.time > 0) and (", " .. date("%m-%d %H:%M", e.time)) or "",
+        e.tab and (", on " .. tostring(e.tab)) or "", e.msg))
       if e.stack then
         local first = 0
         for line in tostring(e.stack):gmatch("[^\n]+") do
@@ -297,24 +402,26 @@ function Report:Build()
     for _, e in ipairs(bg) do addErr(e) end
   end
 
-  -- Verify summary: header, summary and every WARN/FAIL line
-  if ns.Verify and ns.Verify.Build then
-    local okV, _, counts, vlines = pcall(ns.Verify.Build, ns.Verify)
-    if okV and vlines then
-      add(string.format("Verify: %d OK, %d WARN, %d FAIL, %d INFO", counts.OK or 0, counts.WARN or 0, counts.FAIL or 0, counts.INFO or 0))
-      -- FAIL lines first, then WARN; capped so the report stays pasteable.
-      local picked, extra = 0, 0
-      for _, tag in ipairs({ "^%[FAIL%]", "^%[WARN%]" }) do
-        for _, l in ipairs(vlines) do
-          if l:find(tag) then
-            if picked < 12 then add("  " .. l); picked = picked + 1 else extra = extra + 1 end
-          end
-        end
-      end
-      if extra > 0 then add(string.format("  ... and %d more (run /ens verify for the full report)", extra)) end
-    else
-      add("Verify: could not run")
-    end
+  -- Recent activity
+  add("")
+  local act = ns.Activity and ns.Activity:Lines() or {}
+  add("-- Recent activity (newest first; this session) --")
+  if #act == 0 then add("nothing yet") end
+  for _, l in ipairs(act) do add(l) end
+
+  -- Settings and other addons
+  add("")
+  local changed = self:ChangedSettings()
+  add("Settings changed from defaults: " .. (#changed > 0 and table.concat(changed, ", ") or "none"))
+  local neighbors, total = self:OtherAddons()
+  add("Other addons loaded: " .. (total and tostring(total) or "?")
+    .. (#neighbors > 0 and (" (including " .. table.concat(neighbors, ", ") .. ")") or ""))
+
+  -- Checks, consolidated
+  if checks then
+    add("")
+    add("-- Checks --")
+    for _, l in ipairs(checks.checks) do add(l) end
   end
   add("=== end of report ===")
   return table.concat(L, "\n")
@@ -324,9 +431,9 @@ function Report:Run()
   local text = self:Build()
   self.lastReport = text
   if ns.db then ns.db.lastReport = text end
-  local shown = ns.Verify and ns.Verify:ShowText(text, "bug report: add what happened at the top")
+  local shown = ns.Verify and ns.Verify:ShowText(text, "report: add what happened at the top")
   if shown then
-    ns:Print("Bug report ready: fill in the first three lines, then copy it (Ctrl+A, Ctrl+C) into your report.")
+    ns:Print("Report ready: fill in the first three lines, then copy it (Ctrl+A, Ctrl+C) into your report.")
   else
     ns:Print("Could not open the report window; the report is in EnsembleDB.lastReport after /reload.")
   end

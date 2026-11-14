@@ -35,7 +35,6 @@ BANNER = "https://raw.githubusercontent.com/not-etan/Ensemble/main/branding/bann
 TITLES = {
     "Groups you could join (Group Finder search results)": "Groups You Could Join",
     "Everything else": "Settings and More",
-    "Checking the addon against your game client": "Checking Against Your Client",
 }
 HOME_SECTIONS = {"Install", "Use"}
 
@@ -49,8 +48,7 @@ PAGES = {
     "Plan": ("🗝️", "Who handles what?"),
     "Settings and More": ("⚙️", "Settings, affixes, history and slash commands."),
     "Boss Cards": ("🐉", "A short card for every boss, and the window that follows your key."),
-    "Checking Against Your Client": ("🩺", "Make sure the addon and your game agree."),
-    "Reporting a Problem": ("🐞", "Build a report to paste into an issue."),
+    "Reporting a Problem": ("🐞", "One command checks the addon against your game and builds a report to paste into an issue."),
     "License": ("⚖️", None),
 }
 

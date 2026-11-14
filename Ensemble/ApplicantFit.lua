@@ -6,22 +6,29 @@
 -- Pure logic, no frames. Builds on Analysis (Analyze/Penalty) so the rating uses exactly
 -- the same gap model as the rest of the addon.
 --
--- How the score works (see DD.HEURISTICS for the tunable bands): a PICK rating, "how good a
--- pick is this person for this slot", against every other spec that could fill it.
---   gain  = how much the applicant reduces the group's gap penalty (generic + dungeon)
---   best / worst = the largest / smallest reduction any spec of the same role could give
---   score = 100 * (gain - worst) / (best - worst)
---           ("where this applicant sits between the least and most useful pick right now")
---   No real difference: when best - worst is under FIT_FLAT_SPREAD points, every applicant
---     of the role gets FIT_FLAT_SCORE and the card says to decide on experience.
+-- How the score works (see DD.HEURISTICS for every number): a PICK rating, "how good a pick
+-- is this person for this slot", against every other spec that could fill it.
+--   gain  = the gaps the applicant closes, in LADDER points (Analysis:LadderParts, 1.6.5): each
+--           gap counts by its severity step (critical 5, high 4, medium 2, low 0.5; a thin
+--           need a share of that), not by the steep penalty weights Needs and suggestions use
+--   best / worst = the largest / smallest gain any spec of the same role could give
+--   position = (gain - worst) / (best - worst), 0 = the weakest pick, 1 = the best
+--   stakes s = min(1, (best - worst) / (FIT_STAKES_FULL x players applying)): with little
+--           between the picks the rating is pulled toward FIT_STAKES_MID, not stretched:
+--   pick score = s x position x 100 + (1 - s) x FIT_STAKES_MID
+--   A premade (two or more applying together) is placed between the best and the weakest
+--     group that could really fill its roles (Fit:PremadeRange), with stakes for its size.
+--   No real difference: under FIT_STAKES_FLAT ladder points of spread per player, the card
+--     also says to decide on experience.
 --   Critical gaps (a critical dungeon need that is MISSING, or a critical generic gap):
 --     full close (through a solid source of theirs): never rates below anyone who doesn't
 --       fully close one, experience included;
 --     partial close (only through a weak source: talent, pet, long cooldown, conditional,
 --       unconfirmed, spec pending): floored at FIT_CRIT_PARTIAL_SHARE of the way from the
 --       weakest pick to the best pick that closes nothing, and never lifted further.
---   Order (and the "Why N?" breakdown): pick position -> experience mix -> critical-gap floor
---     -> the cross-applicant lift for full closers (EvaluateAll) -> role-conflict cap.
+--   Order (and the "Why N?" breakdown): position -> stakes -> experience mix -> past keys ->
+--     critical-gap floor -> the cross-applicant lift for full closers (EvaluateAll) ->
+--     role-conflict cap.
 -- An applicant whose role has no open slot is always rated POOR.
 -- Look-ahead (the best way to fill the remaining slots) is NOT part of the score: it feeds the
 -- headline ("OK if the last slot brings ...") and the notes. "Is the group OK?" is answered
@@ -171,11 +178,10 @@ function Fit.CritFloors(entries, best, worst)
       elseif not nonCloser or e.gain > nonCloser then nonCloser = e.gain end
     end
   end
-  local full = anyFull and nonFull and Fit.Relative(nonFull, best, worst) or nil
+  local full = anyFull and nonFull and Fit.Position(nonFull, best, worst) or nil
   local partial
   if anyPartial and nonCloser then
-    local rel = Fit.Relative(nonCloser, best, worst)
-    if rel then partial = rel * (ns.Dungeons.HEURISTICS.FIT_CRIT_PARTIAL_SHARE or 0.5) end
+    partial = Fit.Position(nonCloser, best, worst) * (ns.Dungeons.HEURISTICS.FIT_CRIT_PARTIAL_SHARE or 0.5)
   end
   return full, partial
 end
@@ -190,12 +196,29 @@ function Fit:RatingFor(score, conflict)
   return Fit.RATINGS.poor
 end
 
--- 0-1 position of `gain` between the weakest and best pick; nil when there's no real
--- difference between picks (spread under FIT_FLAT_SPREAD penalty points).
-function Fit.Relative(gain, best, worst)
-  local spread = (ns.Dungeons.HEURISTICS.FIT_FLAT_SPREAD or 5)
-  if best - worst < spread then return nil end
-  return math.min(1, math.max(0, gain - worst) / (best - worst))
+-- Where a gain (ladder points) sits between the weakest (0) and the best (1) pick. With
+-- nothing between them every pick sits in the middle.
+function Fit.Position(gain, best, worst)
+  local spread = best - worst
+  if spread <= 1e-6 then return 0.5 end
+  return math.min(1, math.max(0, (gain - worst) / spread))
+end
+
+-- Stakes (0-1): how much of the 0-100 scale the slot deserves. Full from a spread of
+-- FIT_STAKES_FULL ladder points per player applying; second return: "no real difference".
+function Fit.Stakes(best, worst, players)
+  local H = ns.Dungeons.HEURISTICS
+  players = math.max(1, players or 1)
+  local spread = math.max(0, best - worst)
+  local s = math.min(1, spread / ((H.FIT_STAKES_FULL or 6) * players))
+  return s, spread < (H.FIT_STAKES_FLAT or 1) * players
+end
+
+-- A position (0-1) as a 0-100 score at stakes s: pulled toward FIT_STAKES_MID when little
+-- separates the picks.
+function Fit.Staked(pos, s)
+  local mid = ns.Dungeons.HEURISTICS.FIT_STAKES_MID or 70
+  return math.floor(s * pos * 100 + (1 - s) * mid + 0.5)
 end
 
 ---------------------------------------------------------------------------
@@ -273,7 +296,8 @@ end
 
 ---------------------------------------------------------------------------
 -- Keystone level for the key being run.
--- Only knowable in-client for the player's OWN keystone; used when it matches the dungeon.
+-- The Applicants tab's manual level, then the key that is running (C_ChallengeMode.GetActiveKeystoneInfo,
+-- guarded in ns:ActiveKey), then the player's OWN keystone when it matches the dungeon.
 -- confirmed present in 12.1.0 (build 69933) by /ens verify (keystone matched): C_MythicPlus.GetOwnedKeystoneChallengeMapID,
 -- C_MythicPlus.GetOwnedKeystoneLevel, C_ChallengeMode.GetMapUIInfo(mapID) -> name.
 ---------------------------------------------------------------------------
@@ -281,6 +305,9 @@ function Fit:GetKeyLevel(dungeonKey)
   Init()
   if ns.state.keyLevelOverride then return ns.state.keyLevelOverride, "manual" end
   if not dungeonKey then return nil end
+  -- A key running in this dungeon (yours or someone else's) says more than the one in your bags.
+  local running = ns.ActiveKeyLevel and ns:ActiveKeyLevel(dungeonKey)
+  if running then return running, "the running key" end
   local key, level = ns:OwnKeystoneDungeon()
   if key == dungeonKey and level then return level, "your keystone" end
   return nil
@@ -302,6 +329,7 @@ function Fit:BuildContext(members, dungeonKey, settings, keyLevel)
   local ctx = { members = members, dungeonKey = dungeonKey, settings = settings, keyLevel = keyLevel }
   ctx.base = A:Analyze(members, dungeonKey, settings)
   ctx.basePenalty = A:Penalty(ctx.base, keyLevel)
+  ctx.baseLadder = A:LadderTotal(ctx.base, keyLevel)   -- what pick ratings measure (1.6.5)
   ctx.baseCritical = Fit.CriticalGaps(ctx.base)
   ctx.open = self:OpenRoles(members)
   -- Reserved slots (1.5.0) count as members; an applicant whose role has no open slot because
@@ -315,23 +343,30 @@ function Fit:BuildContext(members, dungeonKey, settings, keyLevel)
     end
   end
   ctx.bestGain, ctx.bestSpec, ctx.critFloor, ctx.critPartialFloor = {}, {}, {}, {}
+  ctx.worstGain, ctx.specGain = {}, {}
   for _, role in ipairs(ROLES) do
-    local best, bestSpec, worst = 0, nil, nil
-    local gains = {}
+    -- best / worst: the ladder gain of the strongest and the weakest spec of the role for one
+    -- open slot (the scale a single applicant is placed on). `gain` (penalty points) only
+    -- orders the look-ahead pool, as before.
+    local best, bestSpec, worst
+    local gains, lgains = {}, {}
     for _, specID in ipairs(UD:SpecsForRole(role)) do
       local r = A:Analyze(Concat(members, { { specID = specID } }), dungeonKey, settings)
       local g = ctx.basePenalty - A:Penalty(r, keyLevel)
+      local lg = ctx.baseLadder - A:LadderTotal(r, keyLevel)
       local cc = Fit.CriticalClose(ctx.baseCritical, r)
-      gains[#gains + 1] = { specID = specID, gain = g, kind = cc and cc.kind or nil }
-      if g > best then best, bestSpec = g, specID end
-      if not worst or g < worst then worst = g end
+      gains[#gains + 1] = { specID = specID, gain = g }
+      lgains[#lgains + 1] = { specID = specID, gain = lg, kind = cc and cc.kind or nil }
+      ctx.specGain[specID] = lg
+      if not best or lg > best then best, bestSpec = lg, specID end
+      if not worst or lg < worst then worst = lg end
     end
+    best, worst = best or 0, worst or 0
     ctx.bestGain[role], ctx.bestSpec[role] = best, bestSpec
-    ctx.worstGain = ctx.worstGain or {}
-    ctx.worstGain[role] = math.min(worst or 0, best)
+    ctx.worstGain[role] = worst
     -- Critical-gap floors (positions 0-1): a full closer rates at least as high as the best
     -- spec of the role that doesn't fully close one; a partial closer at least the partial share.
-    ctx.critFloor[role], ctx.critPartialFloor[role] = Fit.CritFloors(gains, best, ctx.worstGain[role])
+    ctx.critFloor[role], ctx.critPartialFloor[role] = Fit.CritFloors(lgains, best, worst)
     -- Candidate pool for "fill the remaining slots" lookahead: the most useful specs only,
     -- which keeps the greedy search to a few dozen analyses per applicant.
     table.sort(gains, function(x, y) if x.gain ~= y.gain then return x.gain > y.gain end return x.specID < y.specID end)
@@ -346,6 +381,52 @@ function Fit:BuildContext(members, dungeonKey, settings, keyLevel)
     ctx.classes[m.classFile] = ctx.classes[m.classFile] or m.label
   end
   return ctx
+end
+
+-- The scale for a premade (1.6.5): the ladder gain of the best and of the weakest group that
+-- could fill the premade's roles, each found greedily (the best single pick, then its best
+-- partner, and so on; the same for the weakest). Cached with the context per premade shape
+-- (its roles), since every premade of that shape shares it. Returns { best, worst, bestNames,
+-- worstNames }. Measured November 11, 2026: the greedy best pair was within a quarter ladder
+-- point of the true best pair in 10 of 12 groups.
+function Fit:PremadeRange(ctx, roles)
+  local sorted = {}
+  for i, r in ipairs(roles) do sorted[i] = r end
+  table.sort(sorted)
+  local key = table.concat(sorted, ",")
+  ctx.premadeRange = ctx.premadeRange or {}
+  if ctx.premadeRange[key] then return ctx.premadeRange[key] end
+  local function Fill(sign)
+    local cur = Concat(ctx.members, {})
+    local left = {}
+    for _, r in ipairs(sorted) do left[r] = (left[r] or 0) + 1 end
+    local names, total = {}, 0
+    for _ = 1, #sorted do
+      local pickGain, pickSpec, pickRole
+      for _, role in ipairs(ROLES) do
+        if (left[role] or 0) > 0 then
+          for _, specID in ipairs(UD:SpecsForRole(role)) do
+            cur[#cur + 1] = { specID = specID }
+            local g = ctx.baseLadder - A:LadderTotal(A:Analyze(cur, ctx.dungeonKey, ctx.settings), ctx.keyLevel)
+            cur[#cur] = nil
+            if not pickGain or sign * g > sign * pickGain then pickGain, pickSpec, pickRole = g, specID, role end
+          end
+        end
+      end
+      if not pickSpec then break end
+      cur[#cur + 1] = { specID = pickSpec }
+      left[pickRole] = left[pickRole] - 1
+      names[#names + 1] = UD:SpecName(pickSpec) .. " " .. UD:ClassName(UD:GetSpec(pickSpec).class)
+      total = pickGain
+    end
+    return total, names
+  end
+  local best, bestNames = Fill(1)
+  local worst, worstNames = Fill(-1)
+  if worst > best then worst = best end
+  local range = { best = best, worst = worst, bestNames = bestNames, worstNames = worstNames }
+  ctx.premadeRange[key] = range
+  return range
 end
 
 -- Greedily fill `open` role slots with the spec that lowers the penalty most at each step.
@@ -515,32 +596,43 @@ function Fit:Evaluate(ctx, group)
 
   local after = A:Analyze(Concat(ctx.members, adds), ctx.dungeonKey, ctx.settings)
   ev.after = after
-  local gain = ctx.basePenalty - A:Penalty(after, ctx.keyLevel)
-  local best, worst = 0, 0
-  for _, r in ipairs(roles) do
-    best = best + (ctx.bestGain[r] or 0)
-    worst = worst + (ctx.worstGain[r] or 0)
+  -- Gaps closed, in ladder points (1.6.5).
+  local gain = ctx.baseLadder - A:LadderTotal(after, ctx.keyLevel)
+  local best, worst
+  if #roles == 1 then
+    best, worst = ctx.bestGain[roles[1]] or 0, ctx.worstGain[roles[1]] or 0
+  else
+    -- A premade is measured against the best and the weakest group that could really fill its
+    -- slots (two players can't close the same gap twice, so the sum of each role's best single
+    -- pick was a top no pair could reach: before 1.6.5 no premade rated Great).
+    local range = self:PremadeRange(ctx, roles)
+    best, worst = range.best, range.worst
+    ev.rangeBest, ev.rangeWorst = range.bestNames, range.worstNames
   end
   ev.gain, ev.best, ev.worst = gain, best, worst
   -- Itemized: which gaps this applicant closes or opens, and synergy (same numbers as gain).
-  ev.breakdown = A:ScoreDelta(ctx.base, after, ctx.keyLevel)
+  ev.breakdown = A:LadderDelta(ctx.base, after, ctx.keyLevel)
 
-  -- Pick rating: position between the weakest and the strongest spec this role could bring
-  -- (0 = no better than the least useful pick, 100 = as good as the ideal pick).
-  local rel = Fit.Relative(gain, best, worst)
-  ev.flat = (rel == nil) and not ev.roleConflict
-  ev.rawImmediate = rel and math.floor(rel * 100 + 0.5) or nil   -- the pick position itself
+  -- Pick rating: position between the weakest and the strongest pick for the slot(s), then the
+  -- stakes: with little between them the rating is pulled toward the middle instead of being
+  -- stretched over the whole scale.
+  local pos = Fit.Position(gain, best, worst)
+  local stakes, flat = Fit.Stakes(best, worst, #roles)
+  ev.position = math.floor(pos * 100 + 0.5)          -- 0 = the weakest pick, 100 = the best
+  ev.stakes, ev.spread = stakes, math.max(0, best - worst)
+  ev.flat = flat and not ev.roleConflict
+  ev.rawImmediate = Fit.Staked(pos, stakes)          -- the pick score itself
   -- Critical gaps: full or partial close, and the floor that goes with it (one-player
   -- applications; premades get the cross-applicant step in EvaluateAll).
   ev.critClose = Fit.CriticalClose(ctx.baseCritical, after)
   ev.closesCritical = ev.critClose ~= nil
   ev.closesCriticalFull = ev.critClose ~= nil and ev.critClose.kind == "full"
-  if rel and ev.critClose and #roles == 1 and not ev.roleConflict then
+  if ev.critClose and #roles == 1 and not ev.roleConflict then
     local floorRel = ev.critClose.kind == "full" and ctx.critFloor[roles[1]] or ctx.critPartialFloor[roles[1]]
-    if floorRel then ev.critFloor = math.floor(floorRel * 100 + 0.5) end
+    if floorRel then ev.critFloor = Fit.Staked(floorRel, stakes) end
   end
   -- Utility pick after the critical-gap floor (no experience): drives the headline and coaching.
-  ev.immediate = ev.rawImmediate and math.max(ev.rawImmediate, ev.critFloor or 0) or nil
+  ev.immediate = math.max(ev.rawImmediate, ev.critFloor or 0)
 
   -- Look-ahead (not part of the score): with other slots still open, the best way to fill
   -- them after inviting, and what the rest of the group would still have to bring.
@@ -574,13 +666,11 @@ function Fit:Evaluate(ctx, group)
   -- "Group after:" - plain status of the group once they join.
   ev.groupAfter = self:GroupAfter(after, ctx.settings, ev.roleConflict and 0 or slotsLeft)
 
-  local score = ev.flat and (H.FIT_FLAT_SCORE or 70) or (ev.rawImmediate or 0)
-  ev.fitScore = score   -- utility fit alone (the pick position, before the critical-gap rule)
-  -- Experience in this dungeon at this key level (Blizzard's per-dungeon data). With no real
-  -- difference between picks the rating stays the same for everyone and experience decides
-  -- (shown on the card, used to order the list).
+  local score = ev.rawImmediate
+  ev.fitScore = score   -- utility fit alone (the pick score, before the critical-gap rule)
+  -- Experience in this dungeon at this key level (Blizzard's per-dungeon data).
   ev.experience = self:Experience(group.members, ctx.keyLevel)
-  if ev.experience and not ev.roleConflict and not ev.flat then
+  if ev.experience and not ev.roleConflict then
     local w = ev.experience.weight
     score = math.floor((1 - w) * score + w * ev.experience.points + 0.5)
   end
@@ -729,7 +819,7 @@ function Fit:Evaluate(ctx, group)
   end
   -- Low keys: coach the host toward giving a newer player the run when they fit.
   local lowKey = ctx.keyLevel and ctx.keyLevel <= (H.LOW_KEY_LEVEL or 9)
-  local utility = ev.flat and ev.fitScore or ev.immediate or 0
+  local utility = ev.immediate or 0
   if lowKey and not ev.roleConflict and ev.experience and ev.experience.points < 70 and utility >= H.FIT_GOOD then
     ev.coaching = string.format("Less experienced here, but a strong fit: +%d is a good key to give them the run.", ctx.keyLevel)
     ev.notes[#ev.notes + 1] = ev.coaching
@@ -737,12 +827,13 @@ function Fit:Evaluate(ctx, group)
   if ev.flat then
     ev.notes[#ev.notes + 1] = "No real difference between picks for this slot: decide on experience" ..
       (ev.experience and (" (" .. ev.experience.text .. ")") or "") .. "."
-  elseif ev.experience then
+  end
+  if ev.experience then
     ev.notes[#ev.notes + 1] = string.format("Experience counts %d%% of the rating at +%d (utility %d, experience %d).",
       math.floor(ev.experience.weight * 100 + 0.5), ctx.keyLevel, ev.fitScore, ev.experience.points)
   end
   if ctx.keyLevel and H.HIGH_KEY_LEVEL and ctx.keyLevel >= H.HIGH_KEY_LEVEL then
-    ev.notes[#ev.notes + 1] = string.format("+%d key: thin coverage weighs as much as missing coverage.", ctx.keyLevel)
+    ev.notes[#ev.notes + 1] = string.format("+%d key: thin coverage weighs more than at lower keys.", ctx.keyLevel)
   end
   if ev.bestPartners then
     ev.notes[#ev.notes + 1] = "Best way to fill the rest after inviting: " .. table.concat(ev.bestPartners, ", ")
@@ -868,17 +959,27 @@ function Fit:ScoreSteps(ctx, ev)
   local steps = {}
   local n = #(ev.roles or {})
   local who = n > 1 and ("picks for these " .. n .. " slots") or ((ROLE_NAME[ev.roles and ev.roles[1]] or "player") .. " for this slot")
-  if ev.flat then
-    local role = ROLE_NAME[ev.roles and ev.roles[1]] or "pick"
-    steps[#steps + 1] = { value = ev.fitScore, text = string.format(
-      "The best and weakest %s are under %d points apart: no real difference, so every %s gets %d. Decide on experience.",
-      who, H.FIT_FLAT_SPREAD or 5, role, ev.fitScore) }
-  else
-    steps[#steps + 1] = { value = ev.fitScore, text = string.format(
-      "The best %s would close %.1f points and the weakest %.1f; this one closes %.1f, so %d/100 as a pick.",
-      who, ev.best or 0, ev.worst or 0, ev.gain or 0, ev.fitScore or 0) }
+  -- 1. The position between the weakest and the best pick, in ladder points.
+  local function P(x) return (string.format("%.1f", x):gsub("%.0$", "")) end
+  local against = ""
+  if n > 1 and ev.rangeBest and #ev.rangeBest > 0 then
+    against = " (a premade is measured against groups that could really fill its slots; the best found: "
+      .. table.concat(ev.rangeBest, " + ") .. ")"
   end
-  if ev.experience and not ev.flat and not ev.roleConflict then
+  steps[#steps + 1] = { value = ev.position, text = string.format(
+    "The best %s would close %s points and the weakest %s%s; this one closes %s, so %d/100 between them.",
+    who, P(ev.best or 0), P(ev.worst or 0), against, P(ev.gain or 0), ev.position or 0) }
+  -- 2. Stakes: only when the slot doesn't carry the full scale.
+  if (ev.stakes or 1) < 1 then
+    local full = (H.FIT_STAKES_FULL or 6) * math.max(1, n)
+    local mid = H.FIT_STAKES_MID or 70
+    steps[#steps + 1] = { value = ev.fitScore, text = string.format(
+      "Little is at stake: the best and the weakest are %s points apart, and the full 0-100 scale takes %s. So the rating is pulled toward %d: %d%% of %d + %d%% of %d = %d.%s",
+      P(ev.spread or 0), P(full), mid, math.floor(ev.stakes * 100 + 0.5), ev.position or 0,
+      100 - math.floor(ev.stakes * 100 + 0.5), mid, ev.fitScore,
+      ev.flat and " No real difference between picks: decide on experience." or "") }
+  end
+  if ev.experience and not ev.roleConflict then
     local w = ev.experience.weight
     local pw = math.floor(w * 100 + 0.5)
     steps[#steps + 1] = { value = ev.blended, text = string.format(

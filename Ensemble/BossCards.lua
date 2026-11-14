@@ -498,14 +498,36 @@ function BC:FirstAlive(dk, killed)
   return order[#order] or #self:Bosses(dk)
 end
 
+-- A key is running right now (the game's active challenge map; guarded).
+local function KeyRunning()
+  if not (C_ChallengeMode and C_ChallengeMode.GetActiveChallengeMapID) then return false end
+  local ok, id = pcall(C_ChallengeMode.GetActiveChallengeMapID)
+  if not ok or id == nil then return false end
+  if issecretvalue then
+    local okS, secret = pcall(issecretvalue, id)
+    if not okS or secret then return false end
+  end
+  return type(id) == "number" and id > 0
+end
+BC.KeyRunning = KeyRunning
+
 -- Entering (or re-entering) a dungeon. Restores saved progress for the same dungeon if it
--- is recent (2 hours); otherwise starts at the first boss.
+-- is recent (2 hours) and still means something: a key is running, or a boss is still alive
+-- (1.6.5, B6: a finished dungeon re-entered within two hours opened on its last boss, marked
+-- defeated). Otherwise starts at the first boss.
 function BC:Enter(dk)
   if not dk or #self:Bosses(dk) == 0 then self.state = { killed = {} }; return false end
   if self.state.dk == dk then return true end
   local saved = ns.db and ns.db.bossProgress
   local now = time and time() or 0
+  local useful = false
   if saved and saved.dk == dk and (now - (saved.at or 0)) < 7200 and type(saved.killed) == "table" then
+    useful = KeyRunning()
+    if not useful then
+      for _, idx in ipairs(self:Order(dk)) do if not saved.killed[idx] then useful = true end end
+    end
+  end
+  if useful then
     self.state = { dk = dk, killed = saved.killed }
   else
     self.state = { dk = dk, killed = {} }
@@ -516,6 +538,11 @@ function BC:Enter(dk)
 end
 
 function BC:Leave() self.state = { killed = {} } end
+
+-- The key is over: its progress is no longer something to come back to.
+function BC:OnKeyCompleted()
+  if ns.db then ns.db.bossProgress = nil end
+end
 
 function BC:NewRun()
   if self.state.dk then
@@ -553,7 +580,7 @@ function BC:OnEncounterStart(encounterID, name)
   if idx then self:Show(idx) end
 end
 
--- How kills were matched this session (for /ens verify): by encounter ID, by name, by the
+-- How kills were matched this session (for /ens report): by encounter ID, by name, by the
 -- card on screen (neither matched), or from the key's objectives.
 BC.matches = { id = 0, name = 0, screen = 0, objectives = 0 }
 
@@ -566,6 +593,7 @@ function BC:OnEncounterEnd(encounterID, name, difficultyID, groupSize, success)
   if idx then
     self.state.killed[idx] = true
     self.matches[how] = (self.matches[how] or 0) + 1
+    if ns.Activity then ns.Activity:Log("boss", "kill: boss " .. tostring(self:Position(dk, idx) or idx) .. " of " .. #self:Bosses(dk) .. " (matched by " .. how .. ")") end
   end
   self:Show(self:FirstAlive(dk, self.state.killed))
 end
@@ -606,7 +634,8 @@ end
 local frame = CreateFrame("Frame")
 BC.frame = frame
 local EVENTS = { "PLAYER_ENTERING_WORLD", "ZONE_CHANGED_NEW_AREA", "ENCOUNTER_START", "ENCOUNTER_END",
-                 "CHALLENGE_MODE_START", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "SCENARIO_CRITERIA_UPDATE" }
+                 "CHALLENGE_MODE_START", "CHALLENGE_MODE_COMPLETED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED",
+                 "SCENARIO_CRITERIA_UPDATE" }
 BC.eventsOK = {}
 function BC:RegisterEvents()
   for _, ev in ipairs(EVENTS) do
@@ -648,6 +677,8 @@ frame:SetScript("OnEvent", function(_, event, a1, a2, a3, a4, a5)
     if BC.state.dk then pcall(BC.SyncObjectives, BC) end
   elseif event == "CHALLENGE_MODE_START" then
     BC:CheckZone(); BC:NewRun(); ns:Fire("BOSS_CARD_CHANGED")
+  elseif event == "CHALLENGE_MODE_COMPLETED" then
+    BC:OnKeyCompleted()
   elseif event == "PLAYER_REGEN_DISABLED" then
     ns:Fire("BOSS_COMBAT", true)
   elseif event == "PLAYER_REGEN_ENABLED" then

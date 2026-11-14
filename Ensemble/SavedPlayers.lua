@@ -18,13 +18,13 @@
 -- db.reserved.pending until the invite resolves. A time-out ("timedout") brings it back while
 -- that listing is up; a declined invite ("invitedeclined") or any other end keeps it released.
 -- No chat message either way: the band's "Reserved (N)" count shows it. What an invite nobody
--- answers turns into isn't documented; /ens verify lists the statuses seen (1.5.0 review, R3).
+-- answers turns into isn't documented; /ens report lists the statuses seen (1.5.0 review, R3).
 --
 -- Limits: Blizzard's listing can't be changed by addons, so players keep applying for the
 -- reserved role; and an invite you sent your friend outside the Group Finder isn't visible to
 -- addons, so the reservation is set by hand.
 --
--- Privacy: names stay here and in the window. /ens verify prints counts only; /ens report, party
+-- Privacy: names stay here and in the window. /ens report prints counts only; /ens report, party
 -- posts and share strings never carry them.
 local _, ns = ...
 
@@ -471,7 +471,7 @@ end
 ---------------------------------------------------------------------------
 -- Invites to a reserved friend (1.5.0 review, R3)
 ---------------------------------------------------------------------------
--- What this session saw, for /ens verify (counts and status names only, never names).
+-- What this session saw, for /ens report (counts and status names only, never names).
 P.inviteLog = { released = 0, restored = 0, stayed = 0, notRestored = 0, statuses = {} }
 
 -- Statuses that put a friend's reservation on hold: the invite went out (or was taken already).

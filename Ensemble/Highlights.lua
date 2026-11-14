@@ -5,6 +5,11 @@
 local _, ns = ...
 
 ns.HIGHLIGHTS = {
+  { version = "1.6.5", items = {
+    { title = "Fairer pick ratings", text = "A rating now counts each gap a player closes by how serious it is, so one very heavy mechanic no longer pushes every other useful pick down to Poor. When little separates the picks, ratings stay close together instead of being stretched from 0 to 100. Every rating changes a little." },
+    { title = "Groups applying together rate fairly", text = "A premade is measured against the best group that could really fill its slots, so a strong pair can read Great (none could before), and Fill group counts a pair's rating once for each of its players." },
+    { title = "One report command", text = "/ens report now also checks the addon against your game: what was on screen, every problem found, recent errors and what the addon just did, in one block to copy. /ens verify is gone." },
+  } },
   { version = "1.6.0", items = {
     { title = "A new tour, and tips when they help", text = "The tour is now five short steps, one for each tab. Tips for hosting, the boss window, your first recorded key and reserving a slot show once, the first time each comes up; turn them off in Settings > General.", show = "tour" },
     { title = "What's new", text = "After an update, its highlights show once when you open the window. The button beside \"?\" brings them back, with a dot while there's something you haven't seen.", show = "whatsnew" },

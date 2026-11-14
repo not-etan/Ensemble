@@ -672,7 +672,7 @@ do
   LISTING = "Altar of Fangs (Mythic Keystone)"
   APPLICANTS = { [1] = { { name = "Kitty", class = "DRUID", role = "DAMAGER", spec = 103 } } }
   local nsV = boot()
-  local ok1, report = pcall(function() return nsV.Verify:Run() end)
+  local ok1, report = pcall(function() return nsV.Verify:Build() end)
   ok(ok1 and type(report) == "string", "verify runs without errors: " .. tostring(report):sub(1, 200))
   ok(report:find("Summary:", 1, true) and report:find("== Specs ==", 1, true) and report:find("== Group Finder ==", 1, true), "report has sections")
   ok(report:find("applicants with a spec ID: 1 of 1", 1, true), "applicant spec detection reported")
@@ -685,8 +685,8 @@ do
   ok(not report:find("[INFO] boss card:", 1, true) and report:find("== Boss cards ==", 1, true)
     and report:find("28 boss cards", 1, true), "boss cards checked, all confirmed")
   nsV.BossData.list.AltarOfFangs[1].lines[1].nv = true
-  ok(nsV.Verify:Run():find("[INFO] boss card: Rav'i (ALL)", 1, true), "an unconfirmed boss line is listed")
-  nsV.BossData.list.AltarOfFangs[1].lines[1].nv = nil; nsV.db.lastVerify = report
+  ok(nsV.Verify:Build():find("[INFO] boss card: Rav'i (ALL)", 1, true), "an unconfirmed boss line is listed")
+  nsV.BossData.list.AltarOfFangs[1].lines[1].nv = nil
   do
     local section = report:match("== Still marked unconfirmed in the data ==(.*)$") or ""
     print(section)
@@ -694,9 +694,13 @@ do
     ok(nThunder == 0 and not section:find("utility:", 1, true), "no class ability left unconfirmed")
     ok(not section:find("Scatter Shot", 1, true) and not section:find("Psychic Horror", 1, true) and true, "confirmed or removed abilities no longer listed")
   end
-  ok(nsV.db.lastVerify == report, "report saved for fallback")
+  -- 1.6.5: one command. /ens report runs the checks; /ens verify is gone (prints the help list).
+  SlashCmdList.ENSEMBLE("report")
+  ok(type(nsV.db.lastReport) == "string" and nsV.db.lastReport:find("-- Checks --", 1, true) and nsV.db.lastVerify == nil,
+    "/ens report builds the one log (saved for fallback), no separate verify log")
+  PRINTED = ""
   SlashCmdList.ENSEMBLE("verify")
-  ok(nsV.Verify.lastReport ~= nil, "slash command runs verify")
+  ok(PRINTED:find("/ens report season", 1, true) ~= nil and nsV.Verify.Run == nil, "/ens verify is gone: prints the help list")
   print(report:sub(1, 1500))
 end
 
@@ -877,11 +881,12 @@ do
   ok(analysisText:find("Cytotoxin", 1, true) and analysisText:find("Time Warp", 1, true) and analysisText:find("not shown in Summary view", 1, true),
     "summary view: problems with reasons and coverers, covered rows counted")
   nsN.db.settings.compact = false
-  -- Generic check switched off: the dungeon's needs for it still show
-  nsN.db.settings.checks.dispels = false; UIn:Refresh(); RunTimers()
+  -- A need unticked in What to check leaves the list; the dungeon's other needs stay (the
+  -- six per-topic switches without a control were removed in 1.6.5, S10)
+  nsN.db.settings.ignoredNeeds.soothe = true; nsN:Fire("SETTINGS_CHANGED"); UIn:Refresh(); RunTimers()
   analysisText = dump(an)
-  ok(after("DISPELS", "Cytotoxin") and not analysisText:find("Soothe (enrage)", 1, true), "dungeon needs stay when the generic check is off")
-  nsN.db.settings.checks.dispels = true
+  ok(after("DISPELS", "Cytotoxin") and not analysisText:find("Soothe (enrage)", 1, true), "an ignored need leaves the list, the dungeon's other needs stay")
+  nsN.db.settings.ignoredNeeds.soothe = nil; nsN:Fire("SETTINGS_CHANGED")
   -- Summary strip
   UIn:Refresh(); RunTimers()
   ok(UIn.cp.sumTitle:GetText():find("missing", 1, true) and UIn.cp.sumRisks:GetText():find("Biggest risks", 1, true), "summary strip")
@@ -1895,7 +1900,7 @@ do
   ok(dump(US.ap.detail):find("+ Why " .. sham.score .. "?", 1, true), "Why N? line (folded)")
   US:SetOpen("score:1", true); RunTimers()
   local d = dump(US.ap.detail)
-  ok(d:find("covers Poison dispel for Cytotoxin", 1, true) and d:find("as a pick.", 1, true) and d:find("Total:", 1, true)
+  ok(d:find("covers Poison dispel for Cytotoxin", 1, true) and d:find("between them.", 1, true) and d:find("Total:", 1, true)
     and not d:find("Looking ahead", 1, true), "breakdown shown (pick rating, no look-ahead part)")
   ok(d:find("Group after: ", 1, true), "detail: Group after line under Group after inviting")
   US.ap.selected = 2; US:SetOpen("score:2", true); RunTimers()
@@ -2369,15 +2374,15 @@ do
     { message = "Interface/AddOns/Else/a.lua:1: other" } } end }
   local text = R:Build()
   BugGrabber = nil
-  ok(text:find("=== Ensemble bug report ===", 1, true) and text:find("What happened:", 1, true), "report starts with the questions")
+  ok(text:find("=== Ensemble report ===", 1, true) and text:find("What happened:", 1, true), "report starts with the questions")
   ok(text:find("Addon ", 1, true) and text:find("Planner slots: Protection Warrior, Holy Priest, empty", 1, true), "version line and Planner slots")
   ok(text:find("attempt to index nil", 1, true) and text:find("[x2", 1, true) and text:find("UI.lua:120", 1, true), "logged error with count and stack line")
   ok(text:find("from bug grabber", 1, true) ~= nil and not text:find("Else/a.lua", 1, true), "only this addon's BugGrabber errors")
-  ok(text:find("Verify: ", 1, true) and text:find("=== end of report ===", 1, true), "verify summary included")
+  ok(text:find("-- Problems: ", 1, true) and text:find("-- Checks --", 1, true) and text:find("=== end of report ===", 1, true), "the checks are part of the report")
   ok(not text:find("Secretname", 1, true), "no player names in the report")
   ok(text:find("Settings changed from defaults: ", 1, true) and text:find("chatStyle=short", 1, true), "settings in the report")
   SlashCmdList.ENSEMBLE("report")
-  ok(nsP.Verify.frame and nsP.Verify.frame:IsShown() and nsP.Verify.frame.report:find("bug report", 1, true), "/ens report opens the copy window")
+  ok(nsP.Verify.frame and nsP.Verify.frame:IsShown() and nsP.Verify.frame.report:find("=== Ensemble report ===", 1, true), "/ens report opens the copy window")
   ok(nsP.db.lastReport ~= nil, "last report kept in SavedVariables")
   R:ClearErrors()
   ok(R:Build():find("none recorded", 1, true), "empty log reads 'none recorded'")
@@ -2579,8 +2584,8 @@ do
   ok(season:find("588 | Altar of Fangs | instance 2993", 1, true) and season:find("addon: AltarOfFangs", 1, true), "season dump lists dungeons with IDs")
   ok(season:find("boss 1: Rav'i", 1, true) and season:find("Hydrastrike=1111", 1, true), "season dump lists journal bosses and ability IDs")
   ok(season:find("== This week's affixes ==", 1, true), "season dump has the affix section")
-  SlashCmdList.ENSEMBLE("verify season")
-  ok(nsL2.db.lastSeason and nsL2.db.lastSeason:find("season data", 1, true), "/ens verify season opens the copy window")
+  SlashCmdList.ENSEMBLE("report season")
+  ok(nsL2.db.lastSeason and nsL2.db.lastSeason:find("season data", 1, true), "/ens report season opens the copy window")
   -- Issue #10: which call finds the journal, and the in-dungeon fallback.
   local jid, how = BC2:JournalInstance("AltarOfFangs")
   ok(jid == 1322 and how == "C_EncounterJournal.GetInstanceForGameMap", "journal found from the instance map, anywhere")
@@ -3058,13 +3063,14 @@ do
   PVEFrame:Show(); RunTimers(); UIp:RefreshFinderPanel()
   local fr = UIp.fp.rows[1]
   ok(fr:IsShown() and fr.after:GetText():find(ev1.groupAfter.short, 1, true), "Group Finder row: status at the end of the headline line")
-  PVEFrame:Hide(); RunTimers()
-  -- Blizzard applicant tooltip
+  -- Blizzard applicant tooltip (shown with the Group Finder open, which is what keeps the
+  -- applicant data live for it; 1.6.5 clears the roster when nothing holds the tracker)
   local tipLines, oldAdd = {}, GameTooltip.AddLine
   GameTooltip.AddLine = function(_, t) tipLines[#tipLines + 1] = t end
   local fakeMember = { applicantID = ev1.applicantID }
   UIp:AddApplicantTooltip(fakeMember)
   GameTooltip.AddLine = oldAdd
+  PVEFrame:Hide(); RunTimers()
   local tipAll = table.concat(tipLines, "\n")
   ok(tipAll:find("Ensemble: ", 1, true) and tipAll:find("Group after: ", 1, true), "Blizzard tooltip: Group after line")
   -- Compare: a Group after line under each applicant
@@ -3084,7 +3090,7 @@ do
   EnsembleDB = nil
   local nsP = boot()
   local DDp = nsP.Dungeons
-  ok(DDp.DATA_PATCH == "12.1.5" and DDp.DATA_CHECKED == "October 23, 2026"
+  ok(DDp.DATA_PATCH == "12.1.5" and DDp.DATA_CHECKED == "November 6, 2026"
     and DDp:FreshnessText():find("patch 12.1.5", 1, true), "data dated to patch 12.1.5")
   local lb
   for _, q in ipairs(DDp.list.RubyLifePools.requirements) do if q.id == "RLP_LIVING_BOMB" then lb = q end end
@@ -3124,13 +3130,13 @@ do
   local Fit, LF, UDr, Ar, DDr = nsR.ApplicantFit, nsR.ListingFit, nsR.UD, nsR.Analysis, nsR.Dungeons
   local H = DDr.HEURISTICS
   local set = nsR.db.settings
-  ok(H.FIT_GREAT == 80 and H.FIT_GOOD == 45 and H.FIT_FAIR == 15 and H.FIT_FLAT_SPREAD == 5 and H.FIT_FLAT_SCORE == 70,
-    "bands re-tuned from the measurement report")
+  ok(H.FIT_GREAT == 80 and H.FIT_GOOD == 45 and H.FIT_FAIR == 15 and H.FIT_STAKES_FULL == 6 and H.FIT_STAKES_MID == 70
+    and H.FIT_FLAT_SPREAD == nil and H.FIT_FLAT_SCORE == nil, "bands kept; the stakes replace the flat rule (1.6.5)")
   ok(Fit:RatingFor(80).key == "great" and Fit:RatingFor(79).key == "good" and Fit:RatingFor(45).key == "good"
     and Fit:RatingFor(44).key == "fair" and Fit:RatingFor(15).key == "fair" and Fit:RatingFor(14).key == "poor"
     and Fit:RatingFor(100, true).key == "poor", "RatingFor follows the bands; a role conflict is always poor")
-  ok(Fit.Relative(10, 12, 9) == nil and Fit.Relative(5, 10, 0) == 0.5 and Fit.Relative(-3, 10, 0) == 0 and Fit.Relative(20, 10, 0) == 1,
-    "Relative: nil under the flat spread, clamped 0-1")
+  ok(Fit.Position(5, 10, 0) == 0.5 and Fit.Position(-3, 10, 0) == 0 and Fit.Position(20, 10, 0) == 1 and Fit.Position(3, 3, 3) == 0.5,
+    "Position: clamped 0-1, the middle when nothing separates the picks")
 
   -- Critical-gap rule (1.2.1: partial vs full), every spec of every role, several dungeons and
   -- party states, with and without a key level: a FULL closer never rates below anyone who
@@ -3159,9 +3165,9 @@ do
             if ev.closesCritical and not ev.closesCriticalFull then
               partials = partials + 1
               local pf = ctx.critPartialFloor[role]
-              if pf and not ev.flat then
+              if pf then
                 partialChecked = partialChecked + 1
-                ok(ev.critFloor == math.floor(pf * 100 + 0.5) and ev.score >= ev.critFloor,
+                ok(ev.critFloor == Fit.Staked(pf, ev.stakes) and ev.score >= ev.critFloor,
                   string.format("partial close floor: %s %s %s spec %d, %d >= %s", dk, tostring(lvl), role, ev.members[1].specID, ev.score, tostring(ev.critFloor)))
               end
             end
@@ -3185,12 +3191,14 @@ do
   local evEl = Fit:Evaluate(ctxT, { applicantID = 2, members = { { name = "Ele", specID = 262 } } })
   ok(evSh.critClose and evSh.critClose.kind == "partial" and evSh.critClose.closes[1].how == "Mass Dispel, long cooldown",
     "Temple: Shadow Priest partly closes Imbued Conduction (" .. tostring(evSh.critClose and evSh.critClose.closes[1].how) .. ")")
-  ok(evSh.rawImmediate < 50 and evSh.score == 50 and evSh.critFloored == "partial" and evSh.rating.key == "good",
-    "Temple: Shadow Priest floored at 50, Good (raw " .. tostring(evSh.rawImmediate) .. ", score " .. evSh.score .. ")")
+  -- On the 1.6.5 ladder the Shadow Priest's own position (54) is already above the partial
+  -- floor (50): still Good, still well below the Elemental Shaman.
+  ok(evSh.critFloor == 50 and evSh.score >= evSh.critFloor and evSh.score < 60 and evSh.rating.key == "good",
+    "Temple: Shadow Priest Good, at or above its partial floor of 50 (raw " .. tostring(evSh.rawImmediate) .. ", score " .. evSh.score .. ")")
   ok(evEl.score == 100 and evSh.score < evEl.score, "Temple: Shadow below Elemental (" .. evSh.score .. " < " .. evEl.score .. ")")
   local both = Fit:EvaluateAll(ctxT, { { applicantID = 1, members = { { name = "Shadow", specID = 258 } } },
                                         { applicantID = 2, members = { { name = "Ele", specID = 262 } } } })
-  ok(both[1].members[1].name == "Ele" and both[2].score == 50 and not both[2].critLifted, "Temple: a partial closer is never lifted")
+  ok(both[1].members[1].name == "Ele" and both[2].score == evSh.score and not both[2].critLifted, "Temple: a partial closer is never lifted")
 
   -- The rule also holds against experience: an inexperienced FULL closer vs a proven non-closer.
   -- (Voidscar Arena, nobody in the group: Restoration Shaman's Wind Shear fully closes a
@@ -3218,27 +3226,35 @@ do
     "experience can't lift a non-closer above a full closer (" .. fresh.score .. " vs " .. vet.score .. ")")
 
   -- No real difference: with a huge flat spread every pick is the same and experience decides.
-  local oldSpread = H.FIT_FLAT_SPREAD
-  H.FIT_FLAT_SPREAD = 1e9
+  local oldFull, oldFlat = H.FIT_STAKES_FULL, H.FIT_STAKES_FLAT
+  H.FIT_STAKES_FULL, H.FIT_STAKES_FLAT = 1e9, 1e9
   local ctxF = Fit:BuildContext({ { specID = 73 }, { specID = 256 }, { specID = 63 } }, "AltarOfFangs", set, 8)
   local evF = Fit:EvaluateAll(ctxF, {
     { applicantID = 1, members = { { name = "Low", specID = 259, bestHere = { level = 3, timed = true } } } },
     { applicantID = 2, members = { { name = "High", specID = 70, bestHere = { level = 10, timed = true } } } },
     { applicantID = 3, members = { { name = "Tank", specID = 104 } } },
   })
-  H.FIT_FLAT_SPREAD = oldSpread
+  H.FIT_STAKES_FULL, H.FIT_STAKES_FLAT = oldFull, oldFlat
   local flatNote = false
   for _, n in ipairs(evF[1].notes) do if n:find("No real difference", 1, true) and n:find("decide on experience", 1, true) then flatNote = true end end
-  ok(evF[1].flat and evF[2].flat and evF[1].score == H.FIT_FLAT_SCORE and evF[2].score == H.FIT_FLAT_SCORE
-    and evF[1].rating == evF[2].rating, "flat: everyone gets the same rating")
+  ok(evF[1].flat and evF[2].flat and evF[1].fitScore == H.FIT_STAKES_MID and evF[2].fitScore == H.FIT_STAKES_MID,
+    "nothing at stake: every pick's utility sits at the middle (" .. evF[1].fitScore .. "/" .. evF[2].fitScore .. ")")
+  ok(evF[1].score > evF[2].score and evF[1].score == math.floor(0.8 * 70 + 0.2 * evF[1].experience.points + 0.5),
+    "nothing at stake: experience is what separates them (" .. evF[1].score .. " vs " .. evF[2].score .. ")")
   ok(evF[1].members[1].name == "High" and flatNote, "flat: ordered by experience, card says to decide on experience")
   ok(evF[3].roleConflict and evF[3].rating.key == "poor" and not evF[3].flat, "flat: a role already filled stays Poor")
   ok(evF[1].idealPick == nil, "flat: no 'ideal pick' note")
+  -- The stakes themselves: full scale from FIT_STAKES_FULL ladder points per player applying.
+  local sHalf = Fit.Stakes(3, 0, 1)
+  ok(sHalf == 0.5 and Fit.Staked(1, 0.5) == 85 and Fit.Staked(0, 0.5) == 35 and Fit.Stakes(6, 0, 1) == 1 and Fit.Stakes(6, 0, 2) == 0.5
+    and Fit.Staked(1, 1) == 100 and Fit.Staked(0, 1) == 0 and Fit.Staked(0.3, 0) == 70, "stakes: the scale narrows around 70 as the spread shrinks")
+  ok(select(2, Fit.Stakes(0.9, 0, 1)) == true and select(2, Fit.Stakes(1.1, 0, 1)) == false and select(2, Fit.Stakes(1.9, 0, 2)) == true,
+    "no real difference: under one ladder point of spread per player")
 
   -- Experience weighting carries over (not flat).
   local ctxE = Fit:BuildContext({ { specID = 73 }, { specID = 256 }, { specID = 63 } }, "AltarOfFangs", set, 12)
   local evE = Fit:Evaluate(ctxE, { applicantID = 9, members = { { name = "E", specID = 259, bestHere = { level = 12, timed = true } } } })
-  ok(not evE.flat and evE.score == math.floor(0.7 * evE.fitScore + 0.3 * 100 + 0.5), "experience counts 30% at +12")
+  ok(evE.score == math.floor(0.7 * evE.fitScore + 0.3 * 100 + 0.5), "experience counts 30% at +12")
 
   -- "Group after:" status
   local function analysis(specs, dk)
@@ -3290,7 +3306,8 @@ do
   ok(lchecked > 0, "listing critical-gap rule exercised (" .. lchecked .. ")")
   local lSh = LF:Evaluate(lm({ 73, 72 }), "TempleOfSethraliss", me(258), set, 12, "title")
   local lEl = LF:Evaluate(lm({ 73, 72 }), "TempleOfSethraliss", me(262), set, 12, "title")
-  ok(lSh.critFloored == "partial" and lSh.score == 50 and lEl.score > lSh.score, "listing: Temple, Shadow " .. lSh.score .. " below Elemental " .. lEl.score)
+  ok(lSh.critClose and lSh.critClose.kind == "partial" and lSh.critFloor == 50 and lSh.score >= 50 and lEl.score > lSh.score,
+    "listing: Temple, Shadow " .. lSh.score .. " (partial close, floor 50) below Elemental " .. lEl.score)
 end
 
 -- 58. Code review fixes (1.2.1): Invite after an outside invite, "Why N?" arithmetic, best-value
@@ -3380,17 +3397,30 @@ do
   -- role conflicts, partial and full critical closes, the lift).
   local set = nsQ.db.settings
   local stepCases, bad = 0, 0
+  local sawStakes, partialRaised, stakesSeen = false, nil, 0
   local function checkSteps(ctx, ev, label)
     local steps = FitQ:ScoreSteps(ctx, ev)
     local prev, last
     for i, st in ipairs(steps) do
       if st.value then
         if i == 1 then
-          if st.value ~= ev.fitScore then bad = bad + 1; print("  step1 " .. label) end
-          if not ev.flat and not st.text:find(string.format("so %d/100 as a pick", ev.fitScore), 1, true) then bad = bad + 1; print("  step1 text " .. label) end
-          if not ev.flat then
-            local rel = math.min(1, math.max(0, ev.gain - ev.worst) / (ev.best - ev.worst))
-            if math.floor(rel * 100 + 0.5) ~= ev.fitScore then bad = bad + 1; print("  position " .. label) end
+          -- The position between the weakest and the best pick, in ladder points.
+          if st.value ~= ev.position then bad = bad + 1; print("  step1 " .. label) end
+          if not st.text:find(string.format("so %d/100 between them", ev.position), 1, true) then bad = bad + 1; print("  step1 text " .. label) end
+          local spread = ev.best - ev.worst
+          local rel = spread > 1e-6 and math.min(1, math.max(0, (ev.gain - ev.worst) / spread)) or 0.5
+          if math.floor(rel * 100 + 0.5) ~= ev.position then bad = bad + 1; print("  position " .. label) end
+          sawStakes = false
+          if ev.stakes >= 1 and ev.fitScore ~= ev.position then bad = bad + 1; print("  full stakes " .. label) end
+          local full = 6 * #ev.roles
+          if math.abs(ev.stakes - math.min(1, spread / full)) > 1e-9 then bad = bad + 1; print("  stakes value " .. label) end
+        elseif st.text:find("^Little is at stake") then
+          sawStakes = true
+          local spread = ev.best - ev.worst
+          local rel = spread > 1e-6 and math.min(1, math.max(0, (ev.gain - ev.worst) / spread)) or 0.5
+          if st.value ~= ev.fitScore or st.value ~= math.floor(ev.stakes * rel * 100 + (1 - ev.stakes) * 70 + 0.5)
+             or not st.text:find("= " .. st.value .. ".", 1, true) or ev.stakes >= 1 then
+            bad = bad + 1; print("  stakes " .. label)
           end
         elseif st.text:find("^Experience counts") then
           local w = ev.experience.weight
@@ -3406,6 +3436,11 @@ do
       end
     end
     if last ~= ev.score then bad = bad + 1; print(string.format("  last %s ~= score %d %s", tostring(last), ev.score, label)) end
+    if (ev.stakes < 1) ~= sawStakes then bad = bad + 1; print("  stakes step missing " .. label) end
+    if sawStakes then stakesSeen = stakesSeen + 1 end
+    if ev.critFloored == "partial" and not partialRaised then
+      for _, st in ipairs(steps) do if st.text:find("^Raised to") then partialRaised = st.text end end
+    end
     local sum = 0
     for _, b in ipairs(ev.breakdown or {}) do sum = sum + b.points end
     if math.abs(sum - ev.gain) > 0.05 * (#(ev.breakdown or {}) + 1) then bad = bad + 1; print("  gap lines " .. label) end
@@ -3431,12 +3466,16 @@ do
     end
   end
   ok(stepCases > 1000 and bad == 0, "Why N? steps add up in every case (" .. stepCases .. " cases, " .. bad .. " wrong)")
-  -- The Temple case reads in order: position 32 -> raised to 50, partly closes, with the source.
+  ok(stakesSeen > 0, "the stakes step is exercised (" .. stakesSeen .. " cases with little at stake)")
+  ok(partialRaised and partialRaised:find("they only partly close a critical gap (", 1, true) and partialRaised:find("counts for 50%", 1, true),
+    "a raised partial closer names the rule: " .. tostring(partialRaised))
+  -- The Temple case reads in order: its position, then the partial rule with its source.
   local ctxT = FitQ:BuildContext({ { specID = 73 }, { specID = 72 } }, "TempleOfSethraliss", set, 12)
   local evT = FitQ:Evaluate(ctxT, { applicantID = 1, members = { { name = "Shadow", specID = 258 } } })
   local stT = FitQ:ScoreSteps(ctxT, evT)
-  ok(stT[1].value == evT.rawImmediate and stT[1].text:find("so " .. evT.rawImmediate .. "/100", 1, true)
-    and stT[2].text:find("Raised to 50: they only partly close a critical gap (Magic dispel for Imbued Conduction: Mass Dispel, long cooldown)", 1, true),
+  ok(stT[1].value == evT.position and stT[1].text:find("so " .. evT.position .. "/100", 1, true)
+    and stT[2].text:find("They only partly close a critical gap (Magic dispel for Imbued Conduction: Mass Dispel, long cooldown)", 1, true)
+    and stT[2].text:find("at least 50; they're already there.", 1, true),
     "Temple: Why shows the position, then the partial rule with its source: " .. tostring(stT[2] and stT[2].text))
   -- In the window: "Why N?" heads the steps and the last line is the score.
   UIq:Show("applicants"); RunTimers()
@@ -4076,19 +4115,19 @@ do
   local H = ns63.SLASH_HELP
   local cmds = {}
   for _, l in ipairs(H) do cmds[#cmds + 1] = l:match("^(/ens[%w ]-) %- ") end
-  ok(#H == 7 and table.concat(cmds, ",") == "/ens,/ens minimap,/ens verify,/ens verify season,/ens report,/ens reset confirm,/ens help",
+  ok(#H == 6 and table.concat(cmds, ",") == "/ens,/ens minimap,/ens report,/ens report season,/ens reset confirm,/ens help",
     "/ens help lists only the baseline commands: " .. table.concat(cmds, ","))
   PRINTED = ""
   SlashCmdList.ENSEMBLE("help")
-  ok(select(2, PRINTED:gsub("\n", "")) == 7, "/ens help prints seven lines")
+  ok(select(2, PRINTED:gsub("\n", "")) == 6, "/ens help prints six lines")
   local Tour63 = ns63.Tour
   local dk0, lock0 = ns63.db.selectedDungeon, ns63.db.settings.window.locked
   for _, gone in ipairs({ "tour", "glossary", "sources", "bestkey", "boss", "boss ruby life pools", "lock", "unlock",
       "text 110", "panel dock", "dungeon none", "planner", "party", "composition", "settings", "show", "hide",
-      "toggle", "bug", "credits" }) do
+      "toggle", "bug", "credits", "verify", "verify season" }) do
     PRINTED = ""
     SlashCmdList.ENSEMBLE(gone)
-    ok(PRINTED:find("/ens verify season", 1, true) ~= nil, "/ens " .. gone .. " is gone: prints the help list")
+    ok(PRINTED:find("/ens report season", 1, true) ~= nil, "/ens " .. gone .. " is gone: prints the help list")
   end
   ok(ns63.db.selectedDungeon == dk0 and ns63.db.settings.window.locked == lock0 and ns63.db.settings.textSize == 100
     and not (Tour63 and Tour63:IsActive()) and not (ns63.BossWindow and ns63.BossWindow:IsShown())
@@ -4321,11 +4360,11 @@ do
   -- #13: the party re-run note only outside an instance.
   issecretvalue = function() return false end
   IsInInstance = function() return false end
-  ok(ns65d.Verify:Build():find("Re-run inside a Mythic+ key with a party", 1, true), "#13: re-run note outside an instance")
+  ok(ns65d.Verify:Build():find("[SKIP] party units inside a key: not in an instance, not checked", 1, true), "#13: the not-checked line outside an instance")
   IsInInstance = function() return true, "party" end
-  ok(not ns65d.Verify:Build():find("Re-run inside a Mythic+ key", 1, true), "#13: no re-run note inside an instance")
+  ok(not ns65d.Verify:Build():find("party units inside a key: not in an instance", 1, true), "#13: no such line inside an instance")
   IsInInstance = function() error("client error") end
-  ok(ns65d.Verify:Build():find("Re-run inside a Mythic+ key", 1, true), "#13: a failing IsInInstance keeps the note")
+  ok(ns65d.Verify:Build():find("party units inside a key: not in an instance", 1, true), "#13: a failing IsInInstance keeps the line")
   issecretvalue, IsInInstance = nil, nil
 
   -- /ens verify season: bosses listed after selecting; an empty read is named, not silent.
@@ -4592,7 +4631,7 @@ do
   ns68.Tracker:ProcessInspectQueue()   -- the next inspect starts before the deferred clear runs
   local started = #NOTIFIED > nb
   RunTimers()
-  ok(started and cleared == 0, "R15: a new inspect isn't cancelled by the deferred clear")
+  ok(started and cleared == 0, "R15: a new inspect isn't canceled by the deferred clear")
   ClearInspectPlayer = oldClear
   UI68:Hide()
   -- Util.Clip: at the last space that fits, never inside a UTF-8 character.
@@ -5178,7 +5217,7 @@ do
   UI71:Hide()
 
   -- /ens verify: the Fill group section.
-  local report = ns71.Verify:Run()
+  local report = ns71.Verify:Build()
   ok(report:find("== Fill group ==", 1, true) and report:find("reward item level for +10: end of run 300", 1, true)
     and report:find("leaver flag (17th applicant return) readable", 1, true) and report:find("plan now: ready", 1, true),
     "verify: reward API, leaver flag, the plan")
@@ -5310,11 +5349,11 @@ do
   -- /ens verify: a 0 end-of-run reward item level is a WARN, not OK.
   local orig = C_MythicPlus.GetRewardLevelForDifficultyLevel
   C_MythicPlus.GetRewardLevelForDifficultyLevel = function() return 318, 0 end
-  local report = ns72.Verify:Run()
+  local report = ns72.Verify:Build()
   ok(report:find("[WARN] reward item level for +10: end of run 0, weekly 318 - no end-of-run value", 1, true),
     "verify: end of run 0 WARNs (the suggested item level stays off)")
   C_MythicPlus.GetRewardLevelForDifficultyLevel = orig
-  report = ns72.Verify:Run()
+  report = ns72.Verify:Build()
   ok(report:find("[OK] reward item level for +10: end of run 300, weekly 310 (suggested item level reads this)", 1, true),
     "verify: a real value stays OK")
   for _, fr in ipairs(ALLFRAMES) do rawset(fr, "GetUnboundedStringWidth", nil) end
@@ -5338,17 +5377,17 @@ do
   fs72.soundChoice = "chime"
   fileWillPlay = false
   ok(FG72:PlayReadySound() == "readycheck" and #kits == 2, "the chime can't play: the ready check instead")
-  local report = ns72.Verify:Run()
+  local report = ns72.Verify:Build()
   ok(report:find("[WARN] last group-ready sound: game ready check (picked: Ensemble chime)", 1, true), "verify: says the chime didn't play")
   fileWillPlay = true
   local savedPSF = PlaySoundFile
   PlaySoundFile = nil
   ok(FG72:PlayReadySound() == "readycheck", "no PlaySoundFile: the ready check")
-  report = ns72.Verify:Run()
+  report = ns72.Verify:Build()
   ok(report:find("[WARN] PlaySoundFile (Auto-fill's Ensemble chime) missing: the game's ready-check sound plays instead", 1, true), "verify: PlaySoundFile missing WARNs")
   PlaySoundFile = savedPSF
   FG72:PlayReadySound()
-  report = ns72.Verify:Run()
+  report = ns72.Verify:Build()
   ok(report:find("[OK] PlaySoundFile (Auto-fill's Ensemble chime)", 1, true) and report:find("[OK] last group-ready sound: Ensemble chime", 1, true),
     "verify: the chime present and played")
   -- Notify plays it once, and nothing when the sound is off.
@@ -5501,7 +5540,7 @@ do
   FG:ConfirmFill({ ids = { 901, 902 }, errors = {}, sent = 2, planned = 2, mode = "all" })
   local fi = ns73.db.fillInvite
   ok(fi and fi.oneAtATime == false and fi.build == FG.GameBuild() and FG:InviteMode() == "all", "a whole one-click fill is saved for this build")
-  local report = ns73.Verify:Run()
+  local report = ns73.Verify:Build()
   ok(report:find("[OK] invites: one click sends the whole plan (seen on build", 1, true), "verify: the one-click result shows after a reload")
   ns73.db.fillInvite = { oneAtATime = true, build = FG.GameBuild(), reason = "learned" }
   FG:ConfirmFill({ ids = { 901, 902 }, errors = {}, sent = 2, planned = 2, mode = "all" })
@@ -5515,12 +5554,12 @@ do
   PlaySoundFile = function() return false end
   PlaySound = function() return false end
   ok(FG:PlayReadySound("chime") == nil and FG.lastSound.soundOff, "game sound off: nothing played, recorded as sound off")
-  report = ns73.Verify:Run()
+  report = ns73.Verify:Build()
   ok(report:find("[INFO] last group-ready sound: nothing played - the game wasn't playing sounds", 1, true)
     and not report:find("(picked: Ensemble chime)", 1, true), "verify: sound off, not a chime problem")
   PlaySound = function() return true end
   FG:PlayReadySound("chime")
-  report = ns73.Verify:Run()
+  report = ns73.Verify:Build()
   ok(FG.lastSound.played == "readycheck" and report:find("[WARN] last group-ready sound: game ready check (picked: Ensemble chime)", 1, true),
     "the chime alone won't play: the ready check, and verify says so")
   PlaySound = function() end
@@ -5933,7 +5972,7 @@ do
   -- Verify: outside a key it says where to run it; inside it reads the objectives.
   local vt = nsS.Verify:Build()
   ok(vt:find("C_ScenarioInfo.GetCriteriaInfo present", 1, true) and vt:find("GetWorldElapsedTime present", 1, true)
-    and vt:find("run /ens verify inside a key", 1, true), "F1: verify outside a key")
+    and vt:find("[SKIP] boss splits: not inside a key, not checked", 1, true), "F1: the checks outside a key")
   ACTIVE_CHALLENGE = 250; ELAPSED = 600; DEATHS = 2; setCrit(2)
   vt = nsS.Verify:Build()
   ok(vt:find("boss objectives: 5 criteria read, 4 bosses found, 2 down", 1, true) and vt:find("key timer: 10:00 elapsed", 1, true)
@@ -6110,6 +6149,7 @@ do
   local tipLine
   for _, l in ipairs(lines) do if tostring(l):find("With you: 2 timed", 1, true) then tipLine = l end end
   ok(tipLine ~= nil, "F2: the applicant tooltip says \"With you: 2 timed\"")
+  nsK.Tracker:Acquire("test")   -- the checks below read the live group with the window closed
   UIk:Hide()
 
   -- Pick rating: off by default (unchanged); on adds a step before the critical-gap floor.
@@ -7383,7 +7423,7 @@ do
     end
   end
   ok(same, "Highlights.lua matches CHANGELOG.md's Highlights blocks (run tools/make_highlights.py)")
-  ok(fromLog[1] and fromLog[1].version == "1.6.0", "1.6.0's own highlights are the first entries")
+  ok(fromLog[1] and fromLog[1].version == "1.6.5" and fromLog[#fromLog].version == "1.6.0", "newest first: 1.6.5's highlights, down to 1.6.0's (the first)")
   local showOK = true
   for _, g in ipairs(n0.HIGHLIGHTS) do
     for _, it in ipairs(g.items) do if it.show and not WN.SHOW_ME[it.show] then showOK = false end end
@@ -7669,6 +7709,592 @@ do
                        "SpecLabel", "LineList", "PageFrame", "Button", "FlatButton", "Text", "Skin", "Accent" }) do
     ok(type(K[k]) == "function", "UI.Kit." .. k .. " is published")
   end
+end
+
+
+-- 85. 1.6.5: the review fixes (B1-B7, S1, S4, S8, S10), approved November 9-11, 2026.
+do
+  local savedRoster, savedListing, savedApps = ROSTER, LISTING, APPLICANTS
+  -- B1: the level of the key that is running, not the keystone in your bags.
+  ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" } }
+  LISTING, APPLICANTS = nil, {}
+  OWNED_KEY, OWNED_LEVEL = 588, 9                      -- your own Altar of Fangs +9
+  ACTIVE_CHALLENGE, ACTIVE_KEY_LEVEL, ACTIVE_KEY_AFFIXES = 250, 14, { 9, 10, 147 }   -- inside a Temple +14
+  local n1 = boot()
+  local AF, Fit1 = n1.Affixes, n1.ApplicantFit
+  local k, lv, ids = n1:ActiveKey()
+  ok(k == "TempleOfSethraliss" and lv == 14 and #ids == 3, "B1: the running key is read (dungeon, level, affix IDs)")
+  ok(AF:KeyLevel("TempleOfSethraliss") == 14, "B1: affixes use the running key's level")
+  local gl, gsrc = Fit1:GetKeyLevel("TempleOfSethraliss")
+  ok(gl == 14 and gsrc == "the running key", "B1: ratings use it too, with its source label")
+  ok(AF:KeyLevel("AltarOfFangs") == 9 and select(2, Fit1:GetKeyLevel("AltarOfFangs")) == "your keystone",
+    "B1: another dungeon still reads your own keystone")
+  local savedAffixes = CURRENT_AFFIXES
+  CURRENT_AFFIXES = { 158, 10, 9, 147 }; AF:Refresh()   -- Voidbound, Fortified, Tyrannical, Guile
+  local at14, at4 = {}, {}
+  for _, a in ipairs(AF:Active(AF:KeyLevel("TempleOfSethraliss"))) do at14[#at14 + 1] = tostring(a.id) end
+  for _, a in ipairs(AF:Active(4)) do at4[#at4 + 1] = tostring(a.id) end
+  ok(#at14 > #at4 and #AF:Active(14) == #at14, "B1: the affix list is the one for +14 (" .. table.concat(at14, ",") .. "), not a low key's (" .. table.concat(at4, ",") .. ")")
+  CURRENT_AFFIXES = savedAffixes; AF:Refresh()
+  n1.state.keyLevelOverride = 17
+  ok(AF:KeyLevel("TempleOfSethraliss") == 17 and select(2, Fit1:GetKeyLevel("TempleOfSethraliss")) == "manual", "B1: the manual level still comes first")
+  n1.state.keyLevelOverride = nil
+  local vt1 = n1.Verify:Build()
+  ok(vt1:find("[OK] running key: Temple of Sethraliss +14, affix IDs 9, 10, 147", 1, true), "B1: the checks name the running key")
+  local savedSecret = issecretvalue
+  issecretvalue = function(v) return v == 14 end
+  ok(select(2, n1:ActiveKey()) == nil and AF:KeyLevel("TempleOfSethraliss") == nil, "B1: a hidden level reads as unknown, no error")
+  issecretvalue = savedSecret
+  local gak = C_ChallengeMode.GetActiveKeystoneInfo
+  C_ChallengeMode.GetActiveKeystoneInfo = nil
+  ok(n1:ActiveKey() == nil and n1.Verify:Build():find("[WARN] C_ChallengeMode.GetActiveKeystoneInfo missing", 1, true), "B1: a missing function is a WARN")
+  C_ChallengeMode.GetActiveKeystoneInfo = gak
+  ACTIVE_CHALLENGE = nil
+  ok(n1:ActiveKey() == nil and AF:KeyLevel("TempleOfSethraliss") == nil, "B1: outside a key nothing is assumed from it")
+  OWNED_KEY, OWNED_LEVEL = nil, nil
+
+  -- B2 and S4: spec changes while nothing holds the tracker; an application's spec is confirmed.
+  ROSTER = {
+    player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" },
+    party1 = { guid = "G-B", name = "Bob", class = "PALADIN", role = "HEALER" },
+  }
+  INSPECT_CACHE = { ["G-B"] = 65 }
+  local n2 = boot()
+  local T = n2.Tracker
+  local function specOf() for _, m in ipairs(T.members) do if m.guid == "G-B" then return m.specID end end end
+  T:Acquire("t85"); T:Rescan(); RunTimers()
+  ok(specOf() == 65, "B2: spec read while held")
+  T:Release("t85")
+  ok(#T.members == 0 and #T.applicants == 0 and not T.enabled, "B3: the roster is emptied when the last owner lets go")
+  -- Window closed: Bob switches to Retribution.
+  ROSTER.party1.role = "DAMAGER"; INSPECT_CACHE["G-B"] = 0
+  local watch = T.specWatch
+  ok(T.specWatchOK and watch._events.PLAYER_SPECIALIZATION_CHANGED, "B2: the spec-change listener is always registered")
+  watch._scripts.OnEvent(watch, "PLAYER_SPECIALIZATION_CHANGED", "party1")
+  NOTIFIED = {}
+  T:Acquire("t85"); T:Rescan(); RunTimers()
+  ok(specOf() == nil and #NOTIFIED > 0, "B2: reopened, the old spec is gone and an inspect is queued")
+  watch._scripts.OnEvent(watch, "PLAYER_SPECIALIZATION_CHANGED", nil)
+  ok((T.rescanErrors or 0) == 0, "B2: an event without a unit is ignored")
+  -- A cached spec whose role differs from the assigned role is dropped once, then kept if an inspect confirms it.
+  local fr
+  for _, f in ipairs(ALLFRAMES) do if f._events and f._events.PLAYER_SPECIALIZATION_CHANGED and f._events.INSPECT_READY then fr = f end end
+  INSPECT_CACHE["G-B"] = 65
+  NOTIFIED = {}
+  fr._scripts.OnEvent(fr, "INSPECT_READY", "G-B"); T:Rescan(); RunTimers()   -- Holy read, assigned DAMAGER
+  ok(specOf() == nil and #NOTIFIED > 0, "B2: a cached spec whose role differs from the assigned role is dropped and inspected again")
+  fr._scripts.OnEvent(fr, "INSPECT_READY", "G-B"); T:Rescan(); RunTimers()   -- the inspect says Holy again
+  T:Rescan(); RunTimers()
+  ok(specOf() == 65, "B2: a spec an inspect confirmed stays even when the assigned role differs (" .. tostring(specOf()) .. ")")
+  T:Release("t85")
+  ROSTER.party1.role = "HEALER"; INSPECT_CACHE["G-B"] = 65
+  T:Acquire("t85"); T:Rescan(); RunTimers()
+  ROSTER.party1.role = "DAMAGER"                      -- changed spec unseen; no event reached us
+  INSPECT_CACHE["G-B"] = 0
+  n2.Tracker:ForgetSpec("party1"); INSPECT_CACHE["G-B"] = 65; T:Rescan(); RunTimers()
+  T:Release("t85")
+
+  -- S4: a spec taken from an application queues one confirming inspect.
+  ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" } }
+  LISTING = "Altar of Fangs (Mythic Keystone)"
+  APPLICANTS = { [1] = { { name = "Bob", class = "PALADIN", role = "HEALER", spec = 65 } } }
+  INSPECT_CACHE = {}
+  local n3 = boot()
+  local T3 = n3.Tracker
+  T3:Acquire("t85"); T3:Rescan(); RunTimers()
+  ok(T3:SpecNameCount() == 1, "S4: the application's spec is remembered by name")
+  APPLICANTS = {}
+  ROSTER.party1 = { guid = "G-B", name = "Bob", class = "PALADIN", role = "HEALER" }
+  NOTIFIED = {}
+  T3:Rescan(); RunTimers()
+  local got
+  for _, m in ipairs(T3.members) do if m.guid == "G-B" then got = m.specID end end
+  ok(got == 65 and #NOTIFIED == 1 and T3:SpecNameCount() == 0, "S4: joined with the application's spec, and one inspect confirms it")
+  NOTIFIED = {}
+  local fr3
+  for _, f in ipairs(ALLFRAMES) do if f._events and f._events.PLAYER_SPECIALIZATION_CHANGED and f._events.INSPECT_READY then fr3 = f end end
+  INSPECT_CACHE["G-B"] = 70; ROSTER.party1.role = "DAMAGER"
+  fr3._scripts.OnEvent(fr3, "INSPECT_READY", "G-B"); T3:Rescan(); RunTimers()
+  for _, m in ipairs(T3.members) do if m.guid == "G-B" then got = m.specID end end
+  ok(got == 70, "S4: the inspect's answer replaces the application's spec")
+  -- S10: names from old applications are trimmed.
+  APPLICANTS = { [2] = { { name = "Cy", class = "MAGE", role = "DAMAGER", spec = 63 } } }
+  T3:Rescan(); RunTimers()
+  APPLICANTS = {}
+  NOW = NOW + 400
+  T3:Rescan(); RunTimers()
+  ok(T3:SpecNameCount() == 0, "S10: an application's spec is dropped five minutes after it was last seen")
+  T3:Release("t85")
+  LISTING = nil
+
+  -- B3: a run is never saved with the previous group's roster.
+  ROSTER = {
+    player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" },
+    party1 = { guid = "O1", name = "Old", class = "PRIEST", role = "HEALER" },
+    party2 = { guid = "O2", name = "Older", class = "MAGE", role = "DAMAGER" },
+  }
+  INSPECT_CACHE = { O1 = 257, O2 = 63 }
+  local n4 = boot()
+  local H4, T4 = n4.History, n4.Tracker
+  T4:Acquire("t85"); T4:Rescan(); RunTimers()
+  n4.db.activeRun = { comp = {} }
+  H4:Snapshot()
+  ok(#n4.db.activeRun.comp == 3 and n4.db.activeRun.comp[2].full ~= nil, "B3: the old group is in the snapshot")
+  -- A new group, no spec read yet (fewer known than before).
+  ROSTER.party1 = { guid = "N1", name = "Nia", class = "DRUID", role = "HEALER" }
+  ROSTER.party2 = { guid = "N2", name = "Noor", class = "HUNTER", role = "DAMAGER" }
+  INSPECT_CACHE = {}
+  T4:Rescan(); RunTimers()
+  H4:Snapshot()
+  local names = {}
+  for _, p in ipairs(n4.db.activeRun.comp) do names[#names + 1] = tostring(p.name) end
+  local joined = table.concat(names, ",")
+  ok(joined:find("Nia", 1, true) and joined:find("Noor", 1, true) and not joined:find("Old", 1, true),
+    "B3: a different set of players replaces the saved one even with fewer specs read (" .. joined .. ")")
+  -- The same players with names hidden later keep the earlier names.
+  local realName = UnitName
+  UnitName = function(u) if u == "player" then return realName(u) end return nil end
+  T4:Rescan(); RunTimers(); H4:Snapshot()
+  UnitName = realName
+  names = {}
+  for _, p in ipairs(n4.db.activeRun.comp) do names[#names + 1] = tostring(p.full or p.name) end
+  ok(table.concat(names, ","):find("Nia", 1, true) ~= nil, "B3: hidden names don't look like new players (" .. table.concat(names, ",") .. ")")
+  n4.db.activeRun = nil
+  T4:Release("t85")
+
+  -- B4, B5, B7: tips, the tour and What's new.
+  ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" } }
+  KEEP_TIPS = true
+  local savedDB = EnsembleDB
+  EnsembleDB = { tourSeen = true, lastSeenVersion = "0.0.0", history = { { key = "AltarOfFangs", level = 10, result = "timed", comp = {} } } }
+  local n5 = boot()
+  KEEP_TIPS = nil
+  local Tour5, UI5 = n5.Tour, n5.UI
+  ok(n5.db.tipsSeen.history == true and n5.db.tipsBaseline == true, "B7: with keys already recorded, the first-key tip is marked seen at login")
+  n5.db.tipsSeen.history = nil                        -- as an updating 1.6.0 player would have it
+  n5.VERSION = "1.6.0"
+  UI5:Show(); RunTimers()
+  ok(UI5.whatsNew and UI5.whatsNew:IsShown() and not Tour5.tipShowing and n5.db.tipsSeen.history == nil,
+    "B4: What's new opens alone; no tip is used up under it")
+  UI5.whatsNew:Hide(); RunTimers()
+  UI5:SetTab("plan"); RunTimers()
+  ok(Tour5.tipShowing and Tour5.tipShowing.id == "history", "the tip shows once What's new is closed")
+  UI5:SetTab("history"); RunTimers()
+  ok(not Tour5.tipShowing, "B5: the tip goes when what it points at no longer applies (its tab opened)")
+  -- A fresh install keeps the tip for its first key.
+  EnsembleDB = nil
+  KEEP_TIPS = true
+  local n6 = boot()
+  KEEP_TIPS = nil
+  ok(n6.db.tipsBaseline == true and not n6.db.tipsSeen.history, "B7: a new player keeps the first-key tip")
+  -- B5: a hand tab click during the tour.
+  local Tour6, UI6 = n6.Tour, n6.UI
+  n6.db.tourSeen = true; n6.db.lastSeenVersion = n6.VERSION; n6.db.settings.tips = false
+  UI6:Show(); RunTimers()
+  Tour6:Start(); RunTimers()
+  ok(Tour6:IsActive() and Tour6.step == 1, "the tour runs")
+  UI6:SetTab("plan"); RunTimers()
+  ok(Tour6:IsActive() and Tour6.step == 4 and UI6.currentTab == "plan", "B5: clicking a tab moves the tour to that tab's step (" .. tostring(Tour6.step) .. ")")
+  UI6:SetTab("settings"); RunTimers()
+  ok(not Tour6:IsActive(), "B5: a tab without a step ends the tour")
+  Tour6:Start(); RunTimers()
+  Tour6:Go(3); RunTimers()
+  ok(Tour6:IsActive() and Tour6.step == 3 and UI6.currentTab == "dungeons", "the tour's own tab changes don't end it")
+  Tour6:Stop()
+  EnsembleDB = savedDB
+
+  -- B6: a finished dungeon re-entered opens on its first boss.
+  local n7 = boot()
+  local BC = n7.BossCards
+  local nb = #BC:Bosses("TempleOfSethraliss")
+  local function saveProgress(killedUpTo, index)
+    local killed = {}
+    for i = 1, killedUpTo do killed[i] = true end
+    n7.db.bossProgress = { dk = "TempleOfSethraliss", at = time(), killed = killed, index = index }
+    BC:Leave()
+  end
+  ACTIVE_CHALLENGE = nil
+  saveProgress(nb, nb)
+  BC:Enter("TempleOfSethraliss")
+  ok(next(BC.state.killed) == nil and BC.state.index ~= nb, "B6: all bosses dead and no key running: starts fresh (boss " .. tostring(BC.state.index) .. ")")
+  -- A boss still alive: progress comes back.
+  saveProgress(1, 2)
+  BC:Enter("TempleOfSethraliss")
+  ok(BC.state.killed[1] == true and BC.state.index == 2, "B6: with a boss still alive the progress is restored")
+  -- A running key restores even an all-dead save (a /reload at the end of a key).
+  saveProgress(nb, nb)
+  ACTIVE_CHALLENGE = 250
+  BC:Enter("TempleOfSethraliss")
+  ok(BC.state.killed[nb] == true, "B6: while a key is running the progress is restored")
+  local bf
+  for _, f in ipairs(ALLFRAMES) do if f._events and f._events.ENCOUNTER_START and f._events.CHALLENGE_MODE_COMPLETED then bf = f end end
+  ok(bf ~= nil, "B6: boss cards listen for the key's completion")
+  bf._scripts.OnEvent(bf, "CHALLENGE_MODE_COMPLETED")
+  ok(n7.db.bossProgress == nil, "B6: completing the key clears the saved progress")
+  ACTIVE_CHALLENGE = nil
+
+  -- S1: a setting of the wrong type is replaced by its default, group by group.
+  local function bootWith(settings)
+    local keep = EnsembleDB
+    EnsembleDB = { settings = settings, tourSeen = true }
+    local n = boot()
+    EnsembleDB = keep
+    return n
+  end
+  local cases = {
+    { "window", "broken" }, { "bossWindow", 5 }, { "fill", "x" }, { "checks", 1 }, { "applicantView", true },
+    { "textSize", "big" }, { "minimap", "hidden" }, { "walkRole", 7 }, { "ignoredNeeds", "none" }, { "theme", 3 },
+    { "pastKeys", "on" }, { "finderPanel", 0 }, { "dungeonCategories", "all" }, { "explain", "yes" }, { "chatStyle", {} },
+  }
+  for _, c in ipairs(cases) do
+    local okB, nS = pcall(bootWith, { [c[1]] = c[2] })
+    local def = okB and nS.DEFAULTS.settings[c[1]]
+    local good = okB and type(nS.db.settings[c[1]]) == type(def)
+    if good then
+      local okU = pcall(function()
+        nS.UI:Show(); RunTimers()
+        for _, tab in ipairs({ "composition", "applicants", "dungeons", "plan", "history", "settings" }) do nS.UI:SetTab(tab); RunTimers() end
+        nS.UI:Hide()
+      end)
+      good = okU
+    end
+    ok(good, "S1: settings." .. c[1] .. " of the wrong type is replaced and every tab draws")
+  end
+  local okN, nN = pcall(function() local keep = EnsembleDB; EnsembleDB = { settings = "gone" }; local n = boot(); EnsembleDB = keep; return n end)
+  ok(okN and type(nN.db.settings) == "table" and nN.db.settings.fill.level ~= nil, "S1: a settings value that isn't a table is rebuilt")
+  local nNest = bootWith({ fill = { rating = "high", wait = "long" }, window = { width = "wide" } })
+  ok(type(nNest.db.settings.fill.rating) == "table" and type(nNest.db.settings.fill.wait) == "number" and type(nNest.db.settings.window.width) == "number",
+    "S1: nested settings are checked too")
+  -- S10: the six control-less switches are gone; a saved one is dropped and changes nothing.
+  local nC = bootWith({ checks = { buffs = false, dispels = false, interrupts = false } })
+  local cc = nC.db.settings.checks
+  ok(cc.buffs == false and cc.dispels == nil and cc.interrupts == nil and nC.DEFAULTS.settings.checks.lust == nil,
+    "S10: only the raid buff switch is left in settings.checks")
+  local rC = nC.Analysis:Analyze({ { specID = 73 }, { specID = 257 }, { specID = 63 }, { specID = 259 }, { specID = 254 } }, "AltarOfFangs", nC.db.settings)
+  local sawInterrupt = false
+  for _, f in ipairs(rC.findings) do if f.check == "interrupts" or f.check == "dispels" or f.check == "lust" then sawInterrupt = true end end
+  ok(sawInterrupt, "S10: the generic checks run whatever an old save said")
+  ok(nC.BossWindow.closedByUser == nil, "S10: the unused boss window flag is gone")
+
+  -- S8: the Dungeon tab follows a new listing at once.
+  ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" } }
+  LISTING = nil
+  local n8 = boot()
+  local UI8 = n8.UI
+  UI8:Show("dungeons"); RunTimers()
+  local before = UI8.primerKey
+  local watcher
+  for _, f in ipairs(ALLFRAMES) do if f._events and f._events.LFG_LIST_ACTIVE_ENTRY_UPDATE and not f._events.INSPECT_READY and f._scripts.OnEvent then watcher = watcher or f end end
+  UI8:OnListingUpdate(); RunTimers()
+  UI8.autoOpenBlock = true
+  LISTING = "Kings' Rest (Mythic Keystone)"
+  local fired = 0
+  n8:On("LISTING_CHANGED", function() fired = fired + 1 end)
+  local tabBefore = UI8.currentTab
+  UI8:OnListingUpdate(); RunTimers()
+  ok(fired == 1, "S8: a new listing tells the tabs")
+  UI8:SetTab("dungeons"); RunTimers()
+  UI8:OnListingUpdate(); RunTimers()
+  ok(fired == 1, "S8: an unchanged listing doesn't fire again")
+  LISTING = "Ruby Life Pools (Mythic Keystone)"
+  UI8:OnListingUpdate(); RunTimers()
+  ok(fired == 2 and UI8.primerKey == "RubyLifePools", "S8: the Dungeon tab shows the listing's new dungeon without leaving the tab (" .. tostring(UI8.primerKey) .. ")")
+  LISTING = nil
+  UI8:OnListingUpdate(); RunTimers()
+  ok(fired == 3, "S8: the listing ending is told too")
+  ok(n8.UI.TAB_EVENTS.dungeons.LISTING_CHANGED == true, "S8: the Dungeon tab listens for it")
+  UI8:Hide()
+
+  -- S7 and S11.
+  local src = io.open(ADDON_DIR .. "/UI.lua"):read("*a")
+  ok(src:find("problems only, shorter chat posts, Poor applicants hidden", 1, true) and not src:find("one-line chat posts", 1, true),
+    "S7: the Expert preset says shorter chat posts")
+  ROSTER, LISTING, APPLICANTS = savedRoster, savedListing, savedApps
+end
+
+
+-- 86. 1.6.5: the new pick rating scale (ladder and stakes), premades on it, Fill group counting
+-- a premade once per member, the one report command, Recent activity, the error hint.
+do
+  local savedRoster, savedListing, savedApps = ROSTER, LISTING, APPLICANTS
+  ROSTER = { player = { guid = "P", name = "Me", class = "WARRIOR", spec = 73, role = "TANK" } }
+  LISTING, APPLICANTS = nil, {}
+  EnsembleDB = nil
+  local n = boot()
+  local Fit, A, UD, H = n.ApplicantFit, n.Analysis, n.UD, n.Dungeons.HEURISTICS
+  local set = n.db.settings
+  ok(H.FIT_LADDER.critical == 5 and H.FIT_LADDER.high == 4 and H.FIT_LADDER.medium == 2 and H.FIT_LADDER.low == 0.5
+    and H.FIT_THIN == 0.4 and H.FIT_THIN_HIGH_KEY == 0.55 and H.FIT_SYNERGY_DIV == 8 and H.FIT_STAKES_FLAT == 1,
+    "the approved ladder is in the heuristics")
+  -- The author's reference group: Temple of Sethraliss, VDH, Resto Shaman, Fire Mage, Arms Warrior.
+  local SETH = { 581, 264, 63, 71 }
+  local function ctxAt(level, members)
+    local mem = {}
+    for i, id in ipairs(members or SETH) do mem[i] = { specID = id, label = "M" .. i } end
+    return Fit:BuildContext(mem, "TempleOfSethraliss", set, level)
+  end
+  local function rate(ctx, ...)
+    local members = {}
+    for i, id in ipairs({ ... }) do members[i] = { name = "A" .. i, specID = id, classFile = UD:GetSpec(id).class } end
+    return Fit:Evaluate(ctx, { applicantID = 1, members = members })
+  end
+  local c10, c12 = ctxAt(10), ctxAt(12)
+  local lock, shadow, druid, rogue, arms = rate(c10, 265), rate(c10, 258), rate(c10, 102), rate(c10, 259), rate(c10, 71)
+  -- Reference 4: the Balance Druid (the only battle rez) reads Good, upper half.
+  ok(druid.score >= 60 and druid.score <= 79 and druid.rating.key == "good", "reference: the Balance Druid is Good, upper half (" .. druid.score .. ")")
+  -- Reference 1: the only battle rez is never below a second Magic dispeller, at any level.
+  local okRez = true
+  for _, lv in ipairs({ 6, 8, 10 }) do
+    local c = ctxAt(lv)
+    if rate(c, 102).score < rate(c, 258).score then okRez = false end
+  end
+  ok(okRez and druid.score == shadow.score, "reference: bringing the only battle rez rates no lower than a second dispeller for the critical cast (" .. druid.score .. " / " .. shadow.score .. ")")
+  ok(lock.score >= 95 and lock.rating.key == "great" and rogue.score < 20 and arms.score <= rogue.score,
+    "reference: the best pick stays Great and the weakest Poor (" .. lock.score .. ", " .. rogue.score .. ", " .. arms.score .. ")")
+  local d12 = rate(c12, 102)
+  ok(rate(c12, 265).score == 100 and d12.rating.key == "good", "reference: at +12 the Warlock is 100 and the Druid still Good (" .. d12.score .. ")")
+  -- Why N? reads in ladder points.
+  local sawRez, sum = false, 0
+  for _, b in ipairs(druid.breakdown) do
+    sum = sum + b.points
+    if b.text == "fixes missing battle rez" and b.points == 4 then sawRez = true end
+  end
+  ok(sawRez and math.abs(sum - druid.gain) < 1e-6, "Why N?: \"+4 fixes missing battle rez\", and the lines add up to the gain")
+  ok(math.abs(A:LadderTotal(c10.base, 10) - c10.baseLadder) < 1e-9 and A:Penalty(c10.base, 10) == c10.basePenalty,
+    "the penalty Needs and suggestions use is untouched beside the ladder")
+  -- Thin counts a share, and more from +12; an unconfirmed item half.
+  local partsLo, partsHi = A:LadderParts(c10.base, 10), A:LadderParts(c12.base, 12)
+  local thinID
+  for id, p in pairs(partsLo) do if p.status == "thin" and p.severity == "critical" then thinID = id end end
+  ok(thinID and partsLo[thinID].points == 2 and math.abs(partsHi[thinID].points - 2.75) < 1e-9, "a thin critical need counts 2 points, 2.75 from +12")
+
+  -- A group with little at stake: reference 3, a narrow spread, not identical ratings and not 0-100.
+  local narrow
+  for _, dk in ipairs(n.Dungeons.order) do
+    for _, last in ipairs({ 577, 63, 254, 259, 265 }) do
+      local mem = { { specID = 73 }, { specID = 264 }, { specID = 102 }, { specID = last } }
+      local c = Fit:BuildContext(mem, dk, set, 6)
+      local spread = c.bestGain.DAMAGER - c.worstGain.DAMAGER
+      if spread > 0.3 and spread < 3 and not narrow then narrow = { c = c, spread = spread } end
+    end
+  end
+  ok(narrow ~= nil, "a low-stakes group exists in the data")
+  if narrow then
+    local lo, hi = 101, -1
+    for _, id in ipairs(UD:SpecsForRole("DAMAGER")) do
+      local ev = Fit:Evaluate(narrow.c, { applicantID = id, members = { { name = "S", specID = id, classFile = UD:GetSpec(id).class } } })
+      if ev.score < lo then lo = ev.score end
+      if ev.score > hi then hi = ev.score end
+    end
+    local s = narrow.spread / 6
+    ok(hi > lo and hi - lo <= math.floor(s * 100 + 1.5) and lo >= math.floor((1 - s) * 70) and hi < 100,
+      string.format("little at stake (%.1f ladder points): ratings span %d-%d, not 0-100", narrow.spread, lo, hi))
+  end
+
+  -- Premades: measured against real fills of their slots.
+  local c3 = ctxAt(10, { 581, 264, 63 })               -- two DPS slots open
+  local range = Fit:PremadeRange(c3, { "DAMAGER", "DAMAGER" })
+  ok(range.best > range.worst and #range.bestNames == 2 and Fit:PremadeRange(c3, { "DAMAGER", "DAMAGER" }) == range,
+    "premade scale: the best and the weakest pair, cached per shape")
+  local function specOfName(nm) for id in pairs(UD.specs) do if (UD:SpecName(id) .. " " .. UD:ClassName(UD:GetSpec(id).class)) == nm then return id end end end
+  local b1, b2 = specOfName(range.bestNames[1]), specOfName(range.bestNames[2])
+  local bestPair = rate(c3, b1, b2)
+  ok(bestPair.score == math.floor(bestPair.stakes * 100 + (1 - bestPair.stakes) * 70 + 0.5) and bestPair.position == 100 and bestPair.rating.key == "great",
+    "the best pair sits at the top of the scale and rates Great (" .. bestPair.score .. "; before 1.6.5 no premade could)")
+  local oldFull = H.FIT_STAKES_FULL
+  H.FIT_STAKES_FULL = 1
+  ok(rate(c3, b1, b2).score == 100, "with the full scale at stake, the best pair reaches 100")
+  H.FIT_STAKES_FULL = oldFull
+  local weakPair = rate(c3, 577, 577)
+  ok(weakPair.score < bestPair.score and weakPair.position <= 10, "a pair that closes nothing sits at the bottom (" .. weakPair.score .. ")")
+  ok(math.abs(bestPair.stakes - math.min(1, (range.best - range.worst) / 12)) < 1e-9, "a pair's stakes scale with two players (12 ladder points for the full scale)")
+  local steps = Fit:ScoreSteps(c3, bestPair)
+  ok(steps[1].text:find("a premade is measured against groups that could really fill its slots", 1, true)
+    and steps[1].text:find(range.bestNames[1], 1, true), "Why N? for a premade names what it's measured against")
+  -- Three players, and mixed roles.
+  local cT = Fit:BuildContext({ { specID = 63 } }, "KingsRest", set, 12)       -- a mage alone: tank, healer, 2 DPS open
+  local trio = rate(cT, 66, 264, 265)                                           -- tank + healer + DPS
+  local r3 = Fit:PremadeRange(cT, { "TANK", "HEALER", "DAMAGER" })
+  ok(#r3.bestNames == 3 and trio.position >= 0 and trio.position <= 100 and not trio.roleConflict and trio.best == r3.best,
+    "a three-player, mixed-role premade is placed on its own scale (" .. trio.score .. ")")
+  local cD = ctxAt(10, { 581, 264 })                                            -- three DPS slots
+  local dpsTrio = rate(cD, 265, 102, 258)
+  ok(dpsTrio.score > rate(cD, 577, 259, 71).score and Fit:PremadeRange(cD, { "DAMAGER", "DAMAGER", "DAMAGER" }).best >= dpsTrio.gain - 1e-6,
+    "three DPS applying together: a strong trio out-rates a weak one, and never beats the best fill found")
+  -- The floors hold on the ladder: a full closer of a missing critical need never rates below a non-closer.
+  local floorsOK, closers = true, 0
+  for _, case in ipairs({ { "TempleOfSethraliss", { 73, 72 } }, { "KingsRest", {} }, { "TempleOfSethraliss", { 73 } }, { "AltarOfFangs", { 73, 257 } } }) do
+    local dk, mem = case[1], {}
+    for i, id in ipairs(case[2]) do mem[i] = { specID = id } end
+    local c = Fit:BuildContext(mem, dk, set, 12)
+    local evs = {}
+    for _, id in ipairs(UD:SpecsForRole("DAMAGER")) do
+      evs[#evs + 1] = Fit:Evaluate(c, { applicantID = id, members = { { name = "S", specID = id, classFile = UD:GetSpec(id).class } } })
+    end
+    local bestNon = -1
+    for _, ev in ipairs(evs) do if not ev.closesCriticalFull and ev.score > bestNon then bestNon = ev.score end end
+    for _, ev in ipairs(evs) do
+      if ev.closesCriticalFull then closers = closers + 1; if ev.score < bestNon then floorsOK = false end end
+    end
+  end
+  ok(floorsOK and closers > 0, "critical-gap floors on the ladder: " .. closers .. " full closers, none below a non-closer")
+  -- Listing fit uses the same scale.
+  local LF = n.ListingFit
+  ok(type(LF.Evaluate) == "function" and Fit.Relative == nil and H.FIT_FLAT_SPREAD == nil, "one scale for applicants and listings; the old flat rule is gone")
+
+  -- Fill group: a premade's rating counts once per member.
+  ROSTER = {
+    player = { guid = "P", name = "Me", class = "SHAMAN", spec = 264, role = "HEALER" },
+    party1 = { guid = "T", name = "Tank", class = "WARRIOR", role = "TANK" },
+    party2 = { guid = "D", name = "Dee", class = "MAGE", role = "DAMAGER" },
+  }
+  INSPECT_CACHE = { T = 73, D = 63 }
+  LISTING = "Voidscar Arena (Mythic Keystone)"
+  APPLICANT_STATUS = {}
+  local f = boot()
+  local FG, fs = f.FillGroup, f.db.settings.fill
+  fs.level, fs.rating.on, fs.ilvl.on, fs.skipNoData, fs.skipLeavers = "relaxed", false, false, false, false
+  local function planWith(apps, scores)
+    APPLICANTS = apps
+    f.state.keyLevelOverride = 5
+    f.Tracker:Acquire("t86"); f.Tracker:Rescan(); RunTimers()
+    f.ApplicantFit.ClearCache(); FG.ClearCache()
+    local ctx, evals = f.ApplicantFit:ForLiveGroup()
+    for _, ev in ipairs(evals) do
+      local v = scores[ev.members[1].name]
+      if v then ev.score = v end
+    end
+    return FG:Plan(ctx, evals), evals
+  end
+  local function who(plan) local t = {} for _, ev in ipairs(plan.picks or {}) do for _, m in ipairs(ev.members) do t[#t + 1] = m.name end end table.sort(t) return table.concat(t, ",") end
+  local PAIR = { { name = "Pia", class = "HUNTER", role = "DAMAGER", spec = 253 }, { name = "Pol", class = "ROGUE", role = "DAMAGER", spec = 259 } }
+  local function single(nm, class, spec) return { { name = nm, class = class, role = "DAMAGER", spec = spec } } end
+  local apps = { [1] = PAIR, [2] = single("Ann", "WARLOCK", 265), [3] = single("Ben", "DRUID", 102), [4] = single("Cal", "MONK", 269) }
+  local p1 = planWith(apps, { Pia = 85, Ann = 90, Ben = 60, Cal = 40 })
+  ok(p1.status == "ready" and who(p1) == "Pia,Pol" and p1.total == 170,
+    "two DPS slots: a pair rated 85 (170) beats singles 90 + 60 (" .. tostring(p1.status) .. ": " .. who(p1) .. ", total " .. tostring(p1.total) .. ")")
+  ok(p1.runnerUp and p1.runnerUp.diff == 20, "the runner-up difference uses the same totals (20)")
+  local p2 = planWith(apps, { Pia = 85, Ann = 90, Ben = 86, Cal = 40 })
+  ok(p2.status == "ready" and who(p2) == "Ann,Ben" and p2.total == 176, "the pair (170) loses to singles 90 + 86 (" .. who(p2) .. ")")
+  -- No premade applying: totals are the plain sum, as before.
+  local p3 = planWith({ [2] = apps[2], [3] = apps[3], [4] = apps[4] }, { Ann = 90, Ben = 60, Cal = 40 })
+  ok(p3.status == "ready" and who(p3) == "Ann,Ben" and p3.total == 150, "no premade applying: every plan as before")
+  f.Tracker:Release("t86")
+  -- Three slots: a pair and a single against three singles.
+  ROSTER.party2 = nil
+  local apps3 = { [1] = PAIR, [2] = single("Ann", "WARLOCK", 265), [3] = single("Ben", "DRUID", 102), [4] = single("Cal", "MONK", 269) }
+  local p4 = planWith(apps3, { Pia = 85, Ann = 80, Ben = 70, Cal = 60 })
+  ok(p4.status == "ready" and who(p4) == "Ann,Pia,Pol" and p4.total == 250, "three slots: pair 85 + single 80 (250) beats three singles (210): " .. who(p4))
+  local p5 = planWith(apps3, { Pia = 60, Ann = 80, Ben = 70, Cal = 65 })
+  ok(p5.status == "ready" and who(p5) == "Ann,Ben,Cal" and p5.total == 215, "three slots: three singles (215) beat pair 60 + single 80 (200): " .. who(p5))
+  f.Tracker:Release("t86")
+  -- A failing group with a premade never wins, whatever its total.
+  ROSTER.player = { guid = "P", name = "Me", class = "PRIEST", spec = 257, role = "HEALER" }   -- no Bloodlust in the party
+  ROSTER.party2 = { guid = "D", name = "Dee", class = "WARLOCK", role = "DAMAGER" }
+  INSPECT_CACHE.D = 265
+  local appsL = { [1] = PAIR, [2] = single("Mag", "MAGE", 63), [3] = single("Ben", "DRUID", 102) }
+  local p6 = planWith(appsL, { Pia = 100, Mag = 30, Ben = 30 })
+  ok(p6.status == "ready" and who(p6) == "Ben,Mag", "a pair without the Bloodlust must never wins on its total (" .. tostring(p6.status) .. ": " .. who(p6) .. ")")
+  f.Tracker:Release("t86")
+  LISTING, APPLICANTS = nil, {}
+
+  -- The one report: layout, the consolidated checks, no names.
+  ROSTER = {
+    player = { guid = "P", name = "Secretname", class = "WARRIOR", spec = 73, role = "TANK" },
+    party1 = { guid = "A", name = "Hiddenann", class = "SHAMAN", role = "HEALER" },
+  }
+  INSPECT_CACHE = { A = 264 }
+  LISTING = "Altar of Fangs (Mythic Keystone)"
+  APPLICANTS = { [1] = { { name = "Applicantbob", class = "MAGE", role = "DAMAGER", spec = 63 } } }
+  local prevCalls, handler = 0, nil
+  local savedGet, savedSet, savedStack = geterrorhandler, seterrorhandler, debugstack
+  geterrorhandler = function() return handler or function() prevCalls = prevCalls + 1 end end
+  seterrorhandler = function(h) handler = h end
+  debugstack = function() return "Interface/AddOns/Ensemble/UI.lua:120: in function 'Refresh'" end
+  local r = boot()
+  local R, Act = r.Report, r.Activity
+  r.UI:Show("applicants"); RunTimers()
+  r.UI:SetTab("plan"); RunTimers()
+  local text = R:Build()
+  local order = {}
+  for _, head in ipairs({ "What happened:", "Addon ", "-- Right now --", "-- Problems: ", "-- Lua errors", "-- Recent activity", "Settings changed from defaults:", "-- Checks --", "=== end of report ===" }) do
+    order[#order + 1] = text:find(head, 1, true) or -1
+  end
+  local inOrder = true
+  for i = 2, #order do if order[i] <= order[i - 1] then inOrder = false end end
+  ok(inOrder, "report: what happened, header, Right now, Problems, errors, activity, settings, Checks, in that order")
+  ok(text:find("Window: open on plan", 1, true) and text:find("Screen: UI scale", 1, true) and text:find("key level: ", 1, true)
+    and text:find("Hosting: yes | 1 application(s) | sort fit", 1, true) and text:find("Boss window: closed", 1, true)
+    and text:find("Your spec: Protection Warrior (TANK)", 1, true) and text:find("specs 2 known, 0 pending", 1, true),
+    "report: Right now names the window, sizes, key level, hosting, the boss window and your spec")
+  ok(not text:find("Secretname", 1, true) and not text:find("Hiddenann", 1, true) and not text:find("Applicantbob", 1, true), "report: no player names anywhere")
+  -- Every FAIL and WARN of the checks is a problem line; none is dropped or capped.
+  local _, counts, lines = r.Verify:Build()
+  local nProblems = select(2, text:match("%-%- Problems.-\n(.-)\n\n"):gsub("%[[FW][AR][IR][LN]%] ", ""))
+  ok(nProblems == (counts.FAIL or 0) + (counts.WARN or 0) and nProblems > 12, "report: all " .. nProblems .. " FAIL and WARN lines listed (no cap)")
+  local rep = r.Verify:Report()
+  ok(#rep.problems == nProblems and rep.problems[1]:find("^%[FAIL%] ") ~= nil, "problems: FAIL first, each with its section")
+  -- Consolidation: existence-only checks fold into a count; value lines stay; not-applicable parts are one line.
+  local checks = table.concat(rep.checks, "\n")
+  ok(checks:find("Dungeons: 8 matched", 1, true) and not checks:find("Kings' Rest (map", 1, true), "checks: eight matched dungeons fold into a count")
+  ok(checks:find("class spells: 134 OK, 0 missing", 1, true) and checks:find("applicants with a spec ID: 1 of 1", 1, true), "checks: a line with a value to compare stays")
+  ok(not text:find("re-run", 1, true) and not text:find("Re-run", 1, true) and not text:find("/ens verify", 1, true), "report: no \"run it again\" hints and no old command")
+  ok(r.Verify.Folds({ status = "OK", text = "GameTooltip:SetSpellByID" }) and not r.Verify.Folds({ status = "OK", text = "28 boss cards" })
+    and not r.Verify.Folds({ status = "OK", text = "chat send: SendChatMessage" }) and not r.Verify.Folds({ status = "WARN", text = "x" })
+    and r.Verify.Folds({ status = "OK", text = "21 events", fold = 21 }) and not r.Verify.Folds({ status = "OK", text = "plain", fold = false }),
+    "the fold rule: an OK line with nothing to compare, unless marked")
+  r.UI:OnListingUpdate(); RunTimers()               -- the watcher's baseline: listed
+  LISTING, APPLICANTS = nil, {}
+  ROSTER = { player = ROSTER.player }
+  r.UI:OnListingUpdate(); RunTimers()
+  r.Tracker:Rescan(); RunTimers()
+  local rep2 = table.concat(r.Verify:Report().checks, "\n")
+  ok(rep2:find("\nGroup Finder: not hosting, not checked\n", 1, true) and rep2:find("Party: not in a group, not checked", 1, true)
+    and select(2, r.Verify:Build()).SKIP > 3, "checks: a part that doesn't apply is one \"not checked\" line, never a problem")
+
+  -- Recent activity: capped, newest first, counts only.
+  local act = table.concat(Act:Lines(), "\n")
+  ok(act:find("tab: plan", 1, true) and act:find("listing: ended", 1, true) and act:find("application", 1, true), "activity: tabs, the listing and applicant counts are logged")
+  ok(not act:find("Secretname", 1, true) and not act:find("Hiddenann", 1, true) and not act:find("Applicantbob", 1, true), "activity: no names")
+  Act:Clear()
+  for i = 1, 40 do Act:Log("test", "event " .. i) end
+  local L = Act:Lines()
+  ok(#Act.list == 25 and #L == 25 and L[1]:find("event 40", 1, true) and L[25]:find("event 16", 1, true), "activity: the last 25, newest first")
+  Act:Log("test", "event 40"); Act:Log("test", "event 40")
+  ok(#Act.list == 25 and Act:Lines()[1]:find("(x3)", 1, true), "activity: the same event again is counted, not repeated")
+  NOW = NOW + 75
+  ok(Act:Lines()[1]:find("1m 15s ago", 1, true), "activity: seconds ago")
+  ok(r.db.activity == nil and EnsembleDB.activity == nil, "activity: never saved")
+  ok(R:Build():find("-- Recent activity (newest first; this session) --\n  1m 15s ago  test: event 40 (x3)", 1, true), "activity: printed in the report after the errors")
+
+  -- The error hint: once per session, never in combat or inside a key; the error records its tab.
+  PRINTED = ""
+  local savedCombat = InCombatLockdown
+  InCombatLockdown = function() return true end
+  handler("Interface/AddOns/Ensemble/UI.lua:120: attempt to index nil")
+  RunTimers()
+  ok(not PRINTED:find("Ensemble hit an error", 1, true) and R.hintPending, "error hint: waits while in combat")
+  InCombatLockdown = savedCombat
+  ACTIVE_CHALLENGE = 250
+  r:Fire("BOSS_COMBAT", false); RunTimers()
+  ok(not PRINTED:find("Ensemble hit an error", 1, true), "error hint: waits inside a key")
+  ACTIVE_CHALLENGE = nil
+  r:Fire("BOSS_COMBAT", false); RunTimers()
+  ok(select(2, PRINTED:gsub("Ensemble hit an error: /ens report builds a report%.", "")) == 1, "error hint: one chat line once it's quiet")
+  handler("Interface/AddOns/Ensemble/Core.lua:5: another one"); RunTimers()
+  handler("Interface/AddOns/OtherAddon/x.lua:5: not ours"); RunTimers()
+  ok(select(2, PRINTED:gsub("Ensemble hit an error", "")) == 1, "error hint: once per session")
+  ok(r.db.errors[1].tab == "plan" and R:Build():find(", on plan] Interface/AddOns/Ensemble/Core.lua:5: another one", 1, true), "errors: the tab open at the time is in the report")
+  r.UI:Hide()
+  handler("Interface/AddOns/Ensemble/Core.lua:9: closed"); RunTimers()
+  ok(r.db.errors[1].tab == "window closed", "errors: a closed window says so")
+  geterrorhandler, seterrorhandler, debugstack = savedGet, savedSet, savedStack
+  -- The old log is dropped from saved data.
+  EnsembleDB = { lastVerify = "old text", tourSeen = true }
+  local o = boot()
+  ok(o.db.lastVerify == nil, "the separate verify log is removed from saved data")
+  EnsembleDB = nil
+  ROSTER, LISTING, APPLICANTS = savedRoster, savedListing, savedApps
 end
 
 print(string.format("%d passed, %d failed", passes, fails))

@@ -216,8 +216,13 @@ function Tour:Go(i)
   if i > #steps then self:Stop(); return end
   self.step = i
   local s = steps[i]
-  if s.open then s.open()
-  elseif s.tab and UI.currentTab ~= s.tab then UI:Show(s.tab) end
+  self.navigating = true   -- the tour's own tab change, not a hand click (see OnTabChanged)
+  local okNav, errNav = pcall(function()
+    if s.open then s.open()
+    elseif s.tab and UI.currentTab ~= s.tab then UI:Show(s.tab) end
+  end)
+  self.navigating = nil
+  if not okNav then self:Stop(); if geterrorhandler then geterrorhandler()(errNav) end; return end
   local f = self.frame
   local one = #steps == 1
   f.title:SetText(UI.Kit.HEX.accent .. s.title .. "|r")
@@ -229,6 +234,22 @@ function Tour:Go(i)
   local first, last = s.target()
   self:PlaceCallout(f, first, last, UI.frame)
   f:Show()
+end
+
+-- A tab clicked by hand while the tour runs (1.6.5, B5: the callout and its outline stayed on
+-- screen, pointing at a page that was gone). The full tour goes to that tab's step; a tab
+-- without a step (Settings), or a one-step "Show me", ends it.
+function Tour:OnTabChanged(tab)
+  if not self:IsActive() or self.navigating or self.starting then return end
+  local steps = self.steps or self.STEPS
+  local cur = steps[self.step]
+  if cur and cur.tab == tab then return end
+  if steps == self.STEPS then
+    for i, s in ipairs(steps) do
+      if s.tab == tab then self:Go(i); return end
+    end
+  end
+  self:Stop()
 end
 
 -- First time the window opens: start the tour once (never in combat or inside a key; it waits
@@ -310,11 +331,16 @@ end
 function Tour:PumpTips()
   if not ns.db or not self:TipsOn() then return end
   if self.tipShowing then
-    -- Its window closed: the tip goes with it.
+    -- Its window closed, or what it points at no longer applies (another tab): the tip goes
+    -- with it (1.6.5, B5).
     local t = self.tipShowing
-    if not Shown(t.host()) then self:HideTip() end
+    local okW, applies = pcall(t.when)
+    if not Shown(t.host()) or not (okW and applies) then self:HideTip() end
     return
   end
+  -- While the window is opening, the tour and What's new get to decide first (1.6.5, B4: a
+  -- tip opened under them and was used up unseen). UI:Show pumps once when they have.
+  if self.holding then return end
   if self:IsActive() or self.starting or Shown(UI.whatsNew) or self:Quiet() then return end
   for _, t in ipairs(self.TIPS) do
     if not self:TipSeen(t.id) then
@@ -395,6 +421,15 @@ WN.BEFORE_TRACKING = "0.0.0"
 
 function WN:Init()
   local db = ns.db
+  -- Once per saved data (1.6.5, B7): a player who already has keys recorded doesn't need
+  -- "Your first key is recorded". A new player's History is empty here, so their tip stays.
+  if db and not db.tipsBaseline then
+    db.tipsBaseline = true
+    if type(db.history) == "table" and #db.history > 0 then
+      if type(db.tipsSeen) ~= "table" then db.tipsSeen = {} end
+      db.tipsSeen.history = true
+    end
+  end
   if not db or db.lastSeenVersion ~= nil then return end
   if db.tourSeen then db.lastSeenVersion = self.BEFORE_TRACKING
   elseif WN.Parse(ns.VERSION) then db.lastSeenVersion = ns.VERSION end

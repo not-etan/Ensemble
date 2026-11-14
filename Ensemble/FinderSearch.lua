@@ -9,7 +9,7 @@
 -- no reliably free space for them.
 --
 -- Blizzard functions hooked (hooksecurefunc only: nothing of Blizzard's is replaced, so
--- the protected Sign Up flow is untouched). Both are long-standing; /ens verify reports them:
+-- the protected Sign Up flow is untouched). Both are long-standing; /ens report reports them:
 --   LFGListSearchEntry_Update(button)            - a search-result row is (re)drawn
 --   LFGListUtil_SetSearchEntryTooltip(tooltip, resultID) - its tooltip is built
 --   LFGListApplicationDialog_Show(dialog, resultID) - the Sign Up dialog opens: a line for

@@ -980,6 +980,7 @@ end
 
 function UI:SetTab(key)
   if not self.frame then return end
+  local modeBefore = ns.state.mode
   key = self.TAB_ALIAS[key] or key
   local valid = false
   for _, t in ipairs(TABS) do if t.key == key then valid = true end end
@@ -1002,6 +1003,11 @@ function UI:SetTab(key)
     self.pages[key]:Show()
   end
   self:Refresh()
+  if ns.Tour and ns.Tour.OnTabChanged then ns.Tour:OnTabChanged(key) end
+  if ns.Activity then
+    ns.Activity:Log("tab", key)
+    if ns.state.mode ~= modeBefore then ns.Activity:Log("mode", ns.state.mode == "live" and "party" or "planner") end
+  end
 end
 
 function UI:Show(tab)
@@ -1010,12 +1016,22 @@ function UI:Show(tab)
   if tab == "builder" then ns.db.settings.compMode = "planner" elseif tab == "live" then ns.db.settings.compMode = "party" end
   tab = tab and (self.TAB_ALIAS[tab] or tab)
   if tab then self.currentTab = tab end
-  if self.frame:IsShown() then self:SetTab(tab or self.currentTab) else self.frame:Show() end
-  -- First time the window opens (no particular tab asked for): the short tour; after an update
-  -- with highlights, What's new (once). Opened on a tab (a new listing), the dot waits instead.
-  if not tab and ns.Tour then ns.Tour:MaybeStart() end
-  if not tab and ns.WhatsNew then ns.WhatsNew:MaybeShow() end
+  -- Tips wait until the tour and What's new have had their turn (B4).
+  local Tour = ns.Tour
+  local held = Tour and not Tour.holding
+  if held then Tour.holding = true end
+  local ok, err = pcall(function()
+    if self.frame:IsShown() then self:SetTab(tab or self.currentTab) else self.frame:Show() end
+    -- First time the window opens (no particular tab asked for): the short tour; after an update
+    -- with highlights, What's new (once). Opened on a tab (a new listing), the dot waits instead.
+    if not tab and Tour then Tour:MaybeStart() end
+    if not tab and ns.WhatsNew then ns.WhatsNew:MaybeShow() end
+  end)
+  if held then Tour.holding = nil end
+  if not ok then error(err, 0) end
+  if held then Tour:PumpTips() end
   self:SyncWhatsNewDot()
+  if ns.Report and ns.Report.hintPending then pcall(ns.Report.MaybeHint, ns.Report) end
 end
 
 function UI:SyncWhatsNewDot()
@@ -3728,6 +3744,10 @@ function UI:RenderFillPlan(list, plan, ctx)
     elseif plan.runnerUp then
       why = why .. " Next best: total " .. plan.runnerUp.diff .. " lower."
     end
+    -- 1.6.5: a premade's one rating counts once per member in the total.
+    for _, ev in ipairs(plan.picks) do
+      if #(ev.members or {}) > 1 then why = why .. " A group applying together has one rating, counted once per player in the total."; break end
+    end
     list:Add(why, { size = 11, gap = 2, indent = 4 })
   else
     -- Panel A (1.5.1, the author's pick, October 26): each fact once. Every shortfall is one row
@@ -4374,6 +4394,7 @@ function UI:InviteApplicant(ev, ctx)
     return false
   end
   for _, m in ipairs(ev.members or {}) do m.status = "invited" end
+  if ns.Activity then ns.Activity:Log("invite", "1 application, " .. #(ev.members or {}) .. " player" .. (#(ev.members or {}) == 1 and "" or "s")) end
   self:QueueRefresh(); self:QueueFinderRefresh()
   return true
 end
@@ -4474,7 +4495,8 @@ function UI:RenderApplicantCompare(list, ctx, a, b)
 end
 
 -- "Why 78?": the fit score taken apart, folded by default.
-local function Pts(x) return string.format("%s%.1f", x >= 0 and "+" or "-", math.abs(x)) end
+-- Ladder points: "+4", "+0.5", "-2.2".
+local function Pts(x) return (string.format("%s%.1f", x >= 0 and "+" or "-", math.abs(x)):gsub("%.0$", "")) end
 function UI:RenderScoreBreakdown(list, ctx, ev)
   local key = "score:" .. tostring(ev.applicantID)
   local open = self:IsOpen(key, false)
@@ -4529,6 +4551,9 @@ function UI:RenderApplicantDetail(list, ctx, ev, pinned)
     list:Add(HEX.muted .. "Rated poor because their role has no open slot.|r", { size = 11 })
   elseif ev.flat then
     list:Add(HEX.muted .. "No real difference between picks for this slot: decide on experience.|r", { size = 11 })
+  elseif #ev.roles > 1 then
+    list:Add(HEX.muted .. string.format("How good this group is for these %d slots: 0 is the weakest group that could fill them, 100 the best.|r",
+      #ev.roles), { size = 11 })
   else
     list:Add(HEX.muted .. string.format("How good a pick for this slot: 0 is the weakest %s, 100 the best.|r",
       ROLE_WORD[ev.roles[1]] or "pick"), { size = 11 })
@@ -4642,6 +4667,17 @@ function UI:OnListingUpdate(event)
   local has = HasListing()
   local was = self.wasListed
   self.wasListed = has
+  -- The Dungeon tab's Auto follows your listing (1.6.5, S8: it only caught up on its next
+  -- refresh): tell it when a listing starts, ends or changes dungeon.
+  local okL, listedKey = pcall(function() return has and ns.Tracker.DetectListingDungeon and ns.Tracker:DetectListingDungeon() or nil end)
+  listedKey = okL and listedKey or nil
+  if has ~= (was == true) or listedKey ~= self.listedKey then
+    self.listedKey = listedKey
+    if was ~= nil then
+      if ns.Activity then ns.Activity:Log("listing", has and ("listed" .. (listedKey and (": " .. listedKey) or "")) or "ended") end
+      ns:Fire("LISTING_CHANGED")
+    end
+  end
   -- Auto-fill is armed per listing (Settings > Fill group decides whether a new one arms it).
   if ns.db and ns.FillGroup and has ~= (was == true) then ns.FillGroup:OnListingChanged(has, was == true) end
   -- Reserved slots end with the listing they were made for (1.5.0).
@@ -6095,7 +6131,7 @@ UI.PRESETS_SETTINGS = {
   learning = { label = "Learning", explain = true, compact = false, chatStyle = "full", hidePoor = false,
                tip = "Explanations on, every need shown, full chat posts, every applicant listed." },
   expert = { label = "Expert", explain = false, compact = true, chatStyle = "short", hidePoor = true,
-             tip = "No teaching text, problems only, one-line chat posts, Poor applicants hidden." },
+             tip = "No teaching text, problems only, shorter chat posts, Poor applicants hidden." },
 }
 
 function UI:ApplySettingsPreset(key)
@@ -6389,7 +6425,7 @@ end
 function UI:BuildSettings_players(f)
   f.reset:Hide()
   SubHead(f, 8, -44, "People you play with")
-  local note = Note(f, 8, -62, 600, "Pick them when you reserve a slot (Fill group) or fill a planner slot (Composition). Kept on this computer for all your characters. Names never appear in /ens verify, /ens report, party posts or share strings.")
+  local note = Note(f, 8, -62, 600, "Pick them when you reserve a slot (Fill group) or fill a planner slot (Composition). Kept on this computer for all your characters. Names never appear in /ens report, /ens report, party posts or share strings.")
   local add = Button(f, "+ Add a player", 124, 22, function() UI:OpenReserveDialog("save") end)
   add:SetPoint("TOPLEFT", note, "BOTTOMLEFT", 0, -10)
   add.tooltip = "A name (Name-Realm) and the spec they play; add more specs afterward"
@@ -6842,7 +6878,7 @@ function UI:BuildSettings_data(f)
   local rn = Note(f, 8, -250, 520, "Opens a copyable report with your version, setup and recent errors. Add what happened at the top, then paste it with your issue.")
   local rep = Button(f, "Copy a bug report", 180, 24, function() if ns.Report then ns.Report:Run() end end)
   rep:SetPoint("TOPLEFT", rn, "BOTTOMLEFT", 0, -8)
-  rep.tooltip = "Same as /ens report. Includes specs and settings, never player names."
+  rep.tooltip = "Same as /ens report: checks the addon against your game and builds a report to copy. Specs and settings, never player names."
   SubHead(f, 8, -334, "Game data")
   Note(f, 8, -352, 420, "Ensemble " .. tostring(ns.VERSION) .. ". " .. DD:FreshnessText())
   local src = Button(f, "Sources", 90, 24, function() UI:ShowSources() end)
@@ -7148,7 +7184,7 @@ UI.TAB_EVENTS = {
     FILL_ARMED = true, FILL_DONE = true, FILL_SETTINGS_CHANGED = true, HISTORY_CHANGED = true,
     RESERVED_CHANGED = true },
   dungeons = { DUNGEON_CHANGED = true, LUST_CHANGED = true, BOSS_ORDER_CHANGED = true,
-    BOSS_DUNGEON_ENTERED = true, BOSS_DUNGEON_LEFT = true },
+    BOSS_DUNGEON_ENTERED = true, BOSS_DUNGEON_LEFT = true, LISTING_CHANGED = true },
   history = { HISTORY_CHANGED = true },
   settings = { DUNGEON_CHANGED = FillSection, LIVE_ROSTER_CHANGED = FillSection, FILL_ARMED = FillSection,
     FILL_SETTINGS_CHANGED = FillSection, RESERVED_CHANGED = FillSection, SAVED_PLAYERS_CHANGED = PlayersSection },
@@ -7162,7 +7198,7 @@ function UI:OnTabEvent(event)
   if self:TabWants(self.currentTab, event) then self:QueueRefresh() end
 end
 for _, ev in ipairs({ "COMP_CHANGED", "LUST_CHANGED", "BOSS_ORDER_CHANGED", "ASSIGNMENTS_CHANGED",
-  "HISTORY_CHANGED", "DUNGEON_CHANGED", "BOSS_DUNGEON_ENTERED", "BOSS_DUNGEON_LEFT" }) do
+  "HISTORY_CHANGED", "DUNGEON_CHANGED", "BOSS_DUNGEON_ENTERED", "BOSS_DUNGEON_LEFT", "LISTING_CHANGED" }) do
   ns:On(ev, function() UI:OnTabEvent(ev) end)
 end
 -- Fill group: a new plan, an alert, an invite sent, a must or a filter changed.

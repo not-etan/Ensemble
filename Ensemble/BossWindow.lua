@@ -310,7 +310,6 @@ end
 
 function BW:Show()
   self:Build()
-  self.closedByUser = nil
   if ns.Tracker then ns.Tracker:Acquire("bosswindow") end
   self.frame:Show()
   self:Refresh()
@@ -318,7 +317,6 @@ function BW:Show()
 end
 
 function BW:Hide(byUser)
-  if byUser then self.closedByUser = true end
   if self.frame then self.frame:Hide() end
   if ns.Tracker then ns.Tracker:Release("bosswindow") end
 end
@@ -344,7 +342,6 @@ ns:On("BOSS_DUNGEON_ENTERED", function()
   if s and s.autoOpen ~= false then BW:Show() end
 end)
 ns:On("BOSS_DUNGEON_LEFT", function()
-  BW.closedByUser = nil
   if BW:IsShown() then BW:Hide() end
 end)
 -- Change events arrive in bursts (a roster update, then the plan, then a setting); one rebuild

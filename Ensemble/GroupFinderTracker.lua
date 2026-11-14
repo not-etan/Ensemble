@@ -10,7 +10,7 @@
 --
 -- Midnight "Secret Values": nothing here uses combat-log data. Class/spec/role queries on
 -- party units are not secret-restricted: player and party class/role confirmed readable in
--- 12.1.0 (/ens verify); worth re-checking inside a running key.
+-- 12.1.0 (/ens report); worth re-checking inside a running key.
 
 local _, ns = ...
 
@@ -29,6 +29,11 @@ local INSPECT_TIMEOUT = 6       -- give up waiting on one INSPECT_READY after th
 
 local specByGUID = {}           -- guid -> specID (from inspect)
 local specByName = {}           -- "Name-Realm" -> specID (from applicant data)
+local specNameSeen = {}         -- "Name-Realm" -> GetTime() when an application last carried it
+local SPEC_NAME_KEEP = 300      -- seconds an application's spec is kept after it was last seen
+local forceInspect = {}         -- guid -> true: confirm a cached spec with one inspect (1.6.5, S4)
+local roleChecked = {}          -- guid -> specID an inspect confirmed although the assigned role differs
+local roleRecheck = {}          -- guid -> true while that confirming inspect is out
 local inspectQueue = {}         -- guids waiting for inspection
 local inspectPending = nil      -- { guid, unit, started }
 local updateTimer = nil
@@ -127,7 +132,12 @@ function Tracker:Release(owner)
   if inspectTimer then inspectTimer:Cancel(); inspectTimer = nil end
   inspectPending = nil
   wipe(inspectQueue)
+  wipe(forceInspect); wipe(roleRecheck)
   ns.state.autoDungeon = nil
+  -- Nothing is listening anymore, so the roster would go stale: the next owner starts from an
+  -- empty one instead of the previous group's (1.6.5, B3: a key could be saved with it).
+  self.members, self.applicants, self.hosting = {}, {}, false
+  self.lastSig = nil
 end
 
 function Tracker:IsHeldBy(owner) return owners[owner] == true end
@@ -141,7 +151,7 @@ function Tracker:RequestUpdate(delay)
   updateTimer = C_Timer.NewTimer(delay or DEBOUNCE_SECONDS, function()
     updateTimer = nil
     -- A timer callback has nobody above it to catch an error: keep it contained (the next
-    -- roster event rescans again) and count it for /ens verify.
+    -- roster event rescans again) and count it for /ens report.
     local ok, err = pcall(Tracker.Rescan, Tracker)
     if not ok then
       Tracker.rescanErrors = (Tracker.rescanErrors or 0) + 1
@@ -151,7 +161,7 @@ function Tracker:RequestUpdate(delay)
 end
 
 -- Unit reads inside a key may come back as Midnight "secret" values: treat one as unknown,
--- like a spec that hasn't been inspected yet. Counted for /ens verify.
+-- like a spec that hasn't been inspected yet. Counted for /ens report.
 local function Readable(v)
   if v == nil or not issecretvalue then return v end
   local ok, secret = pcall(issecretvalue, v)
@@ -195,7 +205,7 @@ local function ScheduleInspect()
   inspectTimer = C_Timer.NewTimer(INSPECT_INTERVAL, function()
     inspectTimer = nil
     -- Same as the rescan timer: nothing above a timer callback catches an error, so keep it
-    -- contained (the next roster change queues the inspect again) and count it for /ens verify.
+    -- contained (the next roster change queues the inspect again) and count it for /ens report.
     local ok, err = pcall(Tracker.ProcessInspectQueue, Tracker)
     if not ok then
       Tracker.rescanErrors = (Tracker.rescanErrors or 0) + 1
@@ -219,7 +229,8 @@ function Tracker:ProcessInspectQueue()
   while #inspectQueue > 0 do
     local guid = table.remove(inspectQueue, 1)
     local unit = UnitForGUID(guid)
-    if unit and not specByGUID[guid] and CanInspect and CanInspect(unit) then
+    if unit and (not specByGUID[guid] or forceInspect[guid]) and CanInspect and CanInspect(unit) then
+      forceInspect[guid] = nil
       -- NotifyInspect / GetInspectSpecialization: long-standing, not protected.
       -- Confirmed working in 12.1.0 (build 69933): party specs read via inspect.
       NotifyInspect(unit)
@@ -231,8 +242,11 @@ function Tracker:ProcessInspectQueue()
   if #inspectQueue > 0 or inspectPending then ScheduleInspect() end
 end
 
-local function QueueInspect(guid)
-  if not guid or specByGUID[guid] then return end
+-- force: inspect even though a spec is cached (to confirm one that came from an application).
+local function QueueInspect(guid, force)
+  if not guid then return end
+  if force then forceInspect[guid] = true end
+  if specByGUID[guid] and not forceInspect[guid] then return end
   if inspectPending and inspectPending.guid == guid then return end
   for _, g in ipairs(inspectQueue) do if g == guid then return end end
   table.insert(inspectQueue, guid)
@@ -308,7 +322,7 @@ local function ReadApplicants()
           if okM and name then
             if type(specID) ~= "number" or specID == 0 or not ns.UD:GetSpec(specID) then specID = nil end
             local key = NormalizeName(Readable(name))
-            if specID and key then specByName[key] = specID end
+            if specID and key then specByName[key] = specID; specNameSeen[key] = Now() end
             table.insert(out, {
               applicantID = applicantID, name = name, classFile = classFile, specID = specID,
               full = NormalizeName(Readable(name)),   -- "Name-Realm", for past keys together (1.5.0)
@@ -343,6 +357,12 @@ function Tracker:Rescan()
     for i = 1, 4 do units[#units + 1] = "party" .. i end
   end
 
+  -- Specs from applications that ended a while ago go (the table only grew before 1.6.5).
+  local now = Now()
+  for key, at in pairs(specNameSeen) do
+    if now - at > SPEC_NAME_KEEP then specNameSeen[key] = nil; specByName[key] = nil end
+  end
+
   local present = {}
   for _, unit in ipairs(units) do
     if Readable(UnitExists(unit)) then
@@ -365,16 +385,29 @@ function Tracker:Rescan()
           -- per-player cache, so a spec change (which clears that) can't bring the old one back.
           local full = FullName(unit)
           specID = full and specByName[full]
-          if specID and guid then specByName[full] = nil end
+          if specID and guid then
+            specByName[full] = nil; specNameSeen[full] = nil
+            -- They may have changed spec between applying and joining: one inspect confirms it.
+            QueueInspect(guid, true)
+          end
         end
         if specID and guid then specByGUID[guid] = specID end
       end
       if type(specID) ~= "number" or not ns.UD:GetSpec(specID) then specID = nil end
       -- Spec belongs to another class (stale cache)? Drop it.
       if specID and classFile and ns.UD:GetSpec(specID).class ~= classFile then specID = nil end
-      if not specID and guid and not isPlayer then QueueInspect(guid) end
       local role = Readable(UnitGroupRolesAssigned and UnitGroupRolesAssigned(unit) or "NONE")
       if type(role) ~= "string" then role = "NONE" end
+      -- A cached spec whose role differs from the role the group assigned them is probably old
+      -- (they changed spec while nothing was listening): drop it and inspect again. Once an
+      -- inspect confirms that same spec, it stays (a tank spec queued as DPS is possible).
+      if specID and guid and not isPlayer and (role == "TANK" or role == "HEALER" or role == "DAMAGER")
+         and ns.UD:GetSpec(specID).role ~= role and roleChecked[guid] ~= specID then
+        specByGUID[guid] = nil
+        roleRecheck[guid] = true
+        specID = nil
+      end
+      if not specID and guid and not isPlayer then QueueInspect(guid) end
       if specID and role == "NONE" then role = ns.UD:GetSpec(specID).role end
       if guid then present[guid] = true end
       local name = Readable(UnitName(unit))
@@ -503,7 +536,10 @@ frame:SetScript("OnEvent", function(_, event, arg1)
     if not unit and not (inspectPending and inspectPending.guid == guid) then return end
     if unit and GetInspectSpecialization then
       local s = Readable(GetInspectSpecialization(unit))
-      if type(s) == "number" and s > 0 then specByGUID[guid] = s end
+      if type(s) == "number" and s > 0 then
+        specByGUID[guid] = s
+        if roleRecheck[guid] then roleRecheck[guid] = nil; roleChecked[guid] = s end
+      end
     end
     if inspectPending and inspectPending.guid == guid then
       inspectPending = nil
@@ -521,14 +557,7 @@ frame:SetScript("OnEvent", function(_, event, arg1)
     end
     Tracker:RequestUpdate()
   elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
-    -- arg1 = unit whose spec changed; invalidate their cached spec.
-    if arg1 and arg1 ~= "player" then
-      local guid = Readable(UnitGUID(arg1))
-      if guid then specByGUID[guid] = nil end
-      -- And the spec from their application, if it's still here (1.4.1 review, R2).
-      local full = FullName(arg1)
-      if full then specByName[full] = nil end
-    end
+    -- The cached spec is dropped by the always-on listener below; here the roster is re-read.
     Tracker:RequestUpdate()
   elseif event == "PLAYER_REGEN_ENABLED" then
     if #inspectQueue > 0 then ScheduleInspect() end
@@ -536,3 +565,35 @@ frame:SetScript("OnEvent", function(_, event, arg1)
     Tracker:RequestUpdate()
   end
 end)
+
+---------------------------------------------------------------------------
+-- Spec changes while nobody holds the tracker (1.6.5, B2)
+---------------------------------------------------------------------------
+-- The tracker's own events stop when its last owner lets go, but the spec cache stays. A party
+-- member who changed spec meanwhile would come back with the old one and no inspect. This
+-- listener is always registered and only forgets that unit's cached spec; it reads nothing else.
+function Tracker:ForgetSpec(unit)
+  unit = Readable(unit)
+  if type(unit) ~= "string" or unit == "player" then return end
+  local guid = Readable(UnitGUID(unit))
+  if guid then specByGUID[guid] = nil; roleChecked[guid] = nil; roleRecheck[guid] = nil end
+  -- And the spec from their application, if it's still here (1.4.1 review, R2).
+  local full = FullName(unit)
+  if full then specByName[full] = nil; specNameSeen[full] = nil end
+end
+local specWatch = CreateFrame("Frame")
+Tracker.specWatch = specWatch
+Tracker.specWatchOK = pcall(specWatch.RegisterEvent, specWatch, "PLAYER_SPECIALIZATION_CHANGED") and true or false
+specWatch:SetScript("OnEvent", function(_, _, unit)
+  local ok, err = pcall(Tracker.ForgetSpec, Tracker, unit)
+  if not ok then
+    Tracker.rescanErrors = (Tracker.rescanErrors or 0) + 1
+    Tracker.lastRescanError = tostring(err)
+  end
+end)
+-- For tests and the report: how many names are waiting from applications.
+function Tracker:SpecNameCount()
+  local n = 0
+  for _ in pairs(specByName) do n = n + 1 end
+  return n
+end
