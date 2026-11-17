@@ -221,7 +221,7 @@ end
 local LINE_MAX = 250
 
 -- One chat line per role (ALL first), "[Ensemble] Boss -" on the first. Your personal jobs are
--- not included: the Plan tab's "Post assignments" covers everyone's jobs.
+-- not included: the Plan tab's "Post essentials" and "Post everything" covers everyone's jobs.
 function BC:ChatLines(dk, i)
   local b = self:Boss(dk, i)
   if not b then return {} end
@@ -243,14 +243,73 @@ end
 ---------------------------------------------------------------------------
 -- Which boss you're on
 ---------------------------------------------------------------------------
--- state: { dk, index, killed = { [i] = true }, at = time }, saved in db.bossProgress so a
+-- state: { dk, index, phase, killed = { [i] = true }, at = time }, saved in db.bossProgress so a
 -- /reload mid-key keeps it. A new key, or entering another dungeon, starts it over.
+-- phase (1.7.0): "trash" = the section on the way to boss `index`, "boss" = its card. The
+-- window shows the trash section until the boss is pulled, then the card, then the next
+-- section after the kill.
 BC.state = { killed = {} }
 
 local function Save()
   local db = ns.db
   if not db then return end
-  db.bossProgress = { dk = BC.state.dk, index = BC.state.index, killed = BC.state.killed, at = time and time() or 0 }
+  db.bossProgress = { dk = BC.state.dk, index = BC.state.index, phase = BC.state.phase, killed = BC.state.killed, at = time and time() or 0 }
+end
+
+-- A boss fight is running right now (guarded; a secret or missing answer counts as no).
+local function EncounterRunning()
+  if not IsEncounterInProgress then return false end
+  local ok, on = pcall(IsEncounterInProgress)
+  if not ok or on == nil then return false end
+  if issecretvalue then
+    local okS, secret = pcall(issecretvalue, on)
+    if not okS or secret then return false end
+  end
+  return on == true
+end
+BC.EncounterRunning = EncounterRunning
+
+-- Does the trash before this boss have a page of its own? Yes when the section has rows (the
+-- guides' or moved in by you), rows you hid (they stay counted) or a Bloodlust planned there.
+-- Bosses sharing one merged section (a shared path done in another order) show it once, before
+-- the first of them.
+function BC:HasTrashPage(dk, idx)
+  local WT = ns.Walkthrough
+  if not (WT and dk and idx) then return false end
+  local st = WT:TrashStep(dk, idx)
+  if not st or st.boss ~= idx then return false end
+  return #st.reqs > 0 or #(st.hidden or {}) > 0 or #WT:LustAt(dk, st) > 0
+end
+
+-- Every page of a dungeon in your boss order: the trash before each boss (when it has a page),
+-- then the boss. { { index, phase } }
+function BC:Pages(dk)
+  local out = {}
+  for _, idx in ipairs(self:Order(dk)) do
+    if self:HasTrashPage(dk, idx) then out[#out + 1] = { index = idx, phase = "trash" } end
+    out[#out + 1] = { index = idx, phase = "boss" }
+  end
+  return out
+end
+
+-- The page after stepping `d` from (idx, phase), wrapping around.
+function BC:PageFrom(dk, idx, phase, d)
+  local pages = self:Pages(dk)
+  local n = #pages
+  if n == 0 then return nil end
+  local at = 1
+  for i, p in ipairs(pages) do
+    if p.index == idx and p.phase == phase then at = i; break end
+    if p.index == idx then at = i end   -- no trash page for this boss: its card
+  end
+  return pages[((at - 1 + d) % n) + 1]
+end
+
+-- What the window shows for the dungeon you're in: "trash" only while that section has a page.
+function BC:Phase()
+  local st = self.state
+  if st.dk and st.phase == "trash" and self:HasTrashPage(st.dk, st.index) then return "trash" end
+  return "boss"
 end
 
 local function norm(s) return (tostring(s or ""):lower():gsub("[^%w]", "")) end
@@ -533,6 +592,8 @@ function BC:Enter(dk)
     self.state = { dk = dk, killed = {} }
   end
   self.state.index = self:FirstAlive(dk, self.state.killed)
+  -- On the way to that boss, unless you came back (a /reload, a release) mid-fight.
+  self.state.phase = EncounterRunning() and "boss" or "trash"
   Save()
   return true
 end
@@ -548,29 +609,32 @@ function BC:NewRun()
   if self.state.dk then
     self.state.killed = {}
     self.state.index = self:Order(self.state.dk)[1] or 1
+    self.state.phase = "trash"
     Save()
   end
 end
 
-function BC:Show(index)
+-- Turn to a boss: its card, or with phase "trash" the section on the way to it.
+function BC:Show(index, phase)
   local dk = self.state.dk
   if not dk then return end
   local n = #self:Bosses(dk)
   if n == 0 then return end
   self.state.index = ((index - 1) % n) + 1
+  self.state.phase = phase == "trash" and "trash" or "boss"
   Save()
   ns:Fire("BOSS_CARD_CHANGED")
 end
 
--- Page to the boss before or after the current one, in the player's order.
+-- Page to the page before or after the current one, in the player's order: the trash before
+-- a boss (when it has a page), then the boss.
 function BC:Step(d)
   local dk = self.state.dk
   if not dk then return end
   local order = self:Order(dk)
-  local n = #order
-  if n == 0 then return end
-  local pos = self:Position(dk, self.state.index or order[1])
-  self:Show(order[((pos - 1 + d) % n) + 1])
+  if #order == 0 then return end
+  local p = self:PageFrom(dk, self.state.index or order[1], self:Phase(), d)
+  if p then self:Show(p.index, p.phase) end
 end
 
 function BC:OnEncounterStart(encounterID, name)
@@ -595,7 +659,9 @@ function BC:OnEncounterEnd(encounterID, name, difficultyID, groupSize, success)
     self.matches[how] = (self.matches[how] or 0) + 1
     if ns.Activity then ns.Activity:Log("boss", "kill: boss " .. tostring(self:Position(dk, idx) or idx) .. " of " .. #self:Bosses(dk) .. " (matched by " .. how .. ")") end
   end
-  self:Show(self:FirstAlive(dk, self.state.killed))
+  -- On to the next boss: the trash on the way first. After the last kill the card stays.
+  local nextIdx = self:FirstAlive(dk, self.state.killed)
+  self:Show(nextIdx, self.state.killed[nextIdx] and "boss" or "trash")
 end
 
 -- The key's boss objectives (1.5.1, F1 extra): every boss they show as down is marked killed,
@@ -617,7 +683,10 @@ function BC:SyncObjectives()
       end
     end
   end
-  if changed then self:Show(self:FirstAlive(dk, self.state.killed)) end
+  if changed then
+    local nextIdx = self:FirstAlive(dk, self.state.killed)
+    self:Show(nextIdx, (self.state.killed[nextIdx] or EncounterRunning()) and "boss" or "trash")
+  end
   return changed
 end
 

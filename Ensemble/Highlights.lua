@@ -5,6 +5,11 @@
 local _, ns = ...
 
 ns.HIGHLIGHTS = {
+  { version = "1.7.0", items = {
+    { title = "Essentials first", text = "Composition, Dungeon and Plan now open on what matters most: the critical and high needs in plain words, one line each, with everything else counted and named on a \"+ N more\" line. Everything (top right of each tab) shows every row, as before; your choice is remembered per tab.", show = "tour" },
+    { title = "Your brief", text = "The Dungeon tab opens with one panel for your own spec: what you kick, stop, dispel and use a defensive on, what isn't yours but can end the key, and the Bloodlust plan. No group needed; in a group it names who shares each cast." },
+    { title = "The boss window covers the trash", text = "Between bosses it shows the trash on the way to the next one, with your casts on top, then turns to the boss card on the pull. Hide the trash your group skips, or move a row to the section where you fight it." },
+  } },
   { version = "1.6.5", items = {
     { title = "Fairer pick ratings", text = "A rating now counts each gap a player closes by how serious it is, so one very heavy mechanic no longer pushes every other useful pick down to Poor. When little separates the picks, ratings stay close together instead of being stretched from 0 to 100. Every rating changes a little." },
     { title = "Groups applying together rate fairly", text = "A premade is measured against the best group that could really fill its slots, so a strong pair can read Great (none could before), and Fill group counts a pair's rating once for each of its players." },

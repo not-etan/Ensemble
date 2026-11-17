@@ -155,10 +155,16 @@ function AS:Build(r, settings)
   plan.labels = labels
   local load, kickCount, dispelCount = {}, {}, {}
 
-  -- Requirements, most dangerous first (stable by id).
+  -- Requirements, most dangerous first (stable by id). Trash you skip (hidden in every section
+  -- on the Dungeon tab or in the boss window) is left out of the plan and counted.
+  local skip = {}
+  if ns.Walkthrough and ns.Walkthrough.SkippedReqs and r.dungeon.key then skip = ns.Walkthrough:SkippedReqs(r.dungeon.key) end
+  plan.skipped = {}
   local items = {}
   for _, it in ipairs(r.dungeon.items) do
-    if not it.aggregate and not it.req.invalid then items[#items + 1] = it end
+    if not it.aggregate and not it.req.invalid then
+      if skip[it.req.id] then plan.skipped[#plan.skipped + 1] = it.req else items[#items + 1] = it end
+    end
   end
   table.sort(items, function(a, b)
     local x, y = SEV_RANK[a.req.severity] or 9, SEV_RANK[b.req.severity] or 9
@@ -345,6 +351,26 @@ function AS:Build(r, settings)
     end
   end
 
+  -- Everything else the dungeon asks for (stops, defensives, freedoms...): no rotation to plan,
+  -- but the sheet's "big ones" and the Essentials post name them with who can answer.
+  plan.others = {}
+  for _, it in ipairs(items) do
+    local req = it.req
+    if req.need ~= "interrupt" and not DISPEL_KEYS[req.need] then
+      local row = { req = req, item = it, cast = AS.CastName(req), severity = req.severity or "medium", need = req.need,
+                    status = it.status, who = {}, notes = {} }
+      local seen = {}
+      for _, p in ipairs(it.providers or {}) do
+        if p.index and not seen[p.index] then
+          seen[p.index] = true
+          row.who[#row.who + 1] = { index = p.index, label = labels[p.index], ability = p.entry and p.entry.name, key = req.need,
+            class = p.member and p.member.classFile, isPlayer = p.member and p.member.isPlayer, pending = p.member and p.member.pending }
+        end
+      end
+      plan.others[#plan.others + 1] = row
+    end
+  end
+
   -- Per-player summary. "Heavy" = clearly more kick load than the others carry.
   local sum, n = 0, 0
   for i in ipairs(r.members) do if load[i] then sum = sum + load[i]; n = n + 1 end end
@@ -518,6 +544,70 @@ function AS:JobText(job, style, drop)
   return text:match("[%.!?]$") and text or (text .. ".")
 end
 
+---------------------------------------------------------------------------
+-- Owners (1.7.0): who a cast belongs to, without the order. A kick's owners are its rotation
+-- ("yours, shared with ..."); a dispel's owner is its dispeller. The exact order ("1st of 2")
+-- stays in the Everything view and the full post.
+---------------------------------------------------------------------------
+function AS.Owners(row)
+  if row.kickers and #row.kickers > 0 then return row.kickers end
+  if row.primary then return { row.primary } end
+  if row.stoppers then return row.stoppers end
+  return row.who or {}
+end
+
+local BIG = { critical = true, high = true }
+AS.BIG = BIG
+local KIND_RANK = { dispel = 1, kick = 2, other = 3 }
+
+-- Every row of the plan with its kind, most dangerous first (dispels, then kicks, then the
+-- rest, each by requirement id). `big` = critical or high.
+function AS:Rows(plan)
+  local out = {}
+  if not plan then return out end
+  for _, row in ipairs(plan.dispels or {}) do out[#out + 1] = { kind = "dispel", row = row } end
+  for _, row in ipairs(plan.kicks or {}) do out[#out + 1] = { kind = "kick", row = row } end
+  for _, row in ipairs(plan.others or {}) do out[#out + 1] = { kind = "other", row = row } end
+  for _, e in ipairs(out) do e.big = BIG[e.row.severity] or false end
+  table.sort(out, function(a, b)
+    local x, y = SEV_RANK[a.row.severity] or 9, SEV_RANK[b.row.severity] or 9
+    if x ~= y then return x < y end
+    if KIND_RANK[a.kind] ~= KIND_RANK[b.kind] then return KIND_RANK[a.kind] < KIND_RANK[b.kind] end
+    return tostring(a.row.req.id) < tostring(b.row.req.id)
+  end)
+  return out
+end
+
+-- The big ones (critical and high) and the rest, split.
+function AS:BigRows(plan)
+  local big, rest = {}, {}
+  for _, e in ipairs(self:Rows(plan)) do
+    if e.big then big[#big + 1] = e else rest[#rest + 1] = e end
+  end
+  return big, rest
+end
+
+local STOP_NEED = { stop = true, aoe_stop = true }
+-- The word a row leads with: KICK, DISPEL, PURGE, SOOTHE, STOP, or the need's short name.
+function AS:RowVerb(e)
+  if e.kind == "kick" then return "KICK" end
+  if e.kind == "dispel" then return (e.row.type == "Purge" and "PURGE") or (e.row.type == "Soothe" and "SOOTHE") or "DISPEL" end
+  if STOP_NEED[e.row.need] then return "STOP" end
+  return (ns.UD and ns.UD:CapShort(e.row.need) or tostring(e.row.need)):upper()
+end
+
+-- Who answers a row, as plain names: "Ann, Bob", "anyone with CC" (a single-target stop with
+-- at least one stopper), or nil when nobody can.
+function AS:OwnerNames(e, shorten)
+  local row = e.row
+  local owners = AS.Owners(row)
+  if e.kind == "other" and row.need == "stop" then return #owners > 0 and "anyone with CC" or nil end
+  if #owners == 0 then return nil end
+  local t = {}
+  for _, w in ipairs(owners) do t[#t + 1] = shorten and shorten(w.label) or ShortName(w.label) end
+  return table.concat(t, ", ")
+end
+
 local LINE_MAX = 250
 -- A post line too long for one chat message goes on as "Name (cont.): ..." lines: nothing is
 -- dropped or cut (every kick, stop, dispel and backup stays in the post).
@@ -552,5 +642,50 @@ function AS:ChatLines(plan, dungeonName, style)
   if #un.kicks > 0 then
     Add(out, "Nobody can kick ", table.concat(un.kicks, ", ") .. ": CC or defensives.", "Nobody can kick (cont.): ")
   end
+  return out
+end
+
+
+-- The Essentials post (1.7.0, the default): the critical and high needs with their owners,
+-- the Bloodlust plan, and anything nobody can handle. Casts with the same owners share a
+-- line. `lust` is the Bloodlust chat line (Walkthrough:LustChat) or nil.
+function AS:EssentialLines(plan, dungeonName, lust)
+  if not plan or plan.empty and #(plan.others or {}) == 0 then return {} end
+  local out = {}
+  local where = dungeonName and (" " .. dungeonName) or ""
+  local big = self:BigRows(plan)
+  local groups, byKey = {}, {}
+  for _, e in ipairs(big) do
+    local names = self:OwnerNames(e)
+    if names then
+      local verb = self:RowVerb(e)
+      local key = verb .. "\0" .. names
+      local g = byKey[key]
+      if not g then g = { verb = verb, names = names, casts = {} }; byKey[key] = g; groups[#groups + 1] = g end
+      local cast = e.row.cast
+      if verb == "DISPEL" then cast = cast .. " (" .. e.row.type .. ")" end
+      g.casts[#g.casts + 1] = cast
+      if e.kind == "dispel" and e.row.severity == "critical" and not e.row.backup then g.noBackup = true end
+    end
+  end
+  out[1] = "[Ensemble]" .. where .. ", the big ones" .. (#groups > 0 and ":" or ": nothing critical or high to assign.")
+  for _, g in ipairs(groups) do
+    Add(out, g.verb .. " ", table.concat(g.casts, " + ") .. ": " .. g.names .. (g.noBackup and " (no backup)" or ""), g.verb .. " (cont.): ")
+  end
+  if lust then Add(out, "", lust, "Lust (cont.): ") end
+  local un = self:Uncovered(plan)
+  for _, g in ipairs(un.dispelGroups) do
+    local tail = #g.defs > 0 and (": use defensives (" .. table.concat(g.defs, ", ") .. ").")
+      or (", and nobody has a defensive for " .. (#g.what > 1 and "them." or "it."))
+    Add(out, "Nobody can remove ", table.concat(g.what, ", ") .. tail, "Nobody can remove (cont.): ")
+  end
+  if #un.kicks > 0 then
+    Add(out, "Nobody can kick ", table.concat(un.kicks, ", ") .. ": CC or defensives.", "Nobody can kick (cont.): ")
+  end
+  local nobody = {}
+  for _, e in ipairs(big) do
+    if e.kind == "other" and not self:OwnerNames(e) then nobody[#nobody + 1] = self:RowVerb(e) .. " " .. e.row.cast end
+  end
+  if #nobody > 0 then Add(out, "Nobody covers ", table.concat(nobody, ", ") .. ": plan defensives.", "Nobody covers (cont.): ") end
   return out
 end

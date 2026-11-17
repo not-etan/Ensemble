@@ -35,6 +35,13 @@ local function boot(skipMeta)
     for _, t in ipairs(ns.Tour and ns.Tour.TIPS or {}) do ns.db.tipsSeen[t.id] = true end
     ns.db.lastSeenVersion = ns.VERSION
   end
+  -- Essentials is the default view since 1.7.0 and the Dungeon tab's role filter starts on
+  -- "You"; the older blocks check the Everything layouts with every role, so the baseline is
+  -- set here. Blocks 87 and later set KEEP_VIEW to test the defaults.
+  if ns.db and not KEEP_VIEW then
+    ns.db.settings.view = { composition = "everything", dungeons = "everything", plan = "everything" }
+    ns.db.settings.walkRole = "ALL"
+  end
   return ns
 end
 
@@ -300,8 +307,8 @@ ok(ns.state.liveDungeon == "AltarOfFangs" and ns:GetEffectiveDungeon() == "Altar
 ok(T.hosting == false, "not hosting after delist")
 
 -- 12. UI smoke over every tab, both views, with and without dungeon
-for _, compact in ipairs({ false, true }) do
-  ns.db.settings.compact = compact
+for _, view in ipairs({ "everything", "essentials" }) do
+  ns.db.settings.view = { composition = view, dungeons = view, plan = view }
   for _, tab in ipairs({ "builder", "live", "applicants", "dungeons", "plan", "history", "settings" }) do
     UI:Show(tab); RunTimers()
   end
@@ -338,7 +345,7 @@ ns2.UI:Show("builder"); RunTimers(); ns2.UI:Hide()
 -- 15. Damaged saved data is cleaned up on load
 EnsembleDB = { savedComps = { { name = "Alpha", slots = { 73 } }, "junk" }, currentComp = "x" }
 local ns3 = boot()
-ok(ns3.db.schema == 4, "schema set")
+ok(ns3.db.schema == 5, "schema set")
 ok(#ns3.db.savedComps == 1 and ns3.db.savedComps[1].name == "Alpha", "junk comp dropped")
 ok(ns3.db.savedComps[1].slots[5] == 0, "short slots padded")
 ok(type(ns3.db.currentComp) == "table" and ns3.db.currentComp[1] == 0, "bad currentComp reset")
@@ -875,12 +882,13 @@ do
   UIn.cp.collapseBtn:Click(); RunTimers()
   ok(UIn.expand["row:interrupt"] == nil and UIn.readyMode == "none", "collapse all folds rows opened by hand")
   UIn.readyMode = nil; UIn:Refresh(); RunTimers()
-  -- Summary view keeps every problem with its detail
-  nsN.db.settings.compact = true; nsN:Fire("SETTINGS_CHANGED"); UIn:Refresh(); RunTimers()
+  -- Essentials (1.7.0, replaced Summary view) keeps every problem, in plain words, and counts the rest
+  UIn:SetView("composition", "essentials"); UIn:Refresh(); RunTimers()
   analysisText = dump(an)
-  ok(analysisText:find("Cytotoxin", 1, true) and analysisText:find("Time Warp", 1, true) and analysisText:find("not shown in Summary view", 1, true),
-    "summary view: problems with reasons and coverers, covered rows counted")
-  nsN.db.settings.compact = false
+  ok(analysisText:find("Cytotoxin", 1, true) and analysisText:find("Brings it", 1, true) and analysisText:find("COVERED (", 1, true),
+    "essentials: problems with the cast and who brings it, covered needs counted")
+  ok(nsN.db.settings.compact == nil, "the Summary view setting is gone")
+  UIn:SetView("composition", "everything"); UIn:Refresh(); RunTimers()
   -- A need unticked in What to check leaves the list; the dungeon's other needs stay (the
   -- six per-topic switches without a control were removed in 1.6.5, S10)
   nsN.db.settings.ignoredNeeds.soothe = true; nsN:Fire("SETTINGS_CHANGED"); UIn:Refresh(); RunTimers()
@@ -1106,8 +1114,9 @@ do
   ok(postBtn and postBtn:IsEnabled() and postBtn.tooltip:find("Not in a group", 1, true) and postBtn.tooltip:find(msg, 1, true),
     "post gaps button present, its tooltip previews the post")
   ok(UIc.pl.postPlanBtn:IsEnabled() and UIc.pl.postPlanBtn.tooltip:find(" assignments", 1, true),
-    "post assignments button previews the assignments post: " .. tostring(UIc.pl.postPlanBtn.tooltip))
-  ok(UIc.pl.chatStyleBtn.text:GetText() == "Chat style: full", "chat style link beside the buttons")
+    "post everything button previews the assignments post: " .. tostring(UIc.pl.postPlanBtn.tooltip))
+  ok(UIc.pl.postPlanBtn.text:GetText() == "Post everything" and UIc.pl.postPlanBtn.tooltip:find("full chat style: Settings > Party chat", 1, true)
+    and UIc.pl.chatStyleBtn == nil, "the chat style is named in Post everything's tooltip (the link beside the buttons is gone, 1.7.0)")
   local planLines = dump(plan)
   ok(not planLines:find("> Post gaps", 1, true) and not planLines:find("> Post assignments", 1, true), "the Post lines are gone from the list")
   SENT = {}; PRINTED = ""
@@ -1858,7 +1867,9 @@ do
   -- 3. Dungeon primer
   UIl:Show("dungeons"); RunTimers()
   UIl:SetPrimerPick("TempleOfSethraliss"); UIl:Refresh(); RunTimers()
-  local at, vt = dump(UIl.pp.asks), dump(UIl.pp.value)
+  UIl:ShowBestClasses(); RunTimers()   -- 1.7.0: the right-hand column became the "Best classes here" panel
+  local at, vt = dump(UIl.pp.asks), dump(UIl.bestClasses.list)
+  UIl.bestClasses:Hide()
   ok(at:find("MAGIC DISPEL", 1, true) and at:find("Imbued Conduction", 1, true) and at:find("Dispel every one", 1, true), "primer: needs with mechanics")
   ok(vt:find("TANK", 1, true) and vt:find("HEALER", 1, true) and vt:find("DPS", 1, true) and vt:find("answers:", 1, true), "primer: best value per role")
   ok(vt:find("KEY NEEDS: TEMPLE OF SETHRALISS", 1, true) and not vt:find("Kick: 1", 1, true), "primer: key needs, no assignments")
@@ -2253,10 +2264,11 @@ do
   ok(U.settingsFrames.chat:IsShown(), "gear jumps to its section")
   U:ApplySettingsPreset("expert")
   local st = nsF.db.settings
-  ok(st.explain == false and st.compact == true and st.chatStyle == "short" and st.applicantView.hidePoor == true, "Expert preset applied")
+  ok(st.explain == false and U:AllViews() == "everything" and st.chatStyle == "short" and st.applicantView.hidePoor == true, "Expert preset applied")
   ok(U:CurrentSettingsPreset() == "expert", "current preset recognized")
   U:ApplySettingsPreset("learning")
-  ok(st.explain == true and st.compact == false and st.chatStyle == "full" and U:CurrentSettingsPreset() == "learning", "Learning preset applied")
+  ok(st.explain == true and U:AllViews() == "essentials" and st.chatStyle == "full" and U:CurrentSettingsPreset() == "learning", "Learning preset applied")
+  U:SetAllViews("everything")   -- the rest of this block checks the Everything layouts
   st.chatStyle = "short"
   ok(U:CurrentSettingsPreset() == nil, "a changed setting reads as your own mix")
   U:ResetSettingsSection("chat")
@@ -3867,17 +3879,18 @@ do
   ok(pl.leftTitle:GetText() == "YOUR PLAN" and d60(pl.mine):find("YOUR ASSIGNMENTS", 1, true), "#5: Your plan panel keeps its Your assignments section")
   -- The Dungeon tab's sheet keeps its own header (it has no panel title naming the dungeon).
   ns60.UI:Show("dungeons"); RunTimers()
-  ok(d60(ns60.UI.pp.value):find("KEY NEEDS: DEN OF NALORAKK", 1, true), "#5: Dungeon tab keeps its Key needs header")
+  ns60.UI:ShowBestClasses(); RunTimers()
+  ok(d60(ns60.UI.bestClasses.list):find("KEY NEEDS: DEN OF NALORAKK", 1, true), "#5: the Dungeon tab's Best classes panel keeps its Key needs header")
+  ns60.UI.bestClasses:Hide()
   -- #9: buttons enable with a group and disable (with the reason) without one.
   ns60.UI:Show("plan"); RunTimers()
   ok(pl.postPlanBtn:IsEnabled() and pl.postGapsBtn:IsEnabled(), "#9: both Post buttons on with a group")
   ns60.db.currentComp = { 0, 0, 0, 0, 0 }; ns60.UI:Refresh(); RunTimers()
   ok(not pl.postPlanBtn:IsEnabled() and pl.postPlanBtn.tooltip == "Add players first." and not pl.postGapsBtn:IsEnabled()
     and pl.postGapsBtn:GetAlpha() < 1, "#9: off without players, tooltip says why")
+  ns60.db.currentComp = { 73, 257, 62, 71, 260 }
   ns60.db.settings.chatStyle = "short"; ns60.UI:Refresh(); RunTimers()
-  ok(pl.chatStyleBtn.text:GetText() == "Chat style: short", "#9: chat style link follows the setting")
-  pl.chatStyleBtn:Click(); RunTimers()
-  ok(ns60.UI.currentTab == "settings", "#9: the chat style link opens Settings")
+  ok(pl.postPlanBtn.tooltip:find("short chat style: Settings > Party chat", 1, true), "#9: Post everything's tooltip follows the chat style")
   ns60.state.keyLevelOverride = nil
   CURRENT_AFFIXES = {}
   ns60.UI:Hide()
@@ -4205,12 +4218,13 @@ do
   local ns64 = boot()
   local UI64, BW64 = ns64.UI, ns64.BossWindow
   ns64.BossCards.state = { killed = {} }   -- not inside a dungeon
-  local function note() return UI64.pp.note:GetText() or "" end
+  -- 1.7.0: the note is short ("Your key +12"); the full sentence is its hover text.
+  local function note() return (UI64.pp.note:GetText() or "") .. " / " .. tostring(UI64.pp.noteBtn.tip) end
   UI64:Show("dungeons"); RunTimers()
   local btn = UI64.pp.bossBtn
   ok(btn and btn.text:GetText() == "Open boss cards" and btn.tooltip and btn.tooltip:find("this dungeon's cards", 1, true),
     "Dungeon tab has an Open boss cards button")
-  ok(UI64.primerKey == "KingsRest" and note():find("Auto (your key +12)", 1, true), "Auto: the tab starts on your key: " .. note())
+  ok(UI64.primerKey == "KingsRest" and note():find("Your key +12 / Auto: your key +12.", 1, true), "Auto: the tab starts on your key: " .. note())
   btn:Click(); RunTimers()
   ok(BW64:IsShown() and BW64.title:GetText():find("The Golden Serpent", 1, true), "opens the detected dungeon's first boss card")
   BW64:Hide(true)
@@ -4524,7 +4538,7 @@ do
   local FP = UI67.FontPx
   local function size(fs) return rawget(fs, "_fontSize") end
   local post = UI67.pl.postPlanBtn.text
-  ok(size(post) == 13 and measure(post) <= 128, "fit: \"Post assignments\" steps down to fit its 140px button at 125% (" .. tostring(size(post)) .. ")")
+  ok(size(post) == 12 and measure(post) <= 110, "fit: \"Post everything\" steps down to fit its 122px button at 125% (" .. tostring(size(post)) .. ")")
   ok(size(UI67.cp.saveBtn.text) == FP(12), "fit: a short label keeps the player's text size")
   local clear = UI67.cp.slotRows[1].clear.text
   ok(size(clear) >= 12 and size(clear) < FP(12) and measure(clear) <= 8, "fit: the slot's x fits its 20px button")
@@ -7423,7 +7437,7 @@ do
     end
   end
   ok(same, "Highlights.lua matches CHANGELOG.md's Highlights blocks (run tools/make_highlights.py)")
-  ok(fromLog[1] and fromLog[1].version == "1.6.5" and fromLog[#fromLog].version == "1.6.0", "newest first: 1.6.5's highlights, down to 1.6.0's (the first)")
+  ok(fromLog[1] and fromLog[1].version == "1.7.0" and fromLog[#fromLog].version == "1.6.0", "newest first: 1.7.0's highlights, down to 1.6.0's (the first)")
   local showOK = true
   for _, g in ipairs(n0.HIGHLIGHTS) do
     for _, it in ipairs(g.items) do if it.show and not WN.SHOW_ME[it.show] then showOK = false end end
@@ -8007,7 +8021,7 @@ do
 
   -- S7 and S11.
   local src = io.open(ADDON_DIR .. "/UI.lua"):read("*a")
-  ok(src:find("problems only, shorter chat posts, Poor applicants hidden", 1, true) and not src:find("one-line chat posts", 1, true),
+  ok(src:find("the Everything view on every tab, shorter chat posts, Poor applicants hidden", 1, true) and not src:find("one-line chat posts", 1, true),
     "S7: the Expert preset says shorter chat posts")
   ROSTER, LISTING, APPLICANTS = savedRoster, savedListing, savedApps
 end
@@ -8295,6 +8309,424 @@ do
   ok(o.db.lastVerify == nil, "the separate verify log is removed from saved data")
   EnsembleDB = nil
   ROSTER, LISTING, APPLICANTS = savedRoster, savedListing, savedApps
+end
+
+-- 87. 1.7.0: Essentials view, Your brief, the boss window on trash, owners and the Essentials
+-- post, each need once on the Dungeon tab, trash rows the player hides or moves (November 16)
+do
+  local savedRoster, savedListing, savedApps, savedCache = ROSTER, LISTING, APPLICANTS, INSPECT_CACHE
+  local savedOwned, savedLevel, savedAffixes = OWNED_KEY, OWNED_LEVEL, CURRENT_AFFIXES
+  local TOS = "TempleOfSethraliss"
+  local function clean(t) return (tostring(t or ""):gsub("|T.-|t", ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h", ""):gsub("|h", "")) end
+  local function dump(l) local t = {} for i = 1, l.used do t[#t + 1] = clean(l.pool[i]:GetText()) end return table.concat(t, "\n") end
+  -- The click row drawn on the line whose text holds `text` (LineList puts it 2px above the line).
+  local function lastY(fr) local p = rawget(fr, "_points") or {}; p = p[#p]; return p and p[5] end
+  local function button(l, text)
+    for j = 1, l.used do
+      local fs = l.pool[j]
+      if fs:IsShown() and clean(fs:GetText()):find(text, 1, true) then
+        for i = 1, l.bused do
+          local b = l.bpool[i]
+          if b:IsShown() and lastY(b) == lastY(fs) + 2 then return b end
+        end
+      end
+    end
+  end
+  KEEP_VIEW = true
+  ROSTER = { player = { guid = "P", name = "Etan", class = "DEMONHUNTER", spec = 581, role = "TANK" } }
+  LISTING, APPLICANTS, INSPECT_CACHE = nil, {}, {}
+  OWNED_KEY, OWNED_LEVEL, CURRENT_AFFIXES = nil, nil, {}
+
+  -- Saved data: the defaults, the one-time role filter move, the sanitizer.
+  EnsembleDB = nil
+  local n = boot()
+  local s = n.db.settings
+  ok(s.view.composition == "essentials" and s.view.dungeons == "essentials" and s.view.plan == "essentials" and s.walkRole == "YOU"
+    and n.db.schema == 5 and next(n.db.trashEdits) == nil and s.compact == nil, "1.7.0 defaults: Essentials on the three tabs, the role filter on You, no trash changes")
+  EnsembleDB = { schema = 4, tourSeen = true, settings = { walkRole = "ALL", compact = true, view = { composition = "everything", dungeons = "loud", plan = 7 } },
+    trashEdits = { NoSuchDungeon = { X = { [1] = 0 } }, TempleOfSethraliss = { TOS_ACCUMULATE = { [3] = 0, [1] = 0 }, NOPE = { [1] = 0 },
+      TOS_LIGHTNING_BOLT = { [1] = 9, [3] = 4 }, TOS_BLEED = { [1] = "x", [2] = 2 }, TOS_TANK = "junk" } } }
+  local m = boot()
+  ok(m.db.settings.walkRole == "YOU" and m.db.settings.compact == nil and m.db.schema == 5, "updating: the old default role filter (All) moves to You once, Summary view is dropped")
+  ok(m.db.settings.view.composition == "everything" and m.db.settings.view.dungeons == "essentials" and m.db.settings.view.plan == "essentials",
+    "a damaged view setting falls back to Essentials, a valid one stays")
+  local te = m.db.trashEdits
+  ok(te.NoSuchDungeon == nil and te[TOS].NOPE == nil and te[TOS].TOS_TANK == nil and te[TOS].TOS_BLEED == nil
+    and te[TOS].TOS_ACCUMULATE[3] == 0 and te[TOS].TOS_ACCUMULATE[1] == nil
+    and te[TOS].TOS_LIGHTNING_BOLT[3] == 4 and te[TOS].TOS_LIGHTNING_BOLT[1] == nil,
+    "saved trash changes: unknown dungeons, rows and sections, and targets that aren't a boss are dropped; valid ones stay")
+  EnsembleDB = { schema = 4, tourSeen = true, settings = { walkRole = "HEAL" } }
+  ok(boot().db.settings.walkRole == "HEAL", "a role picked by hand stays through the update")
+  EnsembleDB = { schema = 5, tourSeen = true, settings = { walkRole = "ALL" } }
+  ok(boot().db.settings.walkRole == "ALL", "All picked after the update stays")
+
+  -- The walkthrough: each need in full once (D1), and your trash changes.
+  EnsembleDB = nil
+  local e = boot()
+  local WT, AS, A, BC, BW, U = e.Walkthrough, e.Assignments, e.Analysis, e.BossCards, e.BossWindow, e.UI
+  local fired = 0
+  e:On("TRASH_CHANGED", function() fired = fired + 1 end)
+  local function step(kind, boss) for _, st in ipairs(WT:Build(TOS).steps) do if st.kind == kind and st.boss == boss then return st end end end
+  local function has(st, id) for _, q in ipairs(st.reqs) do if q.id == id then return true end end return false end
+  local rows, full = 0, 0
+  for _, st in ipairs(WT:Build(TOS).steps) do
+    for _, q in ipairs(st.reqs) do rows = rows + 1; if not st.also[q.id] then full = full + 1 end end
+  end
+  ok(rows == 23 and full == 16, "D1: Temple of Sethraliss prints 23 need rows for 16 needs; each need is first shown once (" .. rows .. " / " .. full .. ")")
+  ok(not step("trash", 1).also.TOS_LIGHTNING_BOLT and step("trash", 3).also.TOS_LIGHTNING_BOLT and step("boss", 4).also.TOS_FLAME_SHOCK,
+    "D1: a later section marks a need an earlier one already showed")
+  ok(WT:HideRow(TOS, "TOS_ACCUMULATE", 3) and fired == 1 and not has(step("trash", 3), "TOS_ACCUMULATE")
+    and #step("trash", 3).hidden == 1 and step("trash", 3).hidden[1].id == "TOS_ACCUMULATE", "hide a trash row: gone from its section, still counted")
+  ok(e.db.trashEdits[TOS].TOS_ACCUMULATE[3] == 0 and select(2, WT:SkippedReqs(TOS)) == 1 and WT:SkippedReqs(TOS).TOS_ACCUMULATE,
+    "a row hidden in its only section (and on no boss) is skipped altogether; saved per dungeon")
+  ok(WT:HideRow(TOS, "TOS_LIGHTNING_BOLT", 1) and has(step("trash", 3), "TOS_LIGHTNING_BOLT") and not WT:SkippedReqs(TOS).TOS_LIGHTNING_BOLT
+    and not step("trash", 3).also.TOS_LIGHTNING_BOLT, "hidden in one of two sections: still in the other (now its first), so not skipped")
+  ok(WT:HideRow(TOS, "TOS_FLAME_SHOCK", 4) and has(step("boss", 4), "TOS_FLAME_SHOCK") and not WT:SkippedReqs(TOS).TOS_FLAME_SHOCK,
+    "a row hidden on trash stays on the boss that has it, so the plan keeps it")
+  ok(WT:MoveRow(TOS, "TOS_IMBUED_CONDUCTION", 3, 2) and has(step("trash", 2), "TOS_IMBUED_CONDUCTION") and not has(step("trash", 3), "TOS_IMBUED_CONDUCTION")
+    and step("trash", 2).moved.TOS_IMBUED_CONDUCTION == 3, "move a trash row: it shows in the other boss's section, marked with where the guides have it")
+  local h, mv = WT:TrashEditCounts(TOS)
+  ok(h == 3 and mv == 1 and WT:HasTrashEdits(TOS) and not WT:HasTrashEdits("KingsRest"), "counts: 3 hidden, 1 moved, this dungeon only")
+  ok(not WT:HideRow(TOS, "TOS_ACCUMULATE", 1) and not WT:MoveRow(TOS, "TOS_ACCUMULATE", 3, 9) and not WT:HideRow(TOS, "NOPE", 1)
+    and not WT:RestoreRow(TOS, "TOS_SPARE", 2), "a row can only be changed in a section the guides put it in, and only moved to a real boss")
+  ok(WT:MoveRow(TOS, "TOS_BLEED", 1, 2) and #WT:Areas(TOS).TOS_BLEED == 1 and step("trash", 2).moved.TOS_BLEED == nil,
+    "moved into a section that already has it: shown once, as the guides' own row")
+  local sr = WT:SectionRows(TOS, 3)
+  local state = {}
+  for _, x in ipairs(sr) do state[x.req.id] = x.state .. (x.to and (">" .. x.to) or "") end
+  ok(state.TOS_ACCUMULATE == "hidden" and state.TOS_IMBUED_CONDUCTION == "movedOut>2" and state.TOS_LIGHTNING_BOLT == "shown", "the editor's rows for a section say what you did to each")
+  local sr2 = {}
+  for _, x in ipairs(WT:SectionRows(TOS, 2)) do sr2[x.req.id] = x.state end
+  ok(sr2.TOS_IMBUED_CONDUCTION == "movedIn" and sr2.TOS_CYTOTOXIN == "shown", "the target section lists the row moved in")
+  -- Reach: the plan drops what you skip; Needs and ratings keep the guides' list.
+  local group = { { specID = 581, isPlayer = true }, { specID = 264 }, { specID = 63 }, { specID = 70 }, { specID = 102 } }
+  local r = A:Analyze(group, TOS, e.db.settings)
+  local plan = AS:Build(r)
+  ok(plan.byReq.TOS_ACCUMULATE == nil and #plan.skipped == 1 and plan.skipped[1].id == "TOS_ACCUMULATE" and plan.byReq.TOS_FLAME_SHOCK ~= nil
+    and plan.byReq.TOS_LIGHTNING_BOLT ~= nil, "the plan leaves out the trash you skip and counts it")
+  ok(item(r, "TOS_ACCUMULATE") ~= nil and item(r, "TOS_ACCUMULATE").status == "covered", "Needs keep the guides' full list")
+  local ladderWith = A:LadderTotal(A:Analyze({ { specID = 581 }, { specID = 257 } }, TOS, e.db.settings), 10)
+  ok(WT:RestoreRow(TOS, "TOS_ACCUMULATE", 3) and has(step("trash", 3), "TOS_ACCUMULATE") and AS:Build(r).byReq.TOS_ACCUMULATE ~= nil, "show a row again: back in its section and in the plan")
+  ok(WT:ResetTrash(TOS) and e.db.trashEdits[TOS] == nil and not WT:HasTrashEdits(TOS) and has(step("trash", 3), "TOS_IMBUED_CONDUCTION")
+    and not WT:ResetTrash(TOS), "Reset to the guides drops every change for the dungeon")
+  ok(A:LadderTotal(A:Analyze({ { specID = 581 }, { specID = 257 } }, TOS, e.db.settings), 10) == ladderWith, "pick ratings read the same gaps with or without trash changes")
+
+  -- Owners, the big ones and the Essentials post.
+  plan = AS:Build(r)
+  local big, rest = AS:BigRows(plan)
+  local order = {}
+  for _, x in ipairs(big) do order[#order + 1] = x.kind .. ":" .. x.row.req.id end
+  ok(#big == 5 and #rest == 11 and table.concat(order, " ") == "dispel:TOS_IMBUED_CONDUCTION kick:TOS_ESSENCE_DISRUPTION kick:TOS_FLAME_SHOCK kick:TOS_LIGHTNING_BOLT other:TOS_ARROW_BARRAGE",
+    "the big ones: the critical dispel, then the high kicks, then the high stop (" .. #big .. " + " .. #rest .. ")")
+  ok(AS:RowVerb(big[1]) == "DISPEL" and AS:RowVerb(big[2]) == "KICK" and AS:RowVerb(big[5]) == "STOP"
+    and AS:OwnerNames(big[2]) == "Vengeance Demon Hunter, Retribution Paladin" and AS:OwnerNames(big[5]) == "anyone with CC", "owners: a kick's rotation without the order; a stop is anyone's")
+  local ess = AS:EssentialLines(plan, "Temple of Sethraliss", WT:LustChat(TOS))
+  ok(#ess == 6 and ess[1] == "[Ensemble] Temple of Sethraliss, the big ones:"
+    and ess[2] == "DISPEL Imbued Conduction (Magic): Restoration Shaman (no backup)"
+    and ess[3] == "KICK Essence Disruption + Lightning Bolt: Vengeance Demon Hunter, Retribution Paladin"
+    and ess[4] == "KICK Flame Shock: Restoration Shaman, Fire Mage"
+    and ess[5] == "STOP Arrow Barrage: anyone with CC" and ess[6]:find("^Lust: Merektha"), "the Essentials post: casts with the same owners share a line:\n  " .. table.concat(ess, "\n  "))
+  for _, l in ipairs(ess) do ok(#l <= 250 and not l:find("|", 1, true) and not l:find("1st", 1, true), "Essentials line plain, short, no ordinals (" .. #l .. ")") end
+  ok(#AS:ChatLines(plan, "Temple of Sethraliss", "full") == 8 - 1, "the full post is the per-player post, unchanged (header, five players, priority)")
+  -- Nobody can dispel the critical debuff: it is an uncovered-gap line, not an owner line.
+  local r2 = A:Analyze({ { specID = 581, isPlayer = true }, { specID = 260 }, { specID = 253 } }, TOS, e.db.settings)   -- no healer: nobody removes Magic
+  local ess2 = table.concat(AS:EssentialLines(AS:Build(r2), "Temple of Sethraliss", nil), "\n")
+  ok(ess2:find("Nobody can remove Magic (Imbued Conduction)", 1, true) and not ess2:find("DISPEL Imbued Conduction", 1, true) and not ess2:find("Lust:", 1, true),
+    "the Essentials post names a critical need nobody covers (and has no Bloodlust line without a plan)")
+  ok(#AS:EssentialLines(nil, "X") == 0 and #AS:EssentialLines(AS:Build(A:Analyze({}, TOS, e.db.settings)), "X") == 0, "no group: nothing to post")
+
+  -- Your brief.
+  local Brief = e.Brief
+  local function names(l) local t = {} for _, x in ipairs(l) do t[#t + 1] = x.cast end return table.concat(t, ", ") end
+  local solo = A:Analyze({ { specID = 581, isPlayer = true } }, TOS, e.db.settings)
+  local b = Brief:Build(TOS, solo, AS:Build(solo))
+  ok(b.solo and b.kick.abilities[1] == "Disrupt" and names(b.kick.mine) == "Essence Disruption, Flame Shock, Lightning Bolt" and names(b.kick.free) == "Poison Spit, Venom Bolt"
+    and #b.kick.backup == 0 and b.kick.shared == nil, "brief, no group: every critical and high kick is yours first, the rest when free")
+  ok(names(b.stop.mine) == "Arrow Barrage" and names(b.stop.also):find("A Knot of Snakes", 1, true) and b.defense.count == 4 and b.defense.label == "tank busters"
+    and #b.notYours == 1 and b.notYours[1].cast == "Imbued Conduction" and b.notYours[1].why:find("you can't remove it", 1, true),
+    "brief: your stop, the tank busters, and the critical dispel that isn't yours")
+  ok(b.lust and #b.lust.uses == 2 and not b.lust.custom and not b.lust.yours and b.rest > 0 and b.skipped == 0, "brief: the Bloodlust plan and a count of what it leaves out")
+  b = Brief:Build(TOS, r, plan)
+  ok(not b.solo and names(b.kick.mine) == "Essence Disruption, Lightning Bolt" and b.kick.shared and b.kick.shared[1].label == "Retribution Paladin"
+    and names(b.kick.free) == "Venom Bolt" and names(b.kick.backup) == "Flame Shock, Poison Spit"
+    and b.notYours[1].why:find("Restoration Shaman takes it", 1, true), "brief, in a group: yours with who shares it, when free, backups, and who takes what isn't yours")
+  local rh = A:Analyze({ { specID = 581 }, { specID = 264, isPlayer = true }, { specID = 63 }, { specID = 70 }, { specID = 102 } }, TOS, e.db.settings)
+  b = Brief:Build(TOS, rh, AS:Build(rh))
+  ok(b.dispel.mine[1].cast == "Imbued Conduction" and b.dispel.mine[1].noBackup and names(b.kick.mine) == "Flame Shock" and b.defense.label:find("heal through", 1, true),
+    "brief for the healer: the critical dispel is theirs alone, and the tank busters to heal through")
+  local rn = A:Analyze({ { specID = 257, isPlayer = true }, { specID = 581 } }, TOS, e.db.settings)
+  b = Brief:Build(TOS, rn, AS:Build(rn))
+  local kickNote = false
+  for _, x in ipairs(b.notYours) do if x.cast == "Lightning Bolt" and x.why:find("your spec has none", 1, true) then kickNote = true end end
+  ok(b.kick.none and kickNote, "brief for a spec with no interrupt says so and names who has the kick")
+  ok(Brief:Build(TOS, A:Analyze({ { specID = 264 } }, TOS, e.db.settings), plan) == nil and Brief:Build("Nope", r, plan) == nil, "no brief when you aren't in the group or the dungeon is unknown")
+  ok(Brief.CountNames("Sunder Slam, Lightning Bite (Krolusk, big), Tainted Strike") == 3, "ability names are counted outside the brackets")
+
+  -- Composition, layout 1A.
+  e.db.settings.compMode = "planner"
+  e.db.currentComp = { 581, 257, 260, 63, 0 }
+  e:SetManualDungeon(TOS)
+  e.state.keyLevelOverride = 10
+  U:Show("composition"); RunTimers()
+  local cp = U.cp
+  ok(clean(cp.sumTitle:GetText()) == " Not ready for this +10 yet: 2 things missing" and clean(cp.sumRisks:GetText()) == "Fix first: Battle rez, Poison dispel.  Then (thin): Magic dispel",
+    "verdict strip: " .. clean(cp.sumTitle:GetText()) .. " / " .. clean(cp.sumRisks:GetText()))
+  ok(cp.sumRight:IsShown() and clean(cp.sumRight:GetText()) == " 14 of 17 needs covered\n1 slot open" and not cp.chipBar:IsShown() and not cp.riskBtn:IsShown(),
+    "verdict strip: how much is covered and the open slots on the right, no chips")
+  ok(cp.midTitle:GetText() == "WHAT THIS GROUP IS MISSING (3)" and not cp.expandBtn:IsShown() and cp.viewSwitch.btns.essentials.active and not cp.viewSwitch.btns.everything.active,
+    "the right panel is titled by what's missing; the switch shows Essentials")
+  local needs = dump(cp.ready)
+  ok(needs:find("MISSING  Battle resurrection  HIGH", 1, true) and needs:find("Nobody here has it. Brings a dead player back during combat. Brings it: Death Knight, Druid, Paladin, Warlock.", 1, true)
+    and needs:find("THIN  Magic dispel for  Imbued Conduction (Imbued Stormcaller)  CRITICAL", 1, true) and needs:find("Only Holy Priest brings it (single point of failure).", 1, true),
+    "missing rows: status and severity as words, the cast, plain words and who brings it")
+  ok(needs:find("COVERED (14)", 1, true) and needs:find("Kicks (3)", 1, true) and needs:find("Nobody brings, and nothing here asks for (2): Freedom, Group speed", 1, true)
+    and needs:find("Raid buffs (3)", 1, true) and not needs:find("Covered by:", 1, true), "covered needs on one line, with a count; nothing dropped without one")
+  local side = dump(cp.sideList)
+  ok(side:find("BEST FOR THE OPEN SLOT", 1, true) and side:find("1. Warlock  any spec", 1, true) and side:find("Backs up Magic dispel for  Imbued Conduction, adds battle rez (+4 on hover)", 1, true)
+    and side:find("+ 7 more classes", 1, true) and not side:find("boosts more of the group", 1, true) and not side:find("4. ", 1, true),
+    "best for the open slot: three classes, one reason line each (the gaps first), the rest counted")
+  local wl = button(cp.sideList, "1. Warlock")
+  ok(wl and wl.tip:find("benefits from your", 1, true) and wl.tip:find("Click to put", 1, true), "every reason is on hover")
+  button(cp.sideList, "+ 7 more classes"):Click(); RunTimers()
+  ok(dump(cp.sideList):find("10. ", 1, true) and dump(cp.sideList):find("- show fewer", 1, true), "+ N more classes opens the full list")
+  button(cp.ready, "THIN  Magic dispel"):Click(); RunTimers()
+  ok(e.db.settings.view.composition == "everything" and cp.midTitle:GetText() == "NEEDS" and dump(cp.ready):find("Covered by:", 1, true)
+    and cp.chipBar:IsShown() and not cp.sumRight:IsShown() and cp.expandBtn:IsShown(), "clicking a gap opens that need under Everything")
+  cp.viewSwitch.btns.essentials:Click(); RunTimers()
+  ok(e.db.settings.view.composition == "essentials" and cp.sumRight:IsShown() and e.db.settings.view.plan == "essentials", "the switch is per tab and saved")
+  e.db.currentComp = { 581, 264, 63, 70, 102 }; U:Refresh(); RunTimers()
+  ok(clean(cp.sumTitle:GetText()):find("Nearly there for this +10: 1 thing thin", 1, true) or clean(cp.sumTitle:GetText()):find("Nothing missing or thin", 1, true)
+    or clean(cp.sumTitle:GetText()):find("Not ready", 1, true), "the verdict follows the group: " .. clean(cp.sumTitle:GetText()))
+  ok(clean(cp.sumRight:GetText()):find("group full", 1, true) and dump(cp.sideList):find("All five slots are filled.", 1, true), "a full group says so")
+  e.db.currentComp = { 0, 0, 0, 0, 0 }; U:Refresh(); RunTimers()
+  ok(clean(cp.sumTitle:GetText()):find("Add players to see what this group is missing for Temple of Sethraliss.", 1, true) and dump(cp.ready):find("No players yet.", 1, true),
+    "no players: the strip and the panel ask for them")
+
+  -- Plan: owners, the big ones, the three post buttons.
+  e.db.currentComp = { 581, 264, 63, 70, 102 }
+  U:SetTab("plan"); RunTimers()
+  local pl = U.pl
+  local sheet, mine = dump(pl.list), dump(pl.mine)
+  ok(sheet:find("THE BIG ONES (5)", 1, true) and sheet:find("CRITICAL  Dispel (Magic)   Imbued Conduction (Imbued Stormcaller)\nResto Shaman\nNo backup dispeller.", 1, true)
+    and sheet:find("HIGH  Kick   Essence Disruption (Temple Disruptor channel into the Eye)\nVeng Demon Hunter + Ret Paladin", 1, true)
+    and sheet:find("HIGH  Stop   Arrow Barrage (Sandswept Hunter channel)\nAnyone with CC", 1, true), "the sheet: the big ones with owners:\n" .. sheet)
+  ok(not sheet:find("1st", 1, true) and not sheet:find(" > Ret", 1, true) and not sheet:find("Kick: ", 1, true) and sheet:find("Two casts at once? Kick first:", 1, true),
+    "owners instead of ordinals; the kick-first line stays")
+  ok(sheet:find("+ 11 more assignments (medium and low): Accumulate Charge, Addle Mind", 1, true), "the rest is counted and named")
+  local own = button(pl.list, "Veng Demon Hunter + Ret Paladin")
+  ok(own and own.tip:find("1st Vengeance Demon Hunter - Disrupt 15s", 1, true) and own.tip:find("Click to choose who takes it.", 1, true), "the exact order and cooldowns are on hover; clicking changes who takes it")
+  button(pl.list, "+ 11 more assignments"):Click(); RunTimers()
+  ok(dump(pl.list):find("MEDIUM  Purge   Accumulate Charge (Agitated Nimbus)\nFire Mage", 1, true) and dump(pl.list):find("- 11 more assignments", 1, true), "+ N more opens the rest with who takes each")
+  ok(mine:find("As Vengeance Demon Hunter.", 1, true) and mine:find("Yours to kick (Disrupt), shared with Ret Paladin", 1, true) and mine:find("When free: Venom Bolt", 1, true)
+    and mine:find("Backup on Flame Shock, Poison Spit.", 1, true) and mine:find("Your defensives (4 tank busters)", 1, true) and mine:find("BLOODLUST", 1, true)
+    and select(2, mine:gsub("1st of 2", "")) == 1 and mine:find("The exact order is under Everything.", 1, true), "Your plan: yours, shared with, when free, backups; the Bloodlust plan under it:\n" .. mine)
+  ok(pl.postEssBtn:IsEnabled() and pl.postEssBtn.text:GetText() == "Post essentials" and pl.postEssBtn.tooltip:find("KICK Flame Shock: Restoration Shaman, Fire Mage", 1, true)
+    and pl.postCount:GetText() == "6 lines in party chat" and pl.postPlanBtn.text:GetText() == "Post everything" and pl.postGapsBtn:IsEnabled(),
+    "three post buttons; the default one previews its text and says how long it is")
+  ROSTER.party1 = { guid = "H", name = "Hal", class = "SHAMAN", role = "HEALER" }
+  SENT = {}
+  pl.postEssBtn:Click(); RunTimers()
+  ok(#SENT == 6 and SENT[1].channel == "PARTY" and SENT[1].msg == "[Ensemble] Temple of Sethraliss, the big ones:" and SENT[5].msg == "STOP Arrow Barrage: anyone with CC",
+    "Post essentials sends the Essentials post to party chat (" .. #SENT .. " lines)")
+  SENT = {}
+  pl.postPlanBtn:Click(); RunTimers()
+  ok(#SENT == 8 and SENT[1].msg:find("assignments. Kick your own casts first", 1, true) and SENT[2].msg:find("^Lust: "), "Post everything sends the per-player post, as before")
+  ROSTER.party1 = nil
+  WT:HideRow(TOS, "TOS_ACCUMULATE", 3); RunTimers()
+  ok(dump(pl.list):find("1 trash row hidden by you isn't in the plan or its posts: Accumulate Charge.", 1, true) and dump(pl.list):find("10 more assignments", 1, true),
+    "the Plan follows a trash change at once, and says what it left out")
+  WT:ResetTrash(TOS); RunTimers()
+  pl.viewSwitch.btns.everything:Click(); RunTimers()
+  ok(dump(pl.mine):find("YOUR ASSIGNMENTS", 1, true) and dump(pl.mine):find("1st of 2", 1, true) and dump(pl.list):find("Kick: Veng Demon Hunter > Ret Paladin", 1, true)
+    and not dump(pl.list):find("THE BIG ONES", 1, true) and e.db.settings.view.composition == "essentials", "Everything on the Plan tab is the full sheet with the exact order")
+  e.db.currentComp = { 0, 0, 0, 0, 0 }
+  pl.viewSwitch.btns.essentials:Click(); RunTimers()
+  ok(dump(pl.list):find("THE BIG ONES (5)", 1, true) and not dump(pl.list):find("Resto Shaman", 1, true) and not pl.postEssBtn:IsEnabled()
+    and pl.postEssBtn.tooltip == "Add players first." and pl.postCount:GetText() == "", "no players: the big ones from the data, no owners, posts off")
+
+  -- Dungeon tab, layout 2A.
+  U:SetTab("dungeons"); RunTimers()
+  U:SetPrimerPick(TOS); U:Refresh(); RunTimers()
+  local pp = U.pp
+  ok(pp.roleBtns.YOU.text:GetText() == "You: Tank" and pp.roleBtns.YOU.active and not pp.roleBtns.ALL.active and pp.viewSwitch.btns.essentials.active
+    and clean(pp.walkTitle:GetText()) == "WALKTHROUGH for tank, in the order you meet it" or clean(pp.walkTitle:GetText()) == "Walkthrough for tank, in the order you meet it",
+    "the role filter starts on You (your spec's role): " .. clean(pp.walkTitle:GetText()))
+  local brief, walk = dump(pp.brief), dump(pp.asks)
+  ok(clean(pp.briefTitle:GetText()):find("VENG DEMON HUNTER", 1, true) and brief:find("Kick (Disrupt)\nFirst:  Essence Disruption Temple Disruptor", 1, true)
+    and brief:find("Not yours, but know it\n Imbued Conduction Imbued Stormcaller  CRITICAL", 1, true) and brief:find("Bloodlust (suggested)\n1. Merektha, on pull", 1, true)
+    and brief:find("No group needed.", 1, true), "Your brief is the left panel:\n" .. brief)
+  ok(pp.bossBtn:IsShown() and pp.bestBtn.text:GetText() == "Best classes here" and pp.value == nil, "Open boss cards and Best classes here sit under the brief")
+  ok(walk:find("TRASH BEFORE ADDERIS AND ASPIX\nHIGH  Kick   Lightning Bolt (Storm Adept, Imbued Stormcaller)\nHIGH  Stop   Arrow Barrage (Sandswept Hunter channel)\n+ 2 more: Serrated Charge, Sunder Slam, Lightning Bite, Venomous Slash, Tainted Strike", 1, true),
+    "Essentials: the critical and high rows, one line each, the rest counted and named:\n" .. walk)
+  ok(walk:find("TRASH BEFORE GALVAZZT\nCRITICAL  Magic dispel   Imbued Conduction (Imbued Stormcaller)  (not your role's, but know it)\nDispel every one or it stuns on expiry.", 1, true)
+    and walk:find("Also here: Lightning Bolt (kick)", 1, true), "a critical row shows for every role; a need already shown is named on Also here")
+  ok(not walk:find("Random-target bolt", 1, true) and walk:find("> Edit this section", 1, true) and walk:find("other roles: 2", 1, true),
+    "explanations move to hover; each trash section can be edited; other roles' boss lines are counted")
+  local lb = button(pp.asks, "HIGH  Kick   Lightning Bolt")
+  ok(lb and lb.tip:find("Random-target bolt; keep interrupts on it.", 1, true) and lb.tip:find("Interrupt:", 1, true), "hover a row for its note and what the need means")
+  button(pp.asks, "+ 2 more: Serrated Charge"):Click(); RunTimers()
+  ok(dump(pp.asks):find("MEDIUM  External   Sunder Slam", 1, true) and dump(pp.asks):find("- 2 more (medium and low)", 1, true), "+ N more opens that section's rest in full")
+  pp.roleBtns.DPS:Click(); RunTimers()
+  walk = dump(pp.asks)
+  ok(e.db.settings.walkRole == "DPS" and walk:find("CRITICAL  Magic dispel   Imbued Conduction", 1, true) and not walk:find("Sunder Slam", 1, true), "another role: its own rows, and still every critical one")
+  pp.roleBtns.ALL:Click(); RunTimers()
+  ok(dump(pp.asks):find("CRITICAL  Magic dispel   Imbued Conduction (Imbued Stormcaller)\nDispel every one", 1, true) and not dump(pp.asks):find("not your role's", 1, true), "All: nothing is marked as another role's")
+  pp.viewSwitch.btns.everything:Click(); RunTimers()
+  walk = dump(pp.asks)
+  local _, lbRows = walk:gsub("INTERRUPT   Lightning Bolt", "")
+  ok(lbRows == 2 and walk:find("Random-target bolt; keep interrupts on it.", 1, true) and not walk:find("Also here:", 1, true) and walk:find("> Edit this section", 1, true)
+    and dump(pp.brief):find("Kick (Disrupt)", 1, true), "Everything: every row in full in every section, as before; the brief stays")
+  U:ShowBestClasses(); RunTimers()
+  ok(U.bestClasses:IsShown() and clean(U.bestClasses.title:GetText()) == "BEST CLASSES: TEMPLE OF SETHRALISS" and dump(U.bestClasses.list):find("answers:", 1, true), "Best classes here opens the old right-hand column")
+  U.bestClasses:Hide()
+  pp.viewSwitch.btns.essentials:Click(); pp.roleBtns.YOU:Click(); RunTimers()
+
+  -- The trash editor, from the walkthrough.
+  local edits = {}
+  for i = 1, pp.asks.bused do local bb = pp.asks.bpool[i]; if bb:IsShown() and rawget(bb, "tip") and bb.tip:find("Hide the trash your group skips", 1, true) then edits[#edits + 1] = bb end end
+  ok(#edits == 4, "an Edit this section link under each of the four trash sections (" .. #edits .. ")")
+  edits[3]:Click(); RunTimers()
+  local ed = U.trashEditor
+  ok(ed and ed:IsShown() and clean(ed.title:GetText()) == "Edit section: Trash before Galvazzt  (Temple of Sethraliss)" and ed.dk == TOS and ed.section == 3
+    and dump(ed.list):find("CRITICAL  Magic dispel   Imbued Conduction (Imbued Stormcaller)\n> Hide: we skip this\n> Move to another section...", 1, true)
+    and clean(ed.note:GetText()) == "Nothing changed: this dungeon follows the guides." and not ed.reset:IsEnabled(), "the section editor lists the section's rows:\n" .. dump(ed.list))
+  local hides = {}
+  for i = 1, ed.list.bused do local bb = ed.list.bpool[i]; if bb:IsShown() and rawget(bb, "tip") and bb.tip:find("Leave it out of this section", 1, true) then hides[#hides + 1] = bb end end
+  ok(#hides == 3, "three rows to hide before Galvazzt")
+  button(ed.list, "> Hide: we skip this"):Click(); RunTimers()
+  ok(e.db.trashEdits[TOS].TOS_IMBUED_CONDUCTION[3] == 0 and dump(ed.list):find("hidden by you: CRITICAL  Magic dispel   Imbued Conduction", 1, true)
+    and dump(ed.list):find("> Show it again", 1, true) and clean(ed.note:GetText()) == "1 hidden and 0 moved in this dungeon." and ed.reset:IsEnabled(), "Hide in the editor: the row turns to hidden, with Show it again")
+  walk = dump(pp.asks)
+  ok(walk:find("1 hidden by you: Imbued Conduction", 1, true) and walk:find("Trash sections: 1 hidden and 0 moved by you.  > Reset to the guides", 1, true)
+    and not walk:find("CRITICAL  Magic dispel", 1, true), "the walkthrough follows at once: the row is gone, counted and named")
+  ok(dump(pp.brief):find("1 trash row hidden by you (left out here).", 1, true) and not dump(pp.brief):find("Imbued Conduction", 1, true), "Your brief leaves it out and counts it")
+  local items = U:TrashMoveMenu(nil, TOS, "TOS_LIGHTNING_BOLT", 3, 3)
+  ok(#items == 4 and items[1].header and items[2].text == "Trash before Adderis and Aspix" and items[4].text == "Trash before Avatar of Sethraliss", "Move to: every other boss's section")
+  items[4].onClick(); RunTimers()
+  ok(e.db.trashEdits[TOS].TOS_LIGHTNING_BOLT[3] == 4 and dump(ed.list):find("moved by you to Trash before Avatar of Sethraliss: HIGH  Kick   Lightning Bolt", 1, true)
+    and dump(pp.asks):find("TRASH BEFORE AVATAR OF SETHRALISS", 1, true), "Move in the editor: the row leaves this section for the other")
+  U:OpenTrashEditor(TOS, 4)
+  ok(dump(ed.list):find("moved here by you (from Trash before Galvazzt)", 1, true) and dump(ed.list):find("> Put it back (Trash before Galvazzt)", 1, true), "the other section shows where the row came from")
+  ed.reset:Click(); RunTimers()
+  ok(e.db.trashEdits[TOS] == nil and dump(pp.asks):find("CRITICAL  Magic dispel   Imbued Conduction", 1, true) and not dump(pp.asks):find("hidden by you", 1, true)
+    and not ed.reset:IsEnabled(), "Reset to the guides puts everything back")
+  ed:Hide()
+
+  -- The boss window: the trash on the way, then the card.
+  ok(#BC:Pages(TOS) == 8 and BC:Pages(TOS)[1].phase == "trash" and BC:Pages(TOS)[2].phase == "boss" and BC:HasTrashPage(TOS, 3), "pages: the trash before each boss, then the boss")
+  ok(#BC:Pages("AltarOfFangs") == 6 and #BC:Pages("Nope") == 0, "every boss with trash rows gets a page for them")
+  BW:Open(TOS); RunTimers()
+  ok(clean(BW.title:GetText()):find("^Adderis and Aspix  1/4") and BW.post:IsShown() and BW.shownPhase == "boss", "opened by hand: the first boss's card, as before")
+  BW:Step(-1)
+  local function winText() local t = {} for _, it in ipairs(BW.items) do t[#t + 1] = "[" .. clean(it.tag) .. "] " .. clean(it.text) end return table.concat(t, "\n") end
+  ok(clean(BW.title:GetText()) == "On the way to Adderis and Aspix  1/4" and not BW.post:IsShown() and BW.shownPhase == "trash", "the arrows page to the trash before it; Post is hidden there")
+  ok(winText() == "[STOP] HIGH   Arrow Barrage (Sandswept Hunter channel)\n[KICK] HIGH   Lightning Bolt (Storm Adept, Imbued Stormcaller)\n[TANK] Defensive:  Sunder Slam,  Lightning Bite,  Venomous Slash,  Tainted Strike\n[] + 1 more: bleed Serrated Charge\n[] + 1 for other roles (the role button shows them).\n[] Next: Adderis and Aspix \194\183 no Bloodlust planned",
+    "alone: what happens in the section, no names:\n" .. winText())
+  BW:Step(1); BW:Step(1)
+  ok(clean(BW.title:GetText()) == "On the way to Merektha  2/4" and winText():find("Next: Merektha \194\183 Bloodlust on pull", 1, true), "the next page is the next section, which says a Bloodlust is planned on its boss")
+  BW.edit:GetScript("OnClick")(BW.edit); RunTimers()
+  ok(ed:IsShown() and ed.section == 2, "Edit on a trash page opens that section's editor")
+  ed:Hide()
+  -- In a group.
+  ROSTER.party1 = { guid = "A", name = "Ann", class = "SHAMAN", role = "HEALER" }
+  ROSTER.party2 = { guid = "B", name = "Bob", class = "MAGE", role = "DAMAGER" }
+  ROSTER.party3 = { guid = "C", name = "Cal", class = "PALADIN", role = "DAMAGER" }
+  ROSTER.party4 = { guid = "D", name = "Dee", class = "DRUID", role = "DAMAGER" }
+  INSPECT_CACHE = { A = 264, B = 63, C = 70, D = 102 }
+  e.Tracker:Rescan(); RunTimers(); RunTimers()
+  BW.view = { dk = TOS, index = 3, phase = "trash" }; BW:Refresh()
+  ok(winText() == "[KICK] HIGH   Lightning Bolt (Storm Adept, Imbued Stormcaller)  yours with Cal\n[DISPEL] CRITICAL   Imbued Conduction (Imbued Stormcaller)  Ann no backup\n[] + 1 more: purge Accumulate Charge (Bob)\n[] Next: Galvazzt \194\183 no Bloodlust planned",
+    "in a group: your row on top with who shares it, then the others with their owners:\n" .. winText())
+  ok(BW.items[1].job and not BW.items[2].job, "your row is highlighted")
+  WT:HideRow(TOS, "TOS_ACCUMULATE", 3); RunTimers()
+  ok(winText():find("[] 1 hidden by you: Accumulate Charge", 1, true) and not winText():find("+ 1 more", 1, true), "a hidden row leaves the window too, and stays counted")
+  WT:ResetTrash(TOS); RunTimers()
+  -- The Dungeon tab's brief follows the group while the tab is open.
+  U:SetTab("dungeons"); RunTimers(); RunTimers()
+  ok(e.Tracker.enabled and dump(pp.brief):find("Yours to kick (Disrupt), shared with Cal", 1, true) and dump(pp.brief):find("Ann takes it.", 1, true)
+    and dump(pp.brief):find("For the group you're in.", 1, true), "in a group the brief says Yours and names who shares each cast:\n" .. dump(pp.brief))
+  U:Hide()
+  -- Inside the dungeon: follows pulls and kills.
+  BW:Hide(true)
+  local realCur = e.CurrentInstanceDungeon
+  e.CurrentInstanceDungeon = function() return TOS end
+  BC:CheckZone(); RunTimers()
+  ok(BW:IsShown() and BC:Phase() == "trash" and clean(BW.title:GetText()) == "On the way to Adderis and Aspix  1/4" and e.db.bossProgress.phase == "trash", "entering the dungeon: the trash on the way to the first boss")
+  BC:OnEncounterStart(0, "Adderis and Aspix"); RunTimers()
+  ok(BC:Phase() == "boss" and clean(BW.title:GetText()):find("^Adderis and Aspix  1/4") and BW.post:IsShown(), "on the pull: the boss card")
+  BC:OnEncounterEnd(0, "Adderis and Aspix", 8, 5, 0); RunTimers()
+  ok(BC:Phase() == "boss" and BC.state.index == 1, "a wipe keeps the card")
+  BC:OnEncounterEnd(0, "Adderis and Aspix", 8, 5, 1); RunTimers()
+  ok(BC:Phase() == "trash" and BC.state.index == 2 and clean(BW.title:GetText()) == "On the way to Merektha  2/4", "after the kill: the trash on the way to the next boss")
+  BW:Step(1)
+  ok(BC:Phase() == "boss" and BC.state.index == 2, "inside, the arrows page the same way")
+  for _, name in ipairs({ "Merektha", "Galvazzt", "Avatar of Sethraliss" }) do BC:OnEncounterEnd(0, name, 8, 5, 1) end
+  RunTimers()
+  ok(BC:Phase() == "boss" and BC.state.index == 4 and clean(BW.title:GetText()):find("(defeated)", 1, true), "after the last kill the last card stays, marked defeated")
+  local rep = e.Report:Build()
+  ok(rep:find("Views: Composition essentials, Dungeon essentials (role filter YOU), Plan essentials | trash rows changed by you: 0 hidden, 0 moved in 0 dungeon(s)", 1, true)
+    and rep:find("in Temple of Sethraliss (the boss card)", 1, true), "the report names the views, the trash changes (counts) and the boss window's page")
+  local checks = table.concat(e.Verify:Report().checks, "\n")
+  ok(checks:find("boss window pages: ", 1, true) and checks:find("here now: the card of boss 4 of 4", 1, true), "the checks count the boss window's pages and say where it is")
+  -- A /reload mid-fight opens on the card; between pulls on the trash.
+  BC:Leave(); e.db.bossProgress = { dk = TOS, index = 2, killed = { [1] = true }, at = time() }
+  ENCOUNTER_IN_PROGRESS = true
+  BC:Enter(TOS)
+  ok(BC:Phase() == "boss" and BC.state.index == 2, "coming back mid-fight opens on the boss card")
+  BC:Leave(); ENCOUNTER_IN_PROGRESS = nil
+  e.db.bossProgress = { dk = TOS, index = 2, killed = { [1] = true }, at = time() }
+  BC:Enter(TOS)
+  ok(BC:Phase() == "trash" and BC.state.index == 2, "coming back between pulls opens on the trash")
+  -- A section with every row hidden keeps its page (the count); one that never had rows has none.
+  for _, id in ipairs({ "TOS_CYTOTOXIN", "TOS_SPARE", "TOS_ADDLE_MIND", "TOS_BLEED", "TOS_TANK" }) do WT:HideRow(TOS, id, 2) end
+  ok(BC:HasTrashPage(TOS, 2) and #WT:TrashStep(TOS, 2).reqs == 0 and #WT:TrashStep(TOS, 2).hidden == 5, "a section you hid completely still has its page, with the count")
+  WT:ResetTrash(TOS)
+  BC:Leave()
+  e.CurrentInstanceDungeon = realCur
+  BW:Hide(true)
+
+  -- Presets and the General setting.
+  U:ApplySettingsPreset("expert")
+  ok(U:AllViews() == "everything" and U:View("plan") == "everything", "Expert: Everything on every tab")
+  U:SetView("plan", "essentials")
+  ok(U:AllViews() == nil and U:CurrentSettingsPreset() == nil, "tabs on different views read as your own mix")
+  U:ApplySettingsPreset("learning")
+  ok(U:AllViews() == "essentials" and U:CurrentSettingsPreset() == "learning", "Learning: Essentials on every tab")
+  e.db.settings.view.dungeons = "everything"
+  U:ResetSettingsSection("general")
+  ok(e.db.settings.view.dungeons == "essentials" and e.db.settings.walkRole == "YOU", "Reset section (General) puts the views and the role filter back")
+
+  -- 125% text at the smallest window: the new labels fit their boxes (the stand-in measure of block 67).
+  local function measure(self)
+    local t = tostring(rawget(self, "_text") or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", "  ")
+    return #t * (rawget(self, "_fontSize") or 12) * 0.6
+  end
+  for _, fr in ipairs(ALLFRAMES) do rawset(fr, "GetUnboundedStringWidth", measure) end
+  U:Show("dungeons"); RunTimers()
+  U:SetTextSize(125); RunTimers()
+  local function fits(btn, pad) return measure(btn.text) <= (btn:GetWidth() or 0) - (pad or 12) end
+  local allFit, which = true, ""
+  for name, btn in pairs({ you = pp.roleBtns.YOU, all = pp.roleBtns.ALL, tank = pp.roleBtns.TANK, heal = pp.roleBtns.HEAL, dps = pp.roleBtns.DPS,
+    ess = pp.viewSwitch.btns.essentials, every = pp.viewSwitch.btns.everything, boss = pp.bossBtn, best = pp.bestBtn,
+    postEss = pl.postEssBtn, postAll = pl.postPlanBtn, postGaps = pl.postGapsBtn, bestKey = cp.bestKeyBtn }) do
+    if not fits(btn) then allFit = false; which = which .. " " .. name end
+  end
+  ok(allFit, "125%: every new button label fits its box (stand-in measure):" .. which)
+  ok(fits(cp.modeBtn, 44) and fits(pl.modeBtn, 44), "125%: \"Auto: My party\" still fits the mode menus")
+  pp.roleBtns.YOU.text:SetText("You: Healer")
+  ok(fits(pp.roleBtns.YOU), "125%: \"You: Healer\" fits")
+  U:SetTextSize(100); RunTimers()
+  U:Hide()
+
+  -- The files, and What's new for this version.
+  local function slurp(path) local f = io.open(path, "rb"); if not f then return nil end local t = f:read("*a"); f:close(); return t end
+  ok(#FILES == 26 and FILES[11] == "Walkthrough.lua" and FILES[12] == "Brief.lua" and FILES[19] == "UI.lua" and FILES[20] == "Essentials.lua", "two new files, loaded after what they use (" .. #FILES .. ")")
+  ok(slurp(ADDON_DIR .. "/Ensemble.toc"):find("## Version: 1.7.0", 1, true) and e.HIGHLIGHTS and e.HIGHLIGHTS[1] and e.HIGHLIGHTS[1].version == "1.7.0" and #e.HIGHLIGHTS[1].items >= 2, "1.7.0 has highlights for What's new")
+  KEEP_VIEW = nil
+  EnsembleDB = nil
+  e.state.keyLevelOverride = nil
+  ROSTER, LISTING, APPLICANTS, INSPECT_CACHE = savedRoster, savedListing, savedApps, savedCache
+  OWNED_KEY, OWNED_LEVEL, CURRENT_AFFIXES = savedOwned, savedLevel, savedAffixes
 end
 
 print(string.format("%d passed, %d failed", passes, fails))

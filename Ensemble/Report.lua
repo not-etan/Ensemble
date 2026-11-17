@@ -318,10 +318,22 @@ function Report:RightNow(add)
   local BW, BC = ns.BossWindow, ns.BossCards
   local bw = set.bossWindow or {}
   local bwShown = BW and BW.IsShown and Safe(BW.IsShown, BW)
-  add(string.format("Boss window: %s | boss %s%s | size %sx%s | text %s",
+  local page = (BC and BC.state and BC.state.dk and BC.Phase) and Safe(BC.Phase, BC) or nil
+  add(string.format("Boss window: %s | boss %s%s%s | size %sx%s | text %s",
     bwShown and "open" or "closed", tostring(BC and BC.state and BC.state.index or "-"),
     (BC and BC.state and BC.state.dk) and (" in " .. tostring(DungeonName(BC.state.dk))) or "",
+    page and (" (" .. (page == "trash" and "the trash on the way" or "the boss card") .. ")") or "",
     tostring(bw.width or "default"), tostring(bw.height or "default"), tostring(bw.fontSize)))
+  -- Views (1.7.0) and your trash changes (counts only)
+  local view = type(set.view) == "table" and set.view or {}
+  local hid, moved, dungeons = 0, 0, 0
+  for dk in pairs((db and type(db.trashEdits) == "table") and db.trashEdits or {}) do
+    local h, m = 0, 0
+    if ns.Walkthrough and ns.Walkthrough.TrashEditCounts then h, m = Safe(ns.Walkthrough.TrashEditCounts, ns.Walkthrough, dk) end
+    hid, moved, dungeons = hid + (tonumber(h) or 0), moved + (tonumber(m) or 0), dungeons + 1
+  end
+  add(string.format("Views: Composition %s, Dungeon %s (role filter %s), Plan %s | trash rows changed by you: %d hidden, %d moved in %d dungeon(s)",
+    tostring(view.composition), tostring(view.dungeons), tostring(set.walkRole), tostring(view.plan), hid, moved, dungeons))
 
   local mySpec = Safe(function() return ns.API and ns.API.GetPlayerSpecID and ns.API.GetPlayerSpecID() end)
   local spec = mySpec and ns.UD and ns.UD:GetSpec(mySpec)

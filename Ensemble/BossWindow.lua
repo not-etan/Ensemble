@@ -4,6 +4,11 @@
 -- your role's lines first (or every role), your kick / dispel jobs from the plan in a
 -- highlighted block, page arrows, an editor and "post to chat". Also holds the shared boss
 -- card editor (UI:OpenBossEditor).
+--
+-- 1.7.0: between bosses it shows the trash section on the way to the next one ("On the way to
+-- Galvazzt"): your rows on top, the other critical and high rows, the rest named on a
+-- "+ N more" line. From the guides' sections with your changes (Walkthrough.lua); the boss
+-- card takes over on the pull, as before. Nothing here reads combat data.
 local _, ns = ...
 
 local UI = ns.UI
@@ -31,24 +36,29 @@ local function Kit() return UI.Kit end
 ---------------------------------------------------------------------------
 BW.view = {}
 
+-- Returns dungeon, boss index, inside (you're in that dungeon), phase ("boss" = the card,
+-- "trash" = the section on the way to that boss). Opened by hand it starts on a boss card;
+-- the arrows page through the trash sections too.
 function BW:Current()
   local BC = ns.BossCards
-  if BC.state.dk then return BC.state.dk, BC.state.index or 1, true end
-  if self.view.dk then return self.view.dk, self.view.index or BC:Order(self.view.dk)[1] or 1, false end
+  if BC.state.dk then return BC.state.dk, BC.state.index or 1, true, BC:Phase() end
+  if self.view.dk then
+    local i = self.view.index or BC:Order(self.view.dk)[1] or 1
+    local phase = (self.view.phase == "trash" and BC:HasTrashPage(self.view.dk, i)) and "trash" or "boss"
+    return self.view.dk, i, false, phase
+  end
   local ok, dk = pcall(ns.GetEffectiveDungeon, ns, false)
   dk = ok and dk or (ns.Dungeons and ns.Dungeons.order[1])
-  return dk, BC:Order(dk)[1] or 1, false   -- the first boss in your order
+  return dk, BC:Order(dk)[1] or 1, false, "boss"   -- the first boss in your order
 end
 
 function BW:Step(d)
   local BC = ns.BossCards
-  local dk, i, inside = self:Current()
+  local dk, i, inside, phase = self:Current()
   if inside then BC:Step(d); return end
-  local order = BC:Order(dk)
-  local n = #order
-  if n == 0 then return end
-  local pos = BC:Position(dk, i)
-  self.view = { dk = dk, index = order[((pos - 1 + d) % n) + 1] }
+  local p = BC:PageFrom(dk, i, phase, d)
+  if not p then return end
+  self.view = { dk = dk, index = p.index, phase = p.phase }
   self:Refresh()
 end
 
@@ -78,6 +88,133 @@ function BW:Rows(dk, i, role, all, inside)
   for _, l in ipairs(BC:Ordered(lines, role, all)) do
     rows[#rows + 1] = { kind = "line", role = l.role, text = l.text, nv = l.nv }
   end
+  return rows
+end
+
+---------------------------------------------------------------------------
+-- The trash on the way to a boss (1.7.0): rows of
+--   { kind = "lust" | "mine" | "row" | "more" | "note" | "next", tag, text, backup }
+-- "mine" rows (the casts you own in the group's plan) come first, then the other critical and
+-- high rows, then one "+ N more" line naming the rest with who takes each. Alone (or before
+-- specs are read) there are no names: the section still says what happens here. The role
+-- button filters like the boss card's; a critical row always shows.
+---------------------------------------------------------------------------
+local TRASH_TAG = {
+  interrupt = "KICK", dispel_bleed = "BLEED", stop = "STOP", aoe_stop = "STOP", purge = "PURGE", soothe = "SOOTHE", freedom = "FREE",
+  external_defensive = "TANK", group_defensive = "GROUP", knockback = "KNOCK", root = "ROOT",
+}
+local SEV_RANK = { critical = 1, high = 2, medium = 3, low = 4 }
+local BIG = { critical = true, high = true }
+
+local function TrashTag(q)
+  if ns.Dungeons:CategoryOf(q) == "tank" then return "TANK" end
+  if TRASH_TAG[q.need] then return TRASH_TAG[q.need] end
+  if tostring(q.need):find("^dispel_") then return "DISPEL" end
+  return (ns.UD:CapShort(q.need) or "?"):upper():sub(1, 6)
+end
+
+local function ShortNames(owners, me)
+  local t = {}
+  for _, w in ipairs(owners) do
+    if w.index ~= me then
+      local hex = w.class and select(4, ns.Util.ClassColor(w.class)) or "|cffffffff"
+      t[#t + 1] = hex .. UI.ShortLabel(ns.Assignments.ShortName(w.label)) .. "|r"
+    end
+  end
+  return t
+end
+
+function BW:TrashRows(dk, i, role, all)
+  local WT, BC, AS = ns.Walkthrough, ns.BossCards, ns.Assignments
+  local HEX = Kit().HEX
+  local rows = {}
+  local st = WT and WT:TrashStep(dk, i)
+  if not st then return rows end
+  for _, x in ipairs(WT:LustAt(dk, st)) do
+    rows[#rows + 1] = { kind = "lust", text = "Bloodlust" .. (x.use.note and (": " .. x.use.note) or " here") }
+  end
+  -- The group's plan (your party, or just you). Alone, nothing is "yours": no names.
+  local plan, r = BC:Plan(dk)
+  local me
+  for idx, m in ipairs(r and r.members or {}) do if m.isPlayer then me = idx end end
+  local grouped = plan and r and #r.members > 1 and me ~= nil
+  local rowOf = {}
+  if grouped then
+    for _, e in ipairs(AS:Rows(plan)) do rowOf[e.row.req.id] = e end
+  end
+  local reqs = {}
+  for _, q in ipairs(st.reqs) do reqs[#reqs + 1] = q end
+  table.sort(reqs, function(a, b)
+    local x, y = SEV_RANK[a.severity] or 9, SEV_RANK[b.severity] or 9
+    if x ~= y then return x < y end
+    return tostring(a.id) < tostring(b.id)
+  end)
+  local mine, big, more, otherRoles = {}, {}, {}, 0
+  for _, q in ipairs(reqs) do
+    local e = rowOf[q.id]
+    local owners = e and AS.Owners(e.row) or {}
+    local isMine, isBackup = false, e and e.row.backup and e.row.backup.index == me
+    for _, w in ipairs(owners) do if w.index == me then isMine = true end end
+    if e and e.kind == "other" and q.need == "stop" then isMine = false end   -- a stop is anyone's
+    local wanted = all or isMine or q.severity == "critical" or UI:WalkRoleWants(role, q)
+    local cast = ns.Analysis.Decorate(q.source or "", q.need, q.dungeon)
+    local sev = BIG[q.severity] and (UI.SevTag(q.severity) .. "  ") or ""
+    if not wanted then
+      otherRoles = otherRoles + 1
+    elseif isMine then
+      local with = ShortNames(owners, me)
+      local tail = HEX.accent .. "  yours|r"
+      if e.kind == "dispel" then
+        tail = tail .. (e.row.backup and (HEX.muted .. ", backup |r" .. table.concat(ShortNames({ e.row.backup }, me), ""))
+          or (q.severity == "critical" and (HEX.warn .. ", no backup: don't miss one|r") or ""))
+      elseif #with > 0 then
+        tail = tail .. HEX.muted .. " with |r" .. table.concat(with, HEX.muted .. ", |r")
+      end
+      mine[#mine + 1] = { kind = "mine", tag = TrashTag(q), text = sev .. cast .. tail }
+    elseif TrashTag(q) == "TANK" and role == "TANK" and not BIG[q.severity] then
+      -- Your own role's part of the section stays a row: the tank busters, for a tank.
+      big[#big + 1] = { kind = "row", tag = "TANK", text = HEX.muted .. "Defensive: |r" .. cast }
+    elseif BIG[q.severity] then
+      local tail = ""
+      if grouped and e then
+        local names = ShortNames(owners, nil)
+        if e.kind == "other" and q.need == "stop" then tail = #names > 0 and (HEX.muted .. "  anyone with CC|r") or (HEX.bad .. "  nobody here can|r")
+        elseif #names > 0 then tail = "  " .. table.concat(names, HEX.muted .. " + |r")
+          .. ((e.kind == "dispel" and not e.row.backup and q.severity == "critical") and (HEX.warn .. " no backup|r") or "")
+          .. (isBackup and (HEX.accent .. "  you back it up|r") or "")
+        else tail = HEX.bad .. "  nobody here can|r" end
+      end
+      big[#big + 1] = { kind = "row", tag = TrashTag(q), text = sev .. cast .. tail }
+    else
+      local who = ""
+      if grouped and e then
+        local names = AS:OwnerNames(e, function(l) return UI.ShortLabel(AS.ShortName(l)) end)
+        who = names and (" (" .. names .. ")") or " (nobody)"
+      end
+      more[#more + 1] = TrashTag(q):lower() .. " " .. UI.ReqNames(q) .. who .. (isBackup and " [you back it up]" or "")
+    end
+  end
+  for _, x in ipairs(mine) do rows[#rows + 1] = x end
+  for _, x in ipairs(big) do rows[#rows + 1] = x end
+  if #mine + #big == 0 and (#more > 0 or otherRoles > 0) then
+    rows[#rows + 1] = { kind = "note", text = HEX.muted .. "Nothing critical or high here" .. (otherRoles > 0 and " for your role" or "") .. ".|r" }
+  end
+  if #more > 0 then
+    rows[#rows + 1] = { kind = "more", text = HEX.accent .. "+ " .. #more .. " more:|r " .. HEX.muted .. table.concat(more, ", ") .. "|r" }
+  end
+  if otherRoles > 0 then
+    rows[#rows + 1] = { kind = "note", text = HEX.muted .. "+ " .. otherRoles .. " for other roles (the role button shows them).|r" }
+  end
+  if #(st.hidden or {}) > 0 then
+    local names = {}
+    for _, q in ipairs(st.hidden) do names[#names + 1] = AS.CastName(q) end
+    rows[#rows + 1] = { kind = "note", text = HEX.muted .. #st.hidden .. " hidden by you: " .. table.concat(names, ", ") .. "|r" }
+  end
+  -- What comes next: the boss, and whether Bloodlust is planned on it.
+  local boss = BC:Boss(dk, i)
+  local lust = self:LustRows(dk, "b" .. i)
+  rows[#rows + 1] = { kind = "next", text = HEX.muted .. "Next: |r" .. (boss and boss.name or "?") .. HEX.muted .. " \194\183 "
+    .. (lust[1] and (lust[1].text:gsub("^Bloodlust: ", "Bloodlust ")) or "no Bloodlust planned") .. "|r" }
   return rows
 end
 
@@ -158,7 +295,8 @@ function BW:Build()
   self.post = SmallBtn(foot, "Post", 40, "Post this boss card to party chat", function() BW:Post() end)
   self.post:SetPoint("RIGHT", -18, 0)
   self.edit = SmallBtn(foot, "Edit", 36, "Edit this boss card", function()
-    local dk, i = BW:Current(); UI:OpenBossEditor(dk, i)
+    local dk, i, _, phase = BW:Current()
+    if phase == "trash" then UI:OpenTrashEditor(dk, i) else UI:OpenBossEditor(dk, i) end
   end)
   self.edit:SetPoint("RIGHT", self.post, "LEFT", -2, 0)
   self.foot = foot
@@ -228,8 +366,10 @@ function BW:Layout()
     y = y + gapTop
     row.tag:SetPoint("TOPLEFT", self.content, "TOPLEFT", 6, -y - 3)
     row.tag:SetWidth(tagW)
-    row.text:SetPoint("TOPLEFT", self.content, "TOPLEFT", tagW + 10, -y - 3)
-    row.text:SetWidth(width - tagW - 12)
+    -- A wide row (a "+ N more" line, "Next:") has no tag and starts at the left edge.
+    local left = item.wide and 6 or (tagW + 10)
+    row.text:SetPoint("TOPLEFT", self.content, "TOPLEFT", left, -y - 3)
+    row.text:SetWidth(width - left - 2)
     row.tag:SetText(item.tag); row.text:SetText(item.text)
     local h = math.max(px + 2, (row.text:GetStringHeight() or px)) + 6
     if item.job then
@@ -259,7 +399,7 @@ function BW:Refresh()
   local HEX = K.HEX
   local s = S()
   local BC = ns.BossCards
-  local dk, i, inside = self:Current()
+  local dk, i, inside, phase = self:Current()
   local bosses = BC:Bosses(dk)
   local boss = bosses[i]
   local px = s.fontSize or 12
@@ -267,15 +407,42 @@ function BW:Refresh()
   if not boss then
     self.title:SetText(HEX.muted .. "No boss cards for this dungeon|r")
     self.items = {}
+    self.shownPhase = nil
     self:Layout()
+    return
+  end
+  local role = BC:MyRole()
+  self.roleBtn.text:SetText(s.showAll and "All roles" or ("My role: " .. role))
+  self.roleBtn:SetWidth(s.showAll and 64 or 92)
+  self.shownPhase = phase
+  local trash = phase == "trash"
+  -- Posting a trash section isn't offered (the Plan tab's posts cover the trash); Edit opens
+  -- the section's editor instead of the card's.
+  self.post:SetShown(not trash)
+  self.edit.tooltip = trash and "Hide the trash your group skips, or move a row to another boss's section" or "Edit this boss card"
+  self.prev.tooltip, self.next.tooltip = "Previous page (the trash before a boss, then the boss)", "Next page (the trash before a boss, then the boss)"
+  if trash then
+    self.title:SetText(HEX.muted .. "On the way to |r" .. boss.name .. HEX.muted .. "  " .. BC:Position(dk, i) .. "/" .. #bosses .. "|r")
+    local items = {}
+    for _, r in ipairs(self:TrashRows(dk, i, role, s.showAll)) do
+      if r.kind == "lust" then
+        items[#items + 1] = { job = true, tag = HEX.warn .. "LUST|r", text = HEX.text .. r.text .. "|r" }
+      elseif r.kind == "mine" then
+        items[#items + 1] = { job = true, tag = HEX.accent .. r.tag .. "|r", text = r.text }
+      elseif r.kind == "row" then
+        items[#items + 1] = { tag = HEX.text .. r.tag .. "|r", text = r.text }
+      else
+        items[#items + 1] = { first = r.kind == "next", wide = true, tag = "", text = r.text }
+      end
+    end
+    self.items = items
+    self:Layout()
+    self:ApplyCombatFade()
     return
   end
   local killed = inside and BC.state.killed and BC.state.killed[i]
   self.title:SetText(boss.name .. HEX.muted .. "  " .. BC:Position(dk, i) .. "/" .. #bosses
     .. (killed and "  (defeated)" or "") .. (BC:IsEdited(dk, i) and "  (edited)" or "") .. "|r")
-  local role = BC:MyRole()
-  self.roleBtn.text:SetText(s.showAll and "All roles" or ("My role: " .. role))
-  self.roleBtn:SetWidth(s.showAll and 64 or 92)
   local items = {}
   local firstJob, firstLine = true, true
   for _, r in ipairs(self:Rows(dk, i, role, s.showAll, inside)) do
@@ -366,6 +533,7 @@ ns:On("BOSS_COMBAT", function(on) BW.inCombat = on; BW:ApplyCombatFade() end)
 ns:On("LUST_CHANGED", function() BW:QueueRefresh() end)
 ns:On("BOSS_ORDER_CHANGED", function() BW:QueueRefresh() end)
 ns:On("ASSIGNMENTS_CHANGED", function() BW:QueueRefresh() end)
+ns:On("TRASH_CHANGED", function() BW:QueueRefresh() end)
 
 ---------------------------------------------------------------------------
 -- Editor (shared by the window and the Dungeons tab)

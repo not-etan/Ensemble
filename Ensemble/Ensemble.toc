@@ -2,7 +2,7 @@
 ## Title: Ensemble
 ## Notes: A Mythic+ Companion. Learn the dungeon. Build the group. Time the key. Type /ens to open.
 ## Author: Ensemble
-## Version: 1.6.5
+## Version: 1.7.0
 ## SavedVariables: EnsembleDB
 ## IconTexture: Interface\AddOns\Ensemble\Media\Logo
 ## AddonCompartmentFunc: Ensemble_OnAddonCompartmentClick
@@ -27,6 +27,7 @@ Analysis.lua
 Assignments.lua
 BossCards.lua
 Walkthrough.lua
+Brief.lua
 ApplicantFit.lua
 ListingFit.lua
 FillGroup.lua
@@ -34,6 +35,7 @@ SavedPlayers.lua
 Friends.lua
 History.lua
 UI.lua
+Essentials.lua
 BossWindow.lua
 Highlights.lua
 Tour.lua

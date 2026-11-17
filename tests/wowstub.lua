@@ -173,6 +173,8 @@ C_MythicPlus = {
   GetOwnedKeystoneLevel = function() return OWNED_LEVEL end,
 }
 C_ChallengeMode.GetActiveChallengeMapID = function() return ACTIVE_CHALLENGE end
+ENCOUNTER_IN_PROGRESS = nil
+function IsEncounterInProgress() return ENCOUNTER_IN_PROGRESS and true or false end
 function GetInstanceInfo()
   if INSTANCE then return INSTANCE[1], INSTANCE[2] end
   return "Dornogal", "none"

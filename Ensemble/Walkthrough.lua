@@ -8,6 +8,11 @@
 -- section moves with the boss it leads to; a group marked `sharedTrash` shows its trash as
 -- one section before the group once its order changes. (Up to 1.2.1 the walkthrough could
 -- follow a Mythic Dungeon Tools route; that was removed in 1.3.0.)
+--
+-- Your trash changes (1.7.0): a trash row (one requirement in one section) can be hidden
+-- ("we skip this") or moved to another boss's section. Saved per dungeon (db.trashEdits),
+-- "Reset to the guides" drops them. They reach the walkthrough, the boss window, Your brief,
+-- the Plan and its posts; Needs, pick ratings and Fill group keep the guides' full list.
 local _, ns = ...
 
 local WT = {}
@@ -45,19 +50,201 @@ end
 
 local function has(list, v) for _, x in ipairs(list or {}) do if x == v then return true end end return false end
 
+---------------------------------------------------------------------------
+-- Your trash changes
+---------------------------------------------------------------------------
+WT.trashVersion = 0
+
+local function Edits(dk, create)
+  local db = ns.db
+  if not db then return nil end
+  if type(db.trashEdits) ~= "table" then
+    if not create then return nil end
+    db.trashEdits = {}
+  end
+  if create and type(db.trashEdits[dk]) ~= "table" then db.trashEdits[dk] = {} end
+  return type(db.trashEdits[dk]) == "table" and db.trashEdits[dk] or nil
+end
+
+local function TrashChanged(dk)
+  WT.trashVersion = WT.trashVersion + 1
+  WT.areasCache = nil
+  if ns.BossCards and ns.BossCards.ClearPlanCache then ns.BossCards:ClearPlanCache() end
+  ns:Fire("TRASH_CHANGED", dk)
+end
+
+-- The sections each trash requirement shows in, after your changes.
+-- Returns areas   = { [id] = { boss indexes, ascending } }   where each row shows now
+--         hidden  = { [id] = { [section] = true } }          rows you hid, by the guides' section
+--         movedIn = { [id] = { [section] = from } }          rows you moved, by where they are now
+function WT:Areas(dk)
+  local c = self.areasCache
+  if c and c.dk == dk and c.version == self.trashVersion and c.db == ns.db then return c.areas, c.hidden, c.movedIn end
+  local guide = DD().AREAS[dk] or {}
+  local edits = Edits(dk) or {}
+  local areas, hidden, movedIn = {}, {}, {}
+  for id, list in pairs(guide) do
+    local e = type(edits[id]) == "table" and edits[id] or nil
+    local on = {}
+    for _, b in ipairs(list) do
+      local to = e and e[b]
+      if to == 0 then
+        hidden[id] = hidden[id] or {}
+        hidden[id][b] = true
+      elseif type(to) == "number" and to ~= b then
+        if not on[to] then
+          on[to] = true
+          movedIn[id] = movedIn[id] or {}
+          movedIn[id][to] = b
+        end
+      else
+        -- A row the guides put here wins over one moved in from elsewhere.
+        on[b] = true
+        if movedIn[id] then movedIn[id][b] = nil end
+      end
+    end
+    local out = {}
+    for b in pairs(on) do out[#out + 1] = b end
+    table.sort(out)
+    areas[id] = out
+  end
+  self.areasCache = { dk = dk, version = self.trashVersion, db = ns.db, areas = areas, hidden = hidden, movedIn = movedIn }
+  return areas, hidden, movedIn
+end
+
+local function InGuide(dk, id, section)
+  return has((DD().AREAS[dk] or {})[id], section)
+end
+
+-- Hide a trash row from the section the guides put it in ("we skip this").
+function WT:HideRow(dk, id, section)
+  if not InGuide(dk, id, section) then return false end
+  local e = Edits(dk, true)
+  e[id] = e[id] or {}
+  e[id][section] = 0
+  TrashChanged(dk)
+  return true
+end
+
+-- Move a trash row from the guides' section to another boss's section.
+function WT:MoveRow(dk, id, section, to)
+  local d = DD().list[dk]
+  if not d or not InGuide(dk, id, section) or type(to) ~= "number" or to < 1 or to > #(d.bosses or {}) then return false end
+  if to == section then return self:RestoreRow(dk, id, section) end
+  local e = Edits(dk, true)
+  e[id] = e[id] or {}
+  e[id][section] = to
+  TrashChanged(dk)
+  return true
+end
+
+-- Put one row back where the guides have it.
+function WT:RestoreRow(dk, id, section)
+  local e = Edits(dk)
+  if not (e and e[id] and e[id][section] ~= nil) then return false end
+  e[id][section] = nil
+  if next(e[id]) == nil then e[id] = nil end
+  if next(e) == nil then ns.db.trashEdits[dk] = nil end
+  TrashChanged(dk)
+  return true
+end
+
+-- "Reset to the guides": every trash change for this dungeon.
+function WT:ResetTrash(dk)
+  if not Edits(dk) then return false end
+  ns.db.trashEdits[dk] = nil
+  TrashChanged(dk)
+  return true
+end
+
+-- How many rows you hid and moved in this dungeon.
+function WT:TrashEditCounts(dk)
+  local h, m = 0, 0
+  for _, bySection in pairs(Edits(dk) or {}) do
+    for _, to in pairs(bySection) do if to == 0 then h = h + 1 else m = m + 1 end end
+  end
+  return h, m
+end
+function WT:HasTrashEdits(dk)
+  local h, m = self:TrashEditCounts(dk)
+  return h + m > 0
+end
+
+-- Requirements you skip altogether: hidden in every trash section the guides list them in, and
+-- on no boss card. The Plan, Your brief and the posts leave them out (and count them); Needs,
+-- pick ratings and Fill group never read this.
+function WT:SkippedReqs(dk)
+  local out, n = {}, 0
+  local areas, hidden = self:Areas(dk)
+  if not next(hidden) then return out, n end
+  local onBoss = {}
+  for _, b in ipairs(ns.BossCards and ns.BossCards:Bosses(dk) or {}) do
+    for _, id in ipairs(b.reqs or {}) do onBoss[id] = true end
+  end
+  for id in pairs(hidden) do
+    if #(areas[id] or {}) == 0 and not onBoss[id] then out[id] = true; n = n + 1 end
+  end
+  return out, n
+end
+
+-- One trash section as the editor lists it: every row the guides put here or you moved here,
+-- with what you did to it. { { req, state = "shown" | "hidden" | "movedIn" | "movedOut", from, to } }
+function WT:SectionRows(dk, section)
+  local d = DD().list[dk]
+  if not d then return {} end
+  local guide = DD().AREAS[dk] or {}
+  local edits = Edits(dk) or {}
+  local _, _, movedIn = self:Areas(dk)
+  local out = {}
+  for _, q in ipairs(d.requirements) do
+    if not q.invalid then
+      local e = type(edits[q.id]) == "table" and edits[q.id] or {}
+      if has(guide[q.id], section) then
+        local to = e[section]
+        if to == 0 then out[#out + 1] = { req = q, state = "hidden", from = section }
+        elseif type(to) == "number" and to ~= section then out[#out + 1] = { req = q, state = "movedOut", from = section, to = to }
+        else out[#out + 1] = { req = q, state = "shown", from = section } end
+      elseif movedIn[q.id] and movedIn[q.id][section] then
+        out[#out + 1] = { req = q, state = "movedIn", from = movedIn[q.id][section], to = section }
+      end
+    end
+  end
+  return out
+end
+
 -- Throughout (no area, no boss), then for each boss in order: the trash that leads to it,
 -- then the boss. Steps keep the boss's own index (`boss`); `pos` is its place in the order.
+-- A trash step also carries `hidden` (rows you hid there, still counted) and `moved`
+-- ({ [id] = from } for rows you moved in). Every step gets `also`: { [id] = true } for a
+-- requirement an earlier step already showed (the Dungeon tab names those on one line).
 local function GuideSteps(dk, reqs, onBoss)
   local BC = ns.BossCards
-  local areas = DD().AREAS[dk] or {}
+  local guide = DD().AREAS[dk] or {}
+  local areas, hiddenBy, movedIn = WT:Areas(dk)
   local order = BC:Order(dk)
   local custom = BC:IsCustomOrder(dk)
   local steps = {}
   local anywhere = { kind = "anywhere", reqs = {} }
   for _, q in ipairs(reqs) do
-    if not areas[q.id] and not onBoss[q.id] then anywhere.reqs[#anywhere.reqs + 1] = q end
+    if not guide[q.id] and not onBoss[q.id] then anywhere.reqs[#anywhere.reqs + 1] = q end
   end
   if #anywhere.reqs > 0 then steps[#steps + 1] = anywhere end
+  local function fill(t, members)
+    t.hidden, t.moved = {}, {}
+    for _, q in ipairs(reqs) do
+      for _, b in ipairs(members) do
+        if has(areas[q.id], b) then
+          t.reqs[#t.reqs + 1] = q
+          if movedIn[q.id] and movedIn[q.id][b] then t.moved[q.id] = movedIn[q.id][b] end
+          break
+        end
+      end
+      for _, b in ipairs(members) do
+        if hiddenBy[q.id] and hiddenBy[q.id][b] then t.hidden[#t.hidden + 1] = q; break end
+      end
+    end
+    return t
+  end
   local merged = {}
   for pos, bi in ipairs(order) do
     local g = BC:OrderGroup(dk, bi)
@@ -68,32 +255,41 @@ local function GuideSteps(dk, reqs, onBoss)
         merged[g] = true
         local members = {}
         for _, b in ipairs(order) do if has(g, b) then members[#members + 1] = b end end
-        local t = { kind = "trash", boss = bi, bosses = members, merged = true, pos = pos, reqs = {} }
-        for _, q in ipairs(reqs) do
-          for _, b in ipairs(members) do
-            if has(areas[q.id], b) then t.reqs[#t.reqs + 1] = q; break end
-          end
-        end
-        steps[#steps + 1] = t
+        steps[#steps + 1] = fill({ kind = "trash", boss = bi, bosses = members, merged = true, pos = pos, reqs = {} }, members)
       end
     else
-      local t = { kind = "trash", boss = bi, pos = pos, reqs = {} }
-      for _, q in ipairs(reqs) do if has(areas[q.id], bi) then t.reqs[#t.reqs + 1] = q end end
-      steps[#steps + 1] = t
+      steps[#steps + 1] = fill({ kind = "trash", boss = bi, pos = pos, reqs = {} }, { bi })
     end
     local b = { kind = "boss", boss = bi, pos = pos, reqs = {} }
     for _, q in ipairs(reqs) do if has(onBoss[q.id], bi) then b.reqs[#b.reqs + 1] = q end end
     steps[#steps + 1] = b
   end
+  local seen = {}
+  for _, st in ipairs(steps) do
+    st.also = {}
+    for _, q in ipairs(st.reqs) do
+      if seen[q.id] then st.also[q.id] = true else seen[q.id] = true end
+    end
+  end
   return steps
 end
 
--- { order = "guide", steps = { {kind, boss, reqs} } }
+-- { order = "guide", steps = { {kind, boss, reqs, also, hidden, moved} } }
 function WT:Build(dk)
   if not dk or not DD().list[dk] then return nil end
   local reqs = Visible(dk)
   local onBoss = BossReqs(dk)
   return { order = "guide", steps = GuideSteps(dk, reqs, onBoss) }
+end
+
+-- The trash section that leads to a boss, as a walkthrough step (nil when the dungeon is
+-- unknown). In a merged shared-path group every member boss gets the group's one section.
+function WT:TrashStep(dk, boss)
+  local w = self:Build(dk)
+  for _, st in ipairs(w and w.steps or {}) do
+    if st.kind == "trash" and (st.boss == boss or has(st.bosses, boss)) then return st end
+  end
+  return nil
 end
 
 ---------------------------------------------------------------------------

@@ -906,6 +906,26 @@ local function CheckBosses()
   if #missing > 0 then Add("FAIL", "events not accepted: " .. table.concat(missing, ", ") .. " (the window can't follow bosses; use its arrows)")
   elseif next(BC.eventsOK) == nil then Add("WARN", "boss events not registered yet")
   else Add("OK", "encounter events accepted (window follows boss pulls and kills)") end
+  -- 1.7.0: the window shows the trash on the way to a boss; a fight already running when you
+  -- arrive (a /reload) is read from IsEncounterInProgress.
+  if rawget(_G, "IsEncounterInProgress") then Add("OK", "IsEncounterInProgress present (a /reload mid-fight opens on the boss card)")
+  else Add("WARN", "IsEncounterInProgress missing: after a /reload mid-fight the boss window shows the trash section until the next pull") end
+  do
+    local WT = ns.Walkthrough
+    local pages, sections = 0, 0
+    for _, key in ipairs(ns.Dungeons.order) do
+      for _, p in ipairs(BC:Pages(key)) do
+        pages = pages + 1
+        if p.phase == "trash" then sections = sections + 1 end
+      end
+    end
+    Add(sections > 0 and "OK" or "WARN", string.format("boss window pages: %d (%d trash sections on the way to a boss)", pages, sections))
+    if BC.state.dk then
+      Add("OK", "here now: " .. (BC:Phase() == "trash" and "the trash on the way to" or "the card of") .. " boss "
+        .. tostring(BC:Position(BC.state.dk, BC.state.index or 1)) .. " of " .. #BC:Bosses(BC.state.dk)
+        .. (WT and WT:HasTrashEdits(BC.state.dk) and " (this dungeon has trash rows changed by you)" or ""), false)
+    end
+  end
   local cards, empty = 0, {}
   for _, key in ipairs(ns.Dungeons.order) do
     local n = #(BD.list[key] or {})

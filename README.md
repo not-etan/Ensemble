@@ -25,8 +25,9 @@ Ensemble is a Mythic+ companion that helps players of every skill level learn du
 
 ### 🏰 Dungeons and bosses
 - 🗺️ **Every Season 2 dungeon:** Altar of Fangs, Murder Row, Den of Nalorakk, The Blinding Vale, Voidscar Arena, Ruby Life Pools, Kings' Rest and Temple of Sethraliss.
-- 📖 **Walkthrough:** every trash section and boss in order, with what each mechanic does and how to answer it, filtered by role if you like, plus a short card for every boss.
-- 🪟 **Boss window:** opens when you enter the dungeon, follows your progress and highlights your own assignments. Open any dungeon's cards from the Dungeon tab too.
+- 🎯 **Your brief:** one panel for your own spec in each dungeon: what you kick, stop, dispel and use a defensive on, and what isn't yours but can end the key. No group needed.
+- 📖 **Walkthrough:** every trash section and boss in order, with what each mechanic does and how to answer it, filtered to your role, plus a short card for every boss. Hide the trash your group skips, or move it to where you fight it.
+- 🪟 **Boss window:** opens when you enter the dungeon, shows the trash on the way to each boss and then the boss card, follows your progress and highlights your own assignments. Open any dungeon's cards from the Dungeon tab too.
 - 🥇 **Best key:** rank every dungeon by how well your current group covers it.
 
 ### 📊 Composition
@@ -44,10 +45,10 @@ Ensemble is a Mythic+ companion that helps players of every skill level learn du
 ### 🗝️ The plan
 - ⏱️ **Kick and dispel plan:** rotations shared out by cooldown, with backups for dangerous casts and your own assignments in one place. Click any assignment to change who takes it.
 - 🥁 **Bloodlust timing:** a sensible default for every dungeon that you can move, annotate or add to.
-- 💬 **Post to party chat:** the whole plan, one line per player, or just the gaps, in one click.
+- 💬 **Post to party chat:** the essentials (the big casts and who owns them, in about five lines), the whole plan one line per player, or just the gaps, in one click.
 
 ### 🎓 Learning and history
-- 💡 **Learning mode:** plain-language explanations throughout, a glossary, a quick tour and first-time tips, or switch it off for a compact expert view.
+- 💡 **Essentials first:** every tab opens on what matters most, in plain words, with everything else counted and one click away. Plain-language explanations, a glossary, a quick tour and first-time tips, or the Expert preset for the full view.
 - 📈 **Run history:** your keys saved locally, with boss splits against your best timed run, wipes per boss, timed rates with and without each gap and a takeaway from every run.
 
 ---

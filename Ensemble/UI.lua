@@ -264,9 +264,10 @@ local function FlatButton(parent, label, w, h, onClick)
   return b
 end
 
--- Shared look for windows defined in other files (BossWindow.lua).
+-- Shared look for windows defined in other files (BossWindow.lua, Essentials.lua).
 UI.Kit = { C = C, HEX = HEX, Skin = Skin, Button = Button, FlatButton = FlatButton, Accent = Accent,
-           Text = Text, FONT = FONT, WHITE = WHITE }
+           Text = Text, FONT = FONT, WHITE = WHITE, SetFontSize = SetFontSize, MakeFit = MakeFit,
+           TEX_OK = TEX_OK, TEX_WAIT = TEX_WAIT, TEX_NO = TEX_NO }
 
 -- Dropdown: a field showing the current choice, with a divider and a drawn chevron on the
 -- right (two rotated bars, so it stays crisp at any scale and follows the accent color).
@@ -998,6 +999,11 @@ function UI:SetTab(key)
     ns.state.mode = "live"           -- applicants are rated against the live party
     ns.Tracker:Enable()
     self.pages.applicants:Show()
+  elseif key == "dungeons" and IsInGroup and IsInGroup() then
+    -- Your brief names who shares each cast, so the roster is read while you're grouped
+    -- (checked when the tab opens; alone, the tab needs no tracker).
+    ns.Tracker:Enable()
+    self.pages[key]:Show()
   else
     ns.Tracker:Disable()
     self.pages[key]:Show()
@@ -1071,6 +1077,47 @@ function UI:Refresh()
 end
 
 ---------------------------------------------------------------------------
+-- Essentials / Everything (1.7.0): each of Composition, Dungeon and Plan has its own switch,
+-- remembered per tab (settings.view). Essentials shows the critical and high rows in plain
+-- words and counts the rest on a "+ N more" line; Everything shows every row, as up to 1.6.5.
+-- The Essentials renderers live in Essentials.lua.
+---------------------------------------------------------------------------
+UI.VIEW_BW = 84
+function UI:View(tab)
+  local v = ns.db and ns.db.settings and ns.db.settings.view
+  return (v and v[tab] == "everything") and "everything" or "essentials"
+end
+function UI:IsEssentials(tab) return self:View(tab) == "essentials" end
+
+function UI:SetView(tab, view)
+  local s = ns.db.settings
+  s.view = s.view or {}
+  view = view == "everything" and "everything" or "essentials"
+  if s.view[tab] == view then return end
+  s.view[tab] = view
+  if ns.Activity then ns.Activity:Log("view", tab .. ": " .. view) end
+  self:QueueRefresh()
+end
+
+function UI:ViewSwitch(parent, tab)
+  local f = CreateFrame("Frame", nil, parent)
+  f:SetSize(2 * self.VIEW_BW - 1, 26)
+  f.btns = {}
+  for i, def in ipairs({
+    { "essentials", "Essentials", "What matters most: the critical and high rows in plain words. Everything else is counted and named, one click away." },
+    { "everything", "Everything", "Every row, who covers it and why. Your choice is remembered for this tab." },
+  }) do
+    local b = Button(f, def[2], self.VIEW_BW, 26, function() UI:SetView(tab, def[1]) end)
+    SetFontSize(b.text, 11)
+    b:SetPoint("LEFT", (i - 1) * (self.VIEW_BW - 1), 0)
+    b.tooltip = def[3]
+    f.btns[def[1]] = b
+  end
+  function f:Sync() for k, b in pairs(self.btns) do b:SetActive(UI:View(tab) == k) end end
+  return f
+end
+
+---------------------------------------------------------------------------
 -- Composition page (planner and party modes share it)
 ---------------------------------------------------------------------------
 function UI:BuildCompPage()
@@ -1083,17 +1130,14 @@ function UI:BuildCompPage()
   local bar = CreateFrame("Frame", nil, page)
   bar:SetPoint("TOPLEFT", 12, -10); bar:SetPoint("TOPRIGHT", -12, -10); bar:SetHeight(30)
   local lbl = Text(bar, 12, C.muted); lbl:SetPoint("LEFT", 0, 0); lbl:SetText("Check against:")
-  cp.dungeonBtn = Dropdown(bar, 280, 28, function(btn) UI:OpenDungeonMenu(btn) end)
+  cp.dungeonBtn = Dropdown(bar, 230, 28, function(btn) UI:OpenDungeonMenu(btn) end)
   cp.dungeonBtn:SetPoint("LEFT", lbl, "RIGHT", 10, 0)
   SetFontSize(cp.dungeonBtn.text, 13)
-  cp.compactBtn = Button(bar, "", 120, 26, function()
-    ns.db.settings.compact = not ns.db.settings.compact
-    ns:Fire("SETTINGS_CHANGED")
-  end)
-  cp.compactBtn:SetPoint("RIGHT", 0, 0)
-  cp.compactBtn.tooltip = "Toggle compact (gaps only) / full breakdown"
-  cp.bestKeyBtn = Button(bar, "Best key", 96, 26, function() UI:ShowBestKey() end)
-  cp.bestKeyBtn:SetPoint("RIGHT", cp.compactBtn, "LEFT", -6, 0)
+  -- Essentials / Everything (1.7.0; replaced the Summary view / Full view button).
+  cp.viewSwitch = self:ViewSwitch(bar, "composition")
+  cp.viewSwitch:SetPoint("RIGHT", 0, 0)
+  cp.bestKeyBtn = Button(bar, "Best key", 76, 26, function() UI:ShowBestKey() end)
+  cp.bestKeyBtn:SetPoint("RIGHT", cp.viewSwitch, "LEFT", -6, 0)
   cp.bestKeyBtn.tooltip = "Rank every Season dungeon by how well this group covers it"
   -- Whose group: your party (when you're in one or listed) or the planner.
   cp.modeBtn = Dropdown(bar, 150, 26, function(btn) UI:OpenModeMenu(btn) end)
@@ -1124,6 +1168,9 @@ function UI:BuildCompPage()
   cp.chips = {}
   cp.sumRisks = Text(sum, 11, C.text); cp.sumRisks:SetPoint("TOPLEFT", cp.chipBar, "BOTTOMLEFT", 2, -7); cp.sumRisks:SetPoint("RIGHT", -10, 0)
   cp.sumRisks:SetWordWrap(false)
+  -- Essentials: how much is covered and how many slots are open, at the strip's right edge.
+  cp.sumRight = Text(sum, 11, C.muted, "RIGHT"); cp.sumRight:SetPoint("TOPRIGHT", -10, -8); cp.sumRight:SetWidth(190)
+  cp.sumRight:Hide()
   cp.riskBtn = CreateFrame("Button", nil, sum)
   cp.riskBtn:SetPoint("TOPLEFT", cp.sumRisks, "TOPLEFT", 0, 2); cp.riskBtn:SetPoint("BOTTOMRIGHT", cp.sumRisks, "BOTTOMRIGHT", 0, -2)
   cp.riskBtn:SetScript("OnClick", function()
@@ -1233,6 +1280,7 @@ function UI:BuildCompPage()
   mid:SetPoint("TOPLEFT", left, "TOPRIGHT", 10, 0); mid:SetPoint("BOTTOMRIGHT", -12, 12)
   cp.mid = mid
   local midT = AccentText(mid); midT:SetPoint("TOPLEFT", 10, -8); midT:SetText("Needs")
+  cp.midTitle = midT
   cp.collapseBtn = FlatButton(mid, "Collapse all", 80, 18, function() UI:CollapseAll() end)
   cp.collapseBtn:SetPoint("TOPRIGHT", -6, -5)
   cp.collapseBtn.tooltip = "Fold every need and every expanded list"
@@ -1515,13 +1563,14 @@ function UI:RefreshComp()
   cp.dungeonNote:SetText(note)
   cp.noteBtn.tip = full
   cp.noteBtn:SetShown(full ~= nil)
-  cp.compactBtn.text:SetText(settings.compact and "Full view" or "Summary view")
-  cp.compactBtn.tooltip = settings.compact and "Show every need, including covered ones"
-    or "Summary view: the strip and the gaps only"
+  local ess = self:IsEssentials("composition")
+  cp.viewSwitch:Sync()
+  cp.expandBtn:SetShown(not ess); cp.collapseBtn:SetShown(not ess)
 
   local ready = Analysis:Readiness(r, settings)
   cp.lastReady = ready
-  self:RenderSummaryStrip(r, ready, dungeonKey)
+  if ess then self:RenderVerdictStrip(r, ready, dungeonKey, slotMembers)
+  else self:RenderSummaryStrip(r, ready, dungeonKey) end
 
   -- Slot rows (with what each player brings)
   local memberIndex, idx = {}, 0
@@ -1611,11 +1660,17 @@ function UI:RefreshComp()
   self.cp.lastAnalysis = realR
   self.cp.lastMembers = realMembers
   if self.bestKey and self.bestKey:IsShown() then self:RenderBestKey() end
-  self:RenderSuggestions(side, slotMembers, slotRoles, dungeonKey, settings, live)
+  if ess then self:RenderBestForSlot(side, slotMembers, slotRoles, dungeonKey, settings, live)
+  else self:RenderSuggestions(side, slotMembers, slotRoles, dungeonKey, settings, live) end
   if not live then self:RenderQuickSaved(side) end
   side:Finish()
 
-  self:RenderReadiness(cp.ready, r, ready, members, dungeonKey, settings.compact)
+  if ess then
+    self:RenderMissing(cp.ready, r, ready, members, dungeonKey)
+  else
+    cp.midTitle:SetText("Needs")
+    self:RenderReadiness(cp.ready, r, ready, members, dungeonKey)
+  end
 end
 
 ---------------------------------------------------------------------------
@@ -1657,11 +1712,13 @@ function UI:BuildPlanPage()
   local bar = CreateFrame("Frame", nil, page)
   bar:SetPoint("TOPLEFT", 12, -10); bar:SetPoint("TOPRIGHT", -12, -10); bar:SetHeight(30)
   local lbl = Text(bar, 12, C.muted); lbl:SetPoint("LEFT", 0, 0); lbl:SetText("Plan for:")
-  pl.dungeonBtn = Dropdown(bar, 280, 28, function(btn) UI:OpenDungeonMenu(btn) end)
+  pl.dungeonBtn = Dropdown(bar, 230, 28, function(btn) UI:OpenDungeonMenu(btn) end)
   pl.dungeonBtn:SetPoint("LEFT", lbl, "RIGHT", 10, 0)
   SetFontSize(pl.dungeonBtn.text, 13)
+  pl.viewSwitch = self:ViewSwitch(bar, "plan")
+  pl.viewSwitch:SetPoint("RIGHT", 0, 0)
   pl.modeBtn = Dropdown(bar, 150, 26, function(btn) UI:OpenModeMenu(btn) end)
-  pl.modeBtn:SetPoint("RIGHT", 0, 0)
+  pl.modeBtn:SetPoint("RIGHT", pl.viewSwitch, "LEFT", -8, 0)
   pl.note = Text(bar, 11, C.muted); pl.note:SetPoint("LEFT", pl.dungeonBtn, "RIGHT", 10, 0)
   pl.note:SetPoint("RIGHT", pl.modeBtn, "LEFT", -8, 0); pl.note:SetWordWrap(false)
 
@@ -1684,16 +1741,23 @@ function UI:BuildPlanPage()
   local posts = CreateFrame("Frame", nil, right)
   posts:SetPoint("BOTTOMLEFT", 8, 8); posts:SetPoint("BOTTOMRIGHT", -8, 8); posts:SetHeight(26)
   pl.posts = posts
-  pl.postPlanBtn = Button(posts, "Post assignments", 140, 24, function() UI:PostPlan() end)
-  pl.postPlanBtn:SetPoint("LEFT", 0, 0)
-  pl.postGapsBtn = Button(posts, "Post gaps", 96, 24, function() UI:PostGaps() end)
+  -- 1.7.0: the Essentials post is the default (the critical and high needs with their owners,
+  -- Bloodlust, uncovered gaps); "Post everything" is the per-player post as up to 1.6.5.
+  pl.postEssBtn = Button(posts, "Post essentials", 122, 24, function() UI:PostEssentials() end)
+  pl.postEssBtn:SetPoint("LEFT", 0, 0)
+  pl.postPlanBtn = Button(posts, "Post everything", 122, 24, function() UI:PostPlan() end)
+  pl.postPlanBtn:SetPoint("LEFT", pl.postEssBtn, "RIGHT", 6, 0)
+  pl.postGapsBtn = Button(posts, "Post gaps", 84, 24, function() UI:PostGaps() end)
   pl.postGapsBtn:SetPoint("LEFT", pl.postPlanBtn, "RIGHT", 6, 0)
-  for _, b in ipairs({ pl.postPlanBtn, pl.postGapsBtn }) do
+  pl.postButtons = { pl.postEssBtn, pl.postPlanBtn, pl.postGapsBtn }
+  for _, b in ipairs(pl.postButtons) do
     if b.SetMotionScriptsWhileDisabled then b:SetMotionScriptsWhileDisabled(true) end  -- the tooltip says why it's off
   end
-  pl.chatStyleBtn = FlatButton(posts, "Chat style: full", 120, 22, function() UI:OpenSettings("chat") end)
-  pl.chatStyleBtn:SetPoint("LEFT", pl.postGapsBtn, "RIGHT", 8, 0)
-  pl.chatStyleBtn.tooltip = "Choose full or short party-chat posts"
+  -- How long the default post is, at the row's right edge.
+  pl.postCount = Text(posts, 10, C.muted, "RIGHT")
+  pl.postCount:SetPoint("LEFT", pl.postGapsBtn, "RIGHT", 6, 0); pl.postCount:SetPoint("RIGHT", 0, 0)
+  pl.postCount:SetWordWrap(false)
+  MakeFit(pl.postCount, function() return pl.postCount:GetWidth() or 0 end)
   pl.list = LineList(right, 480, H - 41 - 48 - 12 - 34 - 34):Fill(6, -28, -6, 40)
   self:LayoutComp()
 end
@@ -1709,9 +1773,13 @@ function UI:RefreshPlan()
   pl.note:SetText(r.filled == 0 and (live and "No party yet." or "No players in the planner yet: add them on Composition.")
     or ((live and "Your party" or "The planner's group") .. ": " .. r.filled .. " player" .. (r.filled == 1 and "" or "s") .. "."))
   local assign = (r.filled > 0 and r.dungeon and not r.dungeon.unknown) and ns.Assignments:Build(r) or nil
+  local ess = self:IsEssentials("plan")
+  pl.viewSwitch:Sync()
+  self.cp.lastPlan = assign
   local mine = pl.mine
   mine:Clear()
-  self:RenderYourJob(mine, r, assign, live)
+  if ess then self:RenderYourPlan(mine, r, assign, live, dungeonKey)
+  else self:RenderYourJob(mine, r, assign, live) end
   if self.RenderLust then self:RenderLust(mine, dungeonKey) end
   if r.filled == 0 then
     mine:Add(HEX.muted .. "Add players on the Composition tab (or join a group) to get assignments.|r", { size = 11 })
@@ -1720,7 +1788,9 @@ function UI:RefreshPlan()
   pl.rightTitle:SetText(dungeonKey and DD.list[dungeonKey] and ("Assignments: " .. DD.list[dungeonKey].name) or "Assignments")
   local L = pl.list
   L:Clear()
-  self:RenderCheatSheet(L, dungeonKey, r, assign, true)
+  if ess then self:RenderBigOnes(L, dungeonKey, r, assign)
+  else self:RenderCheatSheet(L, dungeonKey, r, assign, true) end
+  self:RenderPlanSkipped(L, assign)
   if ns.Assignments:OverrideCount() > 0 then
     L:Space(4)
     L:Add(HEX.accent .. "> Reset all assignments to automatic|r", { size = 11, gap = 3,
@@ -1958,6 +2028,9 @@ local function DutyPlain(w)
   local cd = w.cd and w.cd > 0 and (" " .. w.cd .. "s") or ""
   return tostring(w.label) .. " - " .. tostring(w.ability) .. cd .. (w.pending and " (assumed: spec not known yet)" or "")
 end
+
+UI.DutyShort, UI.DutyPlain = DutyShort, DutyPlain
+UI.ROLE_PLURAL = ROLE_PLURAL
 
 -- One line per job ("Kick: Prot Warrior > Arms Warrior (~8s), backup Outlaw Rogue"); who uses
 -- which ability, the cooldowns and the order are in the line's tooltip.
@@ -2275,6 +2348,21 @@ function UI:PlanChatLines(plan, dk)
   return lines
 end
 
+-- The Essentials post (1.7.0), with the Bloodlust plan in it.
+function UI:EssentialChatLines(plan, dk)
+  local lust = dk and ns.Walkthrough and ns.Walkthrough:LustChat(dk)
+  return ns.Assignments:EssentialLines(plan, dk and DD.list[dk] and DD.list[dk].name, lust)
+end
+
+function UI:PostEssentials()
+  local plan = self.cp and self.cp.lastPlan
+  local r = self.cp and self.cp.lastAnalysis
+  local dk = r and r.dungeon and r.dungeon.key
+  local lines = plan and self:EssentialChatLines(plan, dk) or {}
+  if #lines == 0 then ns:Print("Nothing to post for this dungeon yet."); return end
+  self:SendLines(lines, "Essentials")
+end
+
 function UI:PostPlan()
   local plan = self.cp and self.cp.lastPlan
   if not plan or plan.empty then ns:Print("No kick or dispel assignments for this dungeon yet."); return end
@@ -2306,13 +2394,28 @@ function UI:UpdatePostButtons(r)
   local sends = channel and ("Sends to " .. channel .. " chat:\n") or "Not in a group, so this only prints it for you:\n"
   local plan = self.cp and self.cp.lastPlan
   local hasPlayers = r and r.filled > 0
+  local style = ns.db.settings.chatStyle == "short" and "short" or "full"
   if hasPlayers and plan and not plan.empty then
     pl.postPlanBtn:Enable()
-    pl.postPlanBtn.tooltip = sends .. table.concat(self:PlanChatLines(plan, r.dungeon and r.dungeon.key), "\n")
+    pl.postPlanBtn.tooltip = "Every player's kicks, dispels and backups, in order (" .. style .. " chat style: Settings > Party chat).\n"
+      .. sends .. table.concat(self:PlanChatLines(plan, r.dungeon and r.dungeon.key), "\n")
   else
     pl.postPlanBtn:Disable()
     pl.postPlanBtn.tooltip = hasPlayers and "No kick or dispel assignments for this dungeon yet." or "Add players first."
   end
+  local essLines = hasPlayers and plan and self:EssentialChatLines(plan, r.dungeon and r.dungeon.key) or {}
+  if #essLines > 0 then
+    pl.postEssBtn:Enable()
+    pl.postEssBtn.tooltip = "The critical and high needs with who owns them, the Bloodlust plan and anything nobody covers.\n"
+      .. sends .. table.concat(essLines, "\n")
+    pl.postCount:SetText(#essLines .. " line" .. (#essLines == 1 and "" or "s") .. " in " .. (channel or "party") .. " chat")
+  else
+    pl.postEssBtn:Disable()
+    pl.postEssBtn.tooltip = hasPlayers and "Nothing to post for this dungeon yet." or "Add players first."
+    pl.postCount:SetText("")
+  end
+  -- The default post stands out.
+  pl.postEssBtn:SetBackdropBorderColor(unpack(pl.postEssBtn:IsEnabled() and C.accent or C.border))
   if hasPlayers then
     pl.postGapsBtn:Enable()
     pl.postGapsBtn.tooltip = sends .. self:GapsMessage(r)
@@ -2320,8 +2423,7 @@ function UI:UpdatePostButtons(r)
     pl.postGapsBtn:Disable()
     pl.postGapsBtn.tooltip = "Add players first."
   end
-  for _, b in ipairs({ pl.postPlanBtn, pl.postGapsBtn }) do b:SetAlpha(b:IsEnabled() and 1 or 0.5) end
-  pl.chatStyleBtn.text:SetText("Chat style: " .. (ns.db.settings.chatStyle == "short" and "short" or "full"))
+  for _, b in ipairs(pl.postButtons) do b:SetAlpha(b:IsEnabled() and 1 or 0.5) end
 end
 
 function UI:RenderCoverers(list, keys, ctx, expandId, indent)
@@ -2357,7 +2459,7 @@ function UI:AffixIcons(active)
   return table.concat(parts, ", ")
 end
 
-function UI:RenderAffixLine(list, d, compact)
+function UI:RenderAffixLine(list, d, oneLine)
   local AF = ns.Affixes
   if not AF or ns.db.settings.dungeonCategories.affixes == false then return end
   local level = AF:KeyLevel(d.key)
@@ -2370,7 +2472,7 @@ function UI:RenderAffixLine(list, d, compact)
   list:Add(HEX.text .. "Affixes at " .. lvl .. ":|r " .. (#active > 0 and self:AffixIcons(active) or (HEX.muted .. "none|r"))
     .. (assumed and (HEX.muted .. "  (key level unknown: assuming " .. lvl .. "; set it on Applicants)|r") or ""),
     { size = 11, gap = 2 })
-  if not compact then
+  if not oneLine then
     for _, a in ipairs(active) do
       if a.def and a.def.note then
         list:Add(HEX.muted .. a.label .. ": " .. a.def.note .. "|r", { indent = 10, size = 10, gap = 1 })
@@ -2464,9 +2566,10 @@ UI.RiskText = RiskText
 
 -- Jump to a need in Readiness (list view), opening its row.
 function UI:JumpToNeed(cap)
-  local row = self.cp and self.cp.lastReady and self.cp.lastReady.rows[cap]
-  if ns.db.settings.compact and row and (row.status == "ok" or row.status == "none") then
-    ns.db.settings.compact = false   -- Summary view hides covered rows
+  -- Essentials lists gaps only; the need's own row (who covers it and why) is under Everything.
+  if self:IsEssentials("composition") then
+    ns.db.settings.view.composition = "everything"
+    if ns.Activity then ns.Activity:Log("view", "composition: everything") end
   end
   self.expand["row:" .. cap] = true
   self.pendingJump = cap
@@ -2475,6 +2578,9 @@ end
 
 function UI:RenderSummaryStrip(r, ready, dungeonKey)
   local cp = self.cp
+  cp.sumRight:Hide(); cp.chipBar:Show(); cp.riskBtn:Show()
+  cp.sumTitle:ClearAllPoints(); cp.sumTitle:SetPoint("TOPLEFT", 10, -7); cp.sumTitle:SetPoint("RIGHT", -10, 0)
+  cp.sumRisks:ClearAllPoints(); cp.sumRisks:SetPoint("TOPLEFT", cp.chipBar, "BOTTOMLEFT", 2, -7); cp.sumRisks:SetPoint("RIGHT", -10, 0)
   local level = dungeonKey and ns.Affixes and ns.Affixes:KeyLevel(dungeonKey)
   local where = (dungeonKey and DD.list[dungeonKey]) and (self:DungeonLabel(dungeonKey, 14) .. (level and (" +" .. level) or ""))
     or (HEX.muted .. "No dungeon: generic checks only|r")
@@ -2675,7 +2781,7 @@ function UI:RenderReadyRow(list, row, ctx, r)
   list:Space(4)
 end
 
-function UI:RenderBuffBlock(list, r, compact)
+function UI:RenderBuffBlock(list, r)
   list:Add(HEX.text .. "Raid buffs & synergy|r", { indent = 2, size = 11, gap = 2 })
   if #r.buffs.present == 0 then
     list:Add(HEX.muted .. "None from these classes.|r", { indent = 18, size = 11 })
@@ -2687,7 +2793,7 @@ function UI:RenderBuffBlock(list, r, compact)
   for _, b in ipairs(r.buffs.present) do
     local tag = b.universal and (HEX.muted .. "everyone|r") or STRENGTH[b.strength]
     list:Add(ns.Links:Buff(b.key) .. HEX.muted .. " (" .. tostring(b.from) .. ")|r  " .. tag, { indent = 18, size = 11, gap = 1 })
-    if not compact then
+    do
       local detail
       if b.universal then
         detail = b.effect .. " for the whole group"
@@ -2704,7 +2810,10 @@ function UI:RenderBuffBlock(list, r, compact)
   end
 end
 
-function UI:RenderReadiness(list, r, ready, members, dungeonKey, compact)
+-- What comes before the needs in both views: the applicant preview, season and data warnings,
+-- the week's affixes and pending specs. Returns false when there are no players yet (the list
+-- is finished).
+function UI:RenderReadyContext(list, r, ready, dungeonKey, affixOneLine)
   list:Clear()
   self.cp.rowY = {}
   local pev = self.previewWas and self:PreviewApplicant()
@@ -2729,16 +2838,21 @@ function UI:RenderReadiness(list, r, ready, members, dungeonKey, compact)
       list:Add(HEX.warn .. "Much of this dungeon's data is unconfirmed.|r", { size = 11, gap = 3 })
     end
     if d.hidden > 0 then list:Add(HEX.muted .. d.hidden .. " requirement(s) hidden by your settings.|r", { size = 10, gap = 3 }) end
-    self:RenderAffixLine(list, d, compact)
+    if not affixOneLine then self:RenderAffixLine(list, d) end
   end
   if r.filled == 0 then
     list:Add("No players yet. " .. (ns.state.mode == "live" and "Invite players or open a listing." or "Click a slot to pick a spec."),
       { color = C.muted })
-    list:Finish(); return
+    list:Finish(); return false
   end
   for _, f in ipairs(ready.notes) do
     if f.check == "pending" then list:Add(HEX.muted .. f.text .. "|r", { size = 10, gap = 3 }) end
   end
+  return true
+end
+
+function UI:RenderReadiness(list, r, ready, members, dungeonKey)
+  if not self:RenderReadyContext(list, r, ready, dungeonKey) then return end
   -- Every problem in one place, when the summary strip couldn't show them all.
   local risksDefault = self.readyMode == "all"   -- Expand all opens the problem list too
   if #ready.risks > 3 or (#ready.risks > 0 and self:IsOpen("risks", risksDefault)) then
@@ -2759,19 +2873,14 @@ function UI:RenderReadiness(list, r, ready, members, dungeonKey, compact)
 
   local ctx = { open = ns.ApplicantFit:OpenRoles(members or {}), settings = ns.db.settings }
   ctx.anyOpen = (ctx.open.TANK or 0) + (ctx.open.HEALER or 0) + (ctx.open.DAMAGER or 0) > 0
-  local hidden = 0
   for _, g in ipairs(ready.groups) do
     local miss, thin = 0, 0
     for _, row in ipairs(g.rows) do
       if row.status == "missing" then miss = miss + 1 elseif row.status == "thin" then thin = thin + 1 end
     end
-    local visible = 0
-    for _, row in ipairs(g.rows) do
-      if not (compact and (row.status == "ok" or row.status == "none")) then visible = visible + 1 end
-    end
-    if visible > 0 or (g.buffs and not compact) then
+    if #g.rows > 0 or g.buffs then
       list:Header(g.label:upper() .. ((miss + thin) > 0 and ("  " .. (miss > 0 and (TEX_NO .. miss .. " ") or "") .. (thin > 0 and (TEX_WAIT .. thin) or "")) or ""))
-      if g.key == "kicks" and not compact and r.cc then
+      if g.key == "kicks" and r.cc then
         local parts = {}
         for _, t in ipairs(UD.CC_TYPES) do if (r.cc.types[t] or 0) > 0 then parts[#parts + 1] = t .. " x" .. r.cc.types[t] end end
         list:Add(HEX.muted .. string.format("CC: %d stop%s (%d AoE)", r.cc.stops, r.cc.stops == 1 and "" or "s", r.cc.aoeStops) .. "|r",
@@ -2787,10 +2896,9 @@ function UI:RenderReadiness(list, r, ready, members, dungeonKey, compact)
       if row.status == "none" and not self:IsOpen("row:" .. row.cap, UI.readyMode == "all") then noneRows[#noneRows + 1] = row end
     end
     local merged = {}
-    if #noneRows > 1 and not compact then for _, row in ipairs(noneRows) do merged[row] = true end end
+    if #noneRows > 1 then for _, row in ipairs(noneRows) do merged[row] = true end end
     for _, row in ipairs(g.rows) do
-      if compact and (row.status == "ok" or row.status == "none") then hidden = hidden + 1
-      elseif not merged[row] then self:RenderReadyRow(list, row, ctx, r) end
+      if not merged[row] then self:RenderReadyRow(list, row, ctx, r) end
     end
     if next(merged) then
       local names, caps = {}, {}
@@ -2801,20 +2909,15 @@ function UI:RenderReadiness(list, r, ready, members, dungeonKey, compact)
         tooltip = "Click to show each one, with the classes that could bring it",
       })
     end
-    if g.buffs and not compact then self:RenderBuffBlock(list, r, compact) end
+    if g.buffs then self:RenderBuffBlock(list, r) end
   end
   local other = {}
   for _, f in ipairs(ready.notes) do if f.check ~= "pending" then other[#other + 1] = f end end
-  if #other > 0 and not compact then
+  if #other > 0 then
     list:Header("Notes")
     for _, f in ipairs(other) do
       list:Add(((f.severity == "low" or f.severity == "info") and HEX.muted or HEX.warn) .. f.text .. "|r", { indent = 4, size = 11, gap = 2 })
     end
-  end
-  if compact and hidden > 0 then
-    list:Space(6)
-    list:Add(HEX.muted .. hidden .. " covered or optional need" .. (hidden == 1 and " is" or "s are") .. " not shown in Summary view.|r",
-      { size = 10, onClick = function() ns.db.settings.compact = false; ns:Fire("SETTINGS_CHANGED") end, tooltip = "Switch to Full view" })
   end
   list:Finish()
   if self.pendingJump and self.cp.rowY[self.pendingJump] then
@@ -5564,8 +5667,20 @@ end
 -- most of it on their own, and the key-needs sheet. No group needed.
 ---------------------------------------------------------------------------
 local PRIMER_TOP = 5
-local WALK_ROLES = { { "ALL", "All" }, { "TANK", "Tank" }, { "HEAL", "Healer" }, { "DPS", "DPS" } }
+-- "You" (1.7.0, the default) is your own spec's role.
+local WALK_ROLES = { { "YOU", "You", 88 }, { "ALL", "All", 40 }, { "TANK", "Tank", 48 }, { "HEAL", "Healer", 58 }, { "DPS", "DPS", 44 } }
+local WALK_ROLE_WORD = { TANK = "Tank", HEAL = "Healer", DPS = "DPS", ALL = "All" }
+UI.BRIEF_W = 330
 
+-- The role the walkthrough is filtered to, and whether it came from "You".
+function UI:WalkRole()
+  local r = ns.db.settings.walkRole or "YOU"
+  if r == "YOU" then return ns.BossCards:MyRole(), true end
+  return r, false
+end
+
+-- Dungeon tab (layout 2A, 1.7.0): Your brief on the left, the walkthrough on the right. The
+-- role filter gains "You"; "Best classes here" opens what used to be the right-hand column.
 function UI:BuildPrimerPage()
   local page = PageFrame(self.frame)
   self.pages.dungeons = page
@@ -5574,7 +5689,7 @@ function UI:BuildPrimerPage()
   local bar = CreateFrame("Frame", nil, page)
   bar:SetPoint("TOPLEFT", 12, -10); bar:SetPoint("TOPRIGHT", -12, -10); bar:SetHeight(30)
   local lbl = Text(bar, 12, C.muted); lbl:SetPoint("LEFT", 0, 0); lbl:SetText("Dungeon:")
-  pp.dungeonBtn = Dropdown(bar, 280, 28, function(btn)
+  pp.dungeonBtn = Dropdown(bar, 220, 28, function(btn)
     local det, why = UI:PrimerDetected()
     local items = {
       { text = det and ("Auto: " .. DD.list[det].name .. "  " .. HEX.muted .. "(" .. why .. ")|r")
@@ -5589,36 +5704,59 @@ function UI:BuildPrimerPage()
     UI:ShowMenu(btn, items)
   end)
   pp.dungeonBtn:SetPoint("LEFT", lbl, "RIGHT", 8, 0)
+  pp.viewSwitch = self:ViewSwitch(bar, "dungeons")
+  pp.viewSwitch:SetPoint("RIGHT", 0, 0)
   -- Role filter: boss notes and needs for one role (plus everyone's).
   pp.roleBtns = {}
   local prev
   for i = #WALK_ROLES, 1, -1 do
     local r = WALK_ROLES[i]
-    local b = Button(bar, r[2], 58, 24, function() ns.db.settings.walkRole = r[1]; UI:QueueRefresh() end)
+    local b = Button(bar, r[2], r[3], 24, function() ns.db.settings.walkRole = r[1]; UI:QueueRefresh() end)
     SetFontSize(b.text, 11)
-    b.tooltip = r[1] == "ALL" and "Everything, every role" or ("What a " .. r[2]:lower() .. " needs to know, plus what everyone does")
-    if prev then b:SetPoint("RIGHT", prev, "LEFT", -4, 0) else b:SetPoint("RIGHT", 0, 0) end
+    b.tooltip = (r[1] == "ALL" and "Everything, every role")
+      or (r[1] == "YOU" and "What your own spec's role needs to know, plus what everyone does")
+      or ("What a " .. r[2]:lower() .. " needs to know, plus what everyone does")
+    if prev then b:SetPoint("RIGHT", prev, "LEFT", -4, 0) else b:SetPoint("RIGHT", pp.viewSwitch, "LEFT", -10, 0) end
     pp.roleBtns[r[1]] = b
     prev = b
   end
   local rl = Text(bar, 11, C.muted); rl:SetPoint("RIGHT", prev, "LEFT", -6, 0); rl:SetText("Show:")
   pp.note = Text(bar, 11, C.muted); pp.note:SetPoint("LEFT", pp.dungeonBtn, "RIGHT", 10, 0); pp.note:SetPoint("RIGHT", rl, "LEFT", -10, 0)
   pp.note:SetWordWrap(false)
+  MakeFit(pp.note, function() return pp.note:GetWidth() or 0 end)
+  -- Hover the short note for the full sentence (the note has about 90px at the smallest window).
+  pp.noteBtn = CreateFrame("Button", nil, bar)
+  pp.noteBtn:SetPoint("TOPLEFT", pp.note, "TOPLEFT", 0, 4); pp.noteBtn:SetPoint("BOTTOMRIGHT", pp.note, "BOTTOMRIGHT", 0, -4)
+  pp.noteBtn:SetScript("OnEnter", function(btn)
+    if btn.tip and GameTooltip then GameTooltip:SetOwner(btn, "ANCHOR_BOTTOM"); GameTooltip:SetText(btn.tip, 1, 1, 1, 1, true); GameTooltip:Show() end
+  end)
+  pp.noteBtn:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
   local top, colH = -48, H - 41 - 48 - 12
+  -- Left: Your brief, with the boss window and Best classes buttons under it.
   local left = Panel(page)
-  left:SetPoint("TOPLEFT", 12, top); left:SetPoint("BOTTOMRIGHT", page, "BOTTOM", 70, 12)
-  pp.walkTitle = AccentText(left); pp.walkTitle:SetPoint("TOPLEFT", 10, -8); pp.walkTitle:SetText("Walkthrough")
+  left:SetPoint("TOPLEFT", 12, top); left:SetPoint("BOTTOMLEFT", 12, 12); left:SetWidth(self.BRIEF_W)
+  pp.briefPanel = left
+  pp.briefTitle = AccentText(left); pp.briefTitle:SetPoint("TOPLEFT", 10, -8); pp.briefTitle:SetPoint("RIGHT", -10, 0)
+  pp.briefTitle:SetWordWrap(false); pp.briefTitle:SetText("Your brief")
+  pp.brief = LineList(left, self.BRIEF_W - 12, colH - 34 - 34):Fill(6, -28, -6, 40)
+  local half = math.floor((self.BRIEF_W - 16 - 6) / 2)
   -- The boss window on the dungeon this tab shows (which starts as your key, listing or zone).
-  pp.bossBtn = Button(left, "Open boss cards", 124, 20, function() UI:OpenPrimerBossCards() end)
+  pp.bossBtn = Button(left, "Open boss cards", half, 24, function() UI:OpenPrimerBossCards() end)
   SetFontSize(pp.bossBtn.text, 11)
-  pp.bossBtn:SetPoint("TOPRIGHT", -6, -5)
+  pp.bossBtn:SetPoint("BOTTOMLEFT", 8, 8)
   pp.bossBtn.tooltip = "Open the boss window on this dungeon's cards. Inside a Season dungeon it shows the one you're in."
-  pp.asks = LineList(left, 530, colH - 34):Fill(6, -28, -6, 6)
-  pp.walk = pp.asks
+  pp.bestBtn = Button(left, "Best classes here", half, 24, function() UI:ShowBestClasses() end)
+  SetFontSize(pp.bestBtn.text, 11)
+  pp.bestBtn:SetPoint("LEFT", pp.bossBtn, "RIGHT", 6, 0)
+  pp.bestBtn.tooltip = "How much of this dungeon each class answers on its own, and the dungeon's key needs"
+  -- Right: the walkthrough.
   local right = Panel(page)
-  right:SetPoint("TOPLEFT", page, "TOP", 80, top); right:SetPoint("BOTTOMRIGHT", -12, 12)
-  local rt = AccentText(right); rt:SetPoint("TOPLEFT", 10, -8); rt:SetText("Best value here")
-  pp.value = LineList(right, 370, colH - 34):Fill(6, -28, -6, 6)
+  right:SetPoint("TOPLEFT", left, "TOPRIGHT", 10, 0); right:SetPoint("BOTTOMRIGHT", -12, 12)
+  pp.walkPanel = right
+  pp.walkTitle = AccentText(right); pp.walkTitle:SetPoint("TOPLEFT", 10, -8); pp.walkTitle:SetPoint("RIGHT", -10, 0)
+  pp.walkTitle:SetWordWrap(false); pp.walkTitle:SetText("Walkthrough")
+  pp.asks = LineList(right, 570, colH - 34):Fill(6, -28, -6, 6)
+  pp.walk = pp.asks
 end
 
 -- Which dungeon the Dungeon tab follows on Auto: the dungeon you're in, else your Group
@@ -5677,14 +5815,14 @@ function UI:WalkRoleWants(role, q)
   if role == "HEAL" then return true end
   if q.need:find("^dispel_") then
     local mine = ns.API.GetPlayerSpecID and ns.API.GetPlayerSpecID()
-    local spec = mine and UD:GetSpec(mine)
+    local spec = mine and ns.UD:GetSpec(mine)   -- ns.UD: the boss window asks before the main window is built
     return spec and spec.caps[q.need] ~= nil or false
   end
   return false
 end
 
 -- One requirement line (and its mechanic note) in the walkthrough.
-function UI:WalkReq(L, q, explainOn)
+function UI:WalkReq(L, q, explainOn, movedFrom)
   local alts = {}
   for _, a in ipairs(q.alt or {}) do alts[#alts + 1] = UD:CapShort(a) end
   local sev = (q.severity == "critical" and HEX.bad) or (q.severity == "high" and HEX.warn) or HEX.muted
@@ -5693,11 +5831,32 @@ function UI:WalkReq(L, q, explainOn)
     .. "  " .. sev .. (q.severity or ""):upper() .. "|r"
     .. (#alts > 0 and (HEX.muted .. " (or " .. table.concat(alts, " / ") .. ")|r") or "")
     .. (q.affix and (HEX.muted .. " (affix: " .. q.affix .. ")|r") or "")
-    .. (q.confidence ~= "verified" and (HEX.warn .. " [unconfirmed]|r") or ""),
-    { indent = 8, size = 11, gap = 1, tooltip = tip })
+    .. (q.confidence ~= "verified" and (HEX.warn .. " [unconfirmed]|r") or "")
+    .. (movedFrom and (HEX.accent .. "  moved here by you|r") or ""),
+    { indent = 8, size = 11, gap = 1, tooltip = tip .. (movedFrom and ("\nThe guides list it before " .. movedFrom.name .. ".") or "") })
   if q.note and not (q.need == "interrupt" and q.note == "Interrupt every cast.") then
     L:Add(HEX.muted .. q.note .. "|r", { indent = 22, size = 10, gap = 2 })
   end
+end
+
+-- Under a trash section (1.7.0): how many rows you hid there, and the link to change what the
+-- section shows. `hasHeader`: the section already has its heading (it has rows or a Bloodlust).
+function UI:WalkTrashEdit(L, dk, st, hasHeader)
+  local bosses = ns.BossCards:Bosses(dk)
+  local n = #(st.hidden or {})
+  if not hasHeader then
+    if n == 0 then return end   -- an empty section stays out of the way, as before
+    L:Header("Trash before " .. (bosses[st.boss] and bosses[st.boss].name or "?"))
+  end
+  local section = st.boss
+  if n > 0 then
+    local names = {}
+    for _, q in ipairs(st.hidden) do names[#names + 1] = ns.Assignments.CastName(q) end
+    L:Add(HEX.muted .. n .. " hidden by you: " .. table.concat(names, ", ") .. "|r", { indent = 8, size = 10, gap = 1 })
+  end
+  L:Add(HEX.accent .. "> Edit this section|r", { indent = 8, size = 10, gap = 3,
+    onClick = function() UI:OpenTrashEditor(dk, section) end,
+    tooltip = "Hide the trash your group skips, or move a row to the section where you fight it. Saved for this dungeon." })
 end
 
 -- A LUST marker at a step: "BLOODLUST  on pull" (click to change it on the Plan tab).
@@ -5779,7 +5938,7 @@ end
 
 function UI:RenderWalkthrough(L, key, explainOn)
   local WT, BC = ns.Walkthrough, ns.BossCards
-  local role = ns.db.settings.walkRole or "ALL"
+  local role = self:WalkRole()
   local w = WT:Build(key)
   if not w then return end
   local tags = ns.BossWindow and ns.BossWindow.ROLE_TAG or {}
@@ -5811,8 +5970,9 @@ function UI:RenderWalkthrough(L, key, explainOn)
         end
         L:Header(head)
         self:WalkLust(L, key, st)
-        for _, q in ipairs(reqs) do self:WalkReq(L, q, explainOn) end
+        for _, q in ipairs(reqs) do self:WalkReq(L, q, explainOn, st.moved and st.moved[q.id] and bosses[st.moved[q.id]]) end
       end
+      self:WalkTrashEdit(L, key, st, #reqs > 0 or #lust > 0)
     else
       local i, boss = st.boss, bosses[st.boss]
       local k = "boss:" .. key .. ":" .. i
@@ -5849,23 +6009,68 @@ function UI:RefreshPrimer()
   local pp = self.pp
   local key, autoWhy = self:PrimerResolve()
   pp.dungeonBtn.text:SetText(self:DungeonLabel(key))
-  local level = ns.Affixes and ns.Affixes:KeyLevel(key)
-  local prof = Analysis:DungeonProfile(key, ns.db.settings, level)
   local explainOn = ns.db.settings.explain ~= false
-  local role = ns.db.settings.walkRole or "ALL"
-  for k, b in pairs(pp.roleBtns) do b:SetActive(k == role) end
-  pp.note:SetText(autoWhy and ("Auto (" .. autoWhy .. "). No group needed.") or "In the guides' order. No group needed.")
-  pp.walkTitle:SetText("Walkthrough" .. (role ~= "ALL" and (": " .. (role == "HEAL" and "healer" or role:lower())) or ""))
+  local ess = self:IsEssentials("dungeons")
+  pp.viewSwitch:Sync()
+  local role, you = self:WalkRole()
+  local picked = you and "YOU" or role
+  for k, b in pairs(pp.roleBtns) do b:SetActive(k == picked) end
+  pp.roleBtns.YOU.text:SetText("You: " .. (WALK_ROLE_WORD[ns.BossCards:MyRole()] or "DPS"))
+  local level = ns.Affixes and ns.Affixes:KeyLevel(key)
+  -- Short: the note has about 110px beside the role filter (the full sentence is on hover).
+  pp.note:SetText(autoWhy and (autoWhy:gsub("^%l", string.upper)) or "Your pick")
+  pp.noteBtn.tip = (autoWhy and ("Auto: " .. autoWhy .. ".") or "The dungeon you picked.") .. " In the guides' order. No group needed."
+  pp.walkTitle:SetText("Walkthrough" .. HEX.muted .. (role ~= "ALL" and (" for " .. (role == "DPS" and "DPS" or WALK_ROLE_WORD[role]:lower()) .. ",") or "")
+    .. " in the order you meet it|r")
 
   local L = pp.asks
   L:Clear()
   L:Add(HEX.muted .. DD:FreshnessText() .. "|r  " .. HEX.accent .. "Sources|r", { size = 10, gap = 4,
     onClick = function() UI:ShowSources() end, tooltip = "The guides this data comes from" })
-  self:RenderAffixLine(L, { key = key }, false)
-  self:RenderWalkthrough(L, key, explainOn)
+  self:RenderAffixLine(L, { key = key }, ess)
+  if ns.Walkthrough:HasTrashEdits(key) then
+    local h, m = ns.Walkthrough:TrashEditCounts(key)
+    L:Add(HEX.muted .. "Trash sections: " .. h .. " hidden and " .. m .. " moved by you.|r  " .. HEX.accent .. "> Reset to the guides|r", { size = 10, gap = 4,
+      onClick = function() ns.Walkthrough:ResetTrash(key) end,
+      tooltip = "Put every trash row of this dungeon back where the guides have it" })
+  end
+  if ess then self:RenderWalkEssentials(L, key)
+  else self:RenderWalkthrough(L, key, explainOn) end
   L:Finish()
 
-  local V = pp.value
+  self:RenderBriefPanel(pp.brief, key, level)
+  if self.bestClasses and self.bestClasses:IsShown() then self:RenderBestClasses() end
+end
+
+-- "Best classes here" (the Dungeon tab's right-hand column up to 1.6.5): how much of the
+-- dungeon each class answers on its own, then the dungeon's key needs. Our own panel, like
+-- the glossary.
+function UI:ShowBestClasses()
+  self:Build()
+  if not self.bestClasses then
+    local p = CreateFrame("Frame", nil, self.frame, "BackdropTemplate")
+    p:SetSize(440, 480); p:SetPoint("CENTER")
+    p:SetFrameStrata("DIALOG")
+    p:EnableMouse(true)
+    Skin(p, C.bg, C.accent)
+    Accent(p, "border")
+    p.title = AccentText(p); p.title:SetPoint("TOPLEFT", 12, -10); p.title:SetPoint("RIGHT", -100, 0); p.title:SetWordWrap(false)
+    local close = Button(p, "Close", 80, 22, function() p:Hide() end); close:SetPoint("TOPRIGHT", -10, -6)
+    p.list = LineList(p, 420, 430):Fill(8, -34, -8, 8)
+    self.bestClasses = p
+  end
+  self.bestClasses:Show()
+  self:RenderBestClasses()
+end
+
+function UI:RenderBestClasses()
+  local p = self.bestClasses
+  if not p then return end
+  local key = self:PrimerResolve()
+  local level = ns.Affixes and ns.Affixes:KeyLevel(key)
+  local prof = Analysis:DungeonProfile(key, ns.db.settings, level)
+  p.title:SetText("Best classes: " .. (DD.list[key] and DD.list[key].name or "?"))
+  local V = p.list
   V:Clear()
   V:Add(HEX.muted .. "How much of this dungeon each class answers on its own (best spec shown). In a real group, overlap matters: check Composition.|r",
     { size = 10, gap = 4 })
@@ -6114,7 +6319,7 @@ UI.SETTINGS_SECTIONS = {
 
 -- Settings each section's Reset puts back to their defaults.
 UI.SECTION_KEYS = {
-  general = { "compact", "explain", "liveAutoDungeon", "autoOpenOnListing", "minimap", "compMode", "tips" },
+  general = { "view", "walkRole", "explain", "liveAutoDungeon", "autoOpenOnListing", "minimap", "compMode", "tips" },
   checks = { "ignoredNeeds", "hideLowSeverity", "countTalentSources", "checks", "dungeonCategories" },
   finder = { "applicantPanel", "finderPanel", "compApplicants", "finderTooltip", "applicantView", "listingMarker",
              "listingHidePoor", "listingTooltip", "applyLine", "pastKeys" },
@@ -6128,17 +6333,31 @@ UI.SECTION_KEYS = {
 
 -- Presets: a starting point; every setting stays adjustable afterwards.
 UI.PRESETS_SETTINGS = {
-  learning = { label = "Learning", explain = true, compact = false, chatStyle = "full", hidePoor = false,
-               tip = "Explanations on, every need shown, full chat posts, every applicant listed." },
-  expert = { label = "Expert", explain = false, compact = true, chatStyle = "short", hidePoor = true,
-             tip = "No teaching text, problems only, shorter chat posts, Poor applicants hidden." },
+  learning = { label = "Learning", explain = true, view = "essentials", chatStyle = "full", hidePoor = false,
+               tip = "Explanations on, the Essentials view on every tab, full chat posts, every applicant listed." },
+  expert = { label = "Expert", explain = false, view = "everything", chatStyle = "short", hidePoor = true,
+             tip = "No teaching text, the Everything view on every tab, shorter chat posts, Poor applicants hidden." },
 }
+UI.VIEW_TABS = { "composition", "dungeons", "plan" }
+
+-- Every tab on one view ("essentials" / "everything"), or nil when they differ.
+function UI:AllViews()
+  local first = self:View(self.VIEW_TABS[1])
+  for _, tab in ipairs(self.VIEW_TABS) do if self:View(tab) ~= first then return nil end end
+  return first
+end
+function UI:SetAllViews(view)
+  local s = ns.db.settings
+  s.view = s.view or {}
+  for _, tab in ipairs(self.VIEW_TABS) do s.view[tab] = view == "everything" and "everything" or "essentials" end
+end
 
 function UI:ApplySettingsPreset(key)
   local p = self.PRESETS_SETTINGS[key]
   if not p then return end
   local s = ns.db.settings
-  s.explain, s.compact, s.chatStyle = p.explain, p.compact, p.chatStyle
+  s.explain, s.chatStyle = p.explain, p.chatStyle
+  self:SetAllViews(p.view)
   s.applicantView = s.applicantView or {}
   s.applicantView.hidePoor = p.hidePoor
   ns:Fire("SETTINGS_CHANGED")
@@ -6148,7 +6367,7 @@ end
 function UI:CurrentSettingsPreset()
   local s = ns.db.settings
   for key, p in pairs(self.PRESETS_SETTINGS) do
-    if (s.explain ~= false) == p.explain and (s.compact and true or false) == p.compact
+    if (s.explain ~= false) == p.explain and self:AllViews() == p.view
        and (s.chatStyle or "full") == p.chatStyle and ((s.applicantView or {}).hidePoor and true or false) == p.hidePoor then
       return key
     end
@@ -6277,8 +6496,9 @@ function UI:BuildSettings_general(f)
   SubHead(f, 8, -128, "Window and behavior")
   local y = -150
   local function row(label, g, st, tip) AddCheck(self, f, 8, y, label, g, st, tip); y = y - 26 end
-  row("Summary view (problems only)", function() return S().compact end, function(v) S().compact = v end,
-    "Show only the gaps (with all their detail). You can switch back with the button on the Composition tab.")
+  row("Essentials view on every tab", function() return UI:AllViews() == "essentials" end,
+    function(v) UI:SetAllViews(v and "essentials" or "everything") end,
+    "Composition, Dungeon and Plan show what matters most first; the rest is counted and one click away. Each tab also has its own Essentials / Everything switch.")
   row("Show explanations (learning mode)", function() return S().explain ~= false end, function(v) S().explain = v end,
     "Plain-language explanations of each need and what to do about each dungeon mechanic. Off hides only the teaching text, never data.")
   row("Pick the dungeon automatically", function() return S().liveAutoDungeon end, function(v) S().liveAutoDungeon = v end,
@@ -6807,9 +7027,9 @@ function UI:BuildSettings_chat(f)
   SubHead(f, 8, -44, "Style of posts")
   AddRadio(self, f, 8, -66, "Full: casts with their mobs, dispels and backups", "chatStyle", "full",
     "One line per player: what they kick (with the mob and their 1st/2nd turn), dispel and back up. Gaps name the cast that needs them.")
-  AddRadio(self, f, 8, -92, "Short: just the essentials", "chatStyle", "short",
+  AddRadio(self, f, 8, -92, "Short: no mob names or backups", "chatStyle", "short",
     "Still one line per player, so nobody's assignments are left out, but without mob names, dispel casts or backups. Gaps without the casts.")
-  Note(f, 8, -124, 520, "Applies to \"Post gaps\" and \"Post assignments\" (Plan tab). Hover either to preview the exact text.")
+  Note(f, 8, -124, 520, "Applies to \"Post everything\" and \"Post gaps\" (Plan tab). \"Post essentials\" is always short. Hover a button to preview the exact text.")
 end
 
 function UI:BuildSettings_bosses(f)
@@ -7170,6 +7390,9 @@ end)
 -- so a tab that missed an event is never shown stale. true = always; a function = only when
 -- it returns true. SETTINGS_CHANGED refreshes every tab (its own handler below).
 local function LiveMode() return ns.state.mode == "live" end
+-- The Dungeon tab's brief names who shares each cast, so it follows the roster and the plan
+-- only while you're in a group (alone, neither can change it).
+local function Grouped() return (IsInGroup and IsInGroup()) and true or false end
 local function FillSection() return UI.settingsSection == "fill" end
 local function PlayersSection() return UI.settingsSection == "players" end
 UI.TAB_EVENTS = {
@@ -7179,12 +7402,13 @@ UI.TAB_EVENTS = {
     -- finished key (1.5.0 review, N4; the simpler of the two approved options).
     HISTORY_CHANGED = LiveMode },
   plan = { COMP_CHANGED = true, DUNGEON_CHANGED = true, LIVE_ROSTER_CHANGED = LiveMode,
-    LUST_CHANGED = true, BOSS_ORDER_CHANGED = true, ASSIGNMENTS_CHANGED = true },
+    LUST_CHANGED = true, BOSS_ORDER_CHANGED = true, ASSIGNMENTS_CHANGED = true, TRASH_CHANGED = true },
   applicants = { DUNGEON_CHANGED = true, LIVE_ROSTER_CHANGED = true, FILL_ALERT = true,
     FILL_ARMED = true, FILL_DONE = true, FILL_SETTINGS_CHANGED = true, HISTORY_CHANGED = true,
     RESERVED_CHANGED = true },
   dungeons = { DUNGEON_CHANGED = true, LUST_CHANGED = true, BOSS_ORDER_CHANGED = true,
-    BOSS_DUNGEON_ENTERED = true, BOSS_DUNGEON_LEFT = true, LISTING_CHANGED = true },
+    BOSS_DUNGEON_ENTERED = true, BOSS_DUNGEON_LEFT = true, LISTING_CHANGED = true,
+    TRASH_CHANGED = true, LIVE_ROSTER_CHANGED = Grouped, ASSIGNMENTS_CHANGED = Grouped },
   history = { HISTORY_CHANGED = true },
   settings = { DUNGEON_CHANGED = FillSection, LIVE_ROSTER_CHANGED = FillSection, FILL_ARMED = FillSection,
     FILL_SETTINGS_CHANGED = FillSection, RESERVED_CHANGED = FillSection, SAVED_PLAYERS_CHANGED = PlayersSection },
@@ -7198,7 +7422,8 @@ function UI:OnTabEvent(event)
   if self:TabWants(self.currentTab, event) then self:QueueRefresh() end
 end
 for _, ev in ipairs({ "COMP_CHANGED", "LUST_CHANGED", "BOSS_ORDER_CHANGED", "ASSIGNMENTS_CHANGED",
-  "HISTORY_CHANGED", "DUNGEON_CHANGED", "BOSS_DUNGEON_ENTERED", "BOSS_DUNGEON_LEFT", "LISTING_CHANGED" }) do
+  "HISTORY_CHANGED", "DUNGEON_CHANGED", "BOSS_DUNGEON_ENTERED", "BOSS_DUNGEON_LEFT", "LISTING_CHANGED",
+  "TRASH_CHANGED" }) do
   ns:On(ev, function() UI:OnTabEvent(ev) end)
 end
 -- Fill group: a new plan, an alert, an invite sent, a must or a filter changed.

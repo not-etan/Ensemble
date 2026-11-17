@@ -16,7 +16,7 @@ local ADDON_NAME, ns = ...
 EnsembleCore = ns
 
 ns.ADDON_NAME = "Ensemble"
-ns.SCHEMA_VERSION = 4
+ns.SCHEMA_VERSION = 5
 
 -- GetAddOnMetadata moved to C_AddOns in 10.1; the global was removed in 11.x.
 local function GetMeta(field)
@@ -227,7 +227,9 @@ ns.SLOT_ROLES = { "TANK", "HEALER", "DAMAGER", "DAMAGER", "DAMAGER" }
 ns.DEFAULTS = {
   schema = ns.SCHEMA_VERSION,
   settings = {
-    compact = false,
+    -- Essentials or Everything, per tab (1.7.0). "essentials": the critical and high rows in
+    -- plain words, the rest counted and named on a "+ N more" line; "everything": every row.
+    view = { composition = "essentials", dungeons = "essentials", plan = "essentials" },
     -- Raid buffs and synergy in the checks (What to check > Also). The six per-topic switches
     -- that sat here up to 1.6.0 had no control in the window (each need has its own check box,
     -- `ignoredNeeds`); they were removed in 1.6.5 and SanitizeDB drops any saved value.
@@ -279,8 +281,8 @@ ns.DEFAULTS = {
     -- While you host: "panel" shows your best-fit applicants under the Composition slots,
     -- "list" keeps the usual left column.
     compApplicants = "panel",
-    -- Dungeon tab: whose notes to show, "ALL" | "TANK" | "HEAL" | "DPS".
-    walkRole = "ALL",
+    -- Dungeon tab: whose notes to show, "YOU" (your spec's role) | "ALL" | "TANK" | "HEAL" | "DPS".
+    walkRole = "YOU",
     -- Accent color of the window. `classColor` follows the player's class color.
     theme = { hex = "7EB7FF", classColor = false },
     -- Fill group (Applicants tab): how complete the group must be ("auto" = match the key
@@ -322,6 +324,10 @@ ns.DEFAULTS = {
   -- Boss order per dungeon key, where the dungeon data allows a choice (DungeonData.BOSS_ORDER):
   -- boss indexes first to last. Missing = the guides' order.
   bossOrder = {},
+  -- Your changes to the trash sections per dungeon key (1.7.0): [requirement id][section] =
+  -- 0 (hidden: "we skip this") or another section's boss index (moved there). A section is
+  -- named by the boss it leads to. Missing = the guides' sections (DungeonData.AREAS).
+  trashEdits = {},
   -- Fill group musts per dungeon key, only what differs from the boss-card defaults:
   -- { lust = false|nil, on = { [requirement id] = true|false } }.
   fillMusts = {},
@@ -333,10 +339,16 @@ ns.DEFAULTS = {
   reserved = { seenListed = false, list = {}, pending = {} },
 }
 
--- Migrations: index N upgrades a DB at schema N-1 to schema N. None are needed yet (schema 4
--- is the first released layout); add entries here when the saved structure changes, and
+-- Migrations: index N upgrades a DB at schema N-1 to schema N. Schema 4 is the first released
+-- layout; add entries here when the saved structure changes, and
 -- never edit old ones.
 local MIGRATIONS = {}
+-- 5 (1.7.0): the Dungeon tab's role filter gained "You" as its default. A saved "ALL" was the
+-- old default (nobody could tell it from a choice), so it moves to "You" once; a role picked
+-- by hand (Tank, Healer, DPS) stays.
+MIGRATIONS[5] = function(db)
+  if type(db.settings) == "table" and db.settings.walkRole == "ALL" then db.settings.walkRole = "YOU" end
+end
 
 -- Settings whose saved type differs from the default's are replaced by the default (1.6.5, S1:
 -- a hand-edited or damaged SavedVariables file could put a string where a table is read and
@@ -356,6 +368,12 @@ local function SanitizeDB(db)
   FixSettingTypes(db.settings, ns.DEFAULTS.settings)
   -- The control-less check switches (1.6.5, S10): only `buffs` is left.
   for k in pairs(db.settings.checks) do if k ~= "buffs" then db.settings.checks[k] = nil end end
+  -- 1.7.0: Composition's "Summary view" switch became the Essentials / Everything switch.
+  db.settings.compact = nil
+  for _, tab in ipairs({ "composition", "dungeons", "plan" }) do
+    if db.settings.view[tab] ~= "everything" then db.settings.view[tab] = "essentials" end
+  end
+  if not ({ YOU = true, ALL = true, TANK = true, HEAL = true, DPS = true })[db.settings.walkRole] then db.settings.walkRole = "YOU" end
   if type(db.currentComp) ~= "table" then db.currentComp = { 0, 0, 0, 0, 0 } end
   for i = 1, ns.NUM_SLOTS do
     if type(db.currentComp[i]) ~= "number" then db.currentComp[i] = 0 end
@@ -407,6 +425,29 @@ local function SanitizeDB(db)
   if type(db.bossOrder) ~= "table" then db.bossOrder = {} end
   for dk, order in pairs(db.bossOrder) do
     if not (ns.Dungeons and ns.Dungeons.ValidBossOrder and ns.Dungeons:ValidBossOrder(dk, order)) then db.bossOrder[dk] = nil end
+  end
+  -- Trash edits (1.7.0): only rows the data still has, in a section the guides put them in,
+  -- hidden (0) or moved to another boss's section.
+  if type(db.trashEdits) ~= "table" then db.trashEdits = {} end
+  for dk, edits in pairs(db.trashEdits) do
+    local d = ns.Dungeons and ns.Dungeons.list[dk]
+    local areas = ns.Dungeons and ns.Dungeons.AREAS and ns.Dungeons.AREAS[dk]
+    if type(edits) ~= "table" or not d or not areas then db.trashEdits[dk] = nil
+    else
+      local nBoss = #(d.bosses or {})
+      for id, bySection in pairs(edits) do
+        if type(id) ~= "string" or type(bySection) ~= "table" or not areas[id] then edits[id] = nil
+        else
+          for from, to in pairs(bySection) do
+            local known = false
+            for _, b in ipairs(areas[id]) do if b == from then known = true end end
+            if not known or type(to) ~= "number" or to ~= math.floor(to) or to < 0 or to > nBoss or to == from then bySection[from] = nil end
+          end
+          if next(bySection) == nil then edits[id] = nil end
+        end
+      end
+      if next(edits) == nil then db.trashEdits[dk] = nil end
+    end
   end
   -- Fill group musts: requirement IDs as keys, booleans as values; dungeons that left the data go.
   if type(db.fillMusts) ~= "table" then db.fillMusts = {} end
@@ -559,7 +600,7 @@ function ns:InitDB()
 end
 
 -- What a full reset wipes, in plain words (the /ens reset prompt and Settings > Data say it).
-ns.RESET_WIPES = "saved comps, the planner comp, every setting, run history, saved players and reserved slots, boss-card edits, Bloodlust timing, boss order, Fill group musts, the tips you've seen and the error log"
+ns.RESET_WIPES = "saved comps, the planner comp, every setting, run history, saved players and reserved slots, boss-card edits, Bloodlust timing, boss order, your trash changes, Fill group musts, the tips you've seen and the error log"
 
 function ns:ResetDB()
   EnsembleDB = Util.DeepCopy(ns.DEFAULTS)
@@ -573,7 +614,7 @@ function ns:ResetDB()
   local BC = ns.BossCards
   if BC and BC.state then
     BC.state.killed = {}
-    if BC.state.dk then BC:Show(BC:Order(BC.state.dk)[1] or 1) end   -- back to the first boss (saved to the fresh data)
+    if BC.state.dk then BC:Show(BC:Order(BC.state.dk)[1] or 1, "trash") end   -- back to the first boss (saved to the fresh data)
   end
   self:Fire("SETTINGS_CHANGED")
   self:Fire("COMP_CHANGED", "reset")
