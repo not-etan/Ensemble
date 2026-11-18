@@ -20,6 +20,14 @@
 -- (Interrupt / Stop / Freedom tags, spell IDs). Entries whose handling those pages state are
 -- "verified"; anything inferred (e.g. an unstated dispel type) is "needs_verification".
 --
+-- Severity audit (November 17, 2026, for 1.7.0, where severity decides what the Essentials
+-- view shows first): every requirement compared with Method.gg's current guides (Aug 18 - Oct 14)
+-- and Icy Veins' Murder Row guide (Aug 11). Raised to high: Heartstop Poison, Fel Rage (soothe
+-- row), Curse of Doom, Corroding Spittle (Murder Row; Important tags, "make sure", "as quickly
+-- as you can"), Accumulate Charge (Purge + Important), Poison Spit ("keep interrupts on", as the
+-- other high boss casts). Raised to medium: Blade Dance (Important), Frost Shock (Spectral
+-- Shaman, Important). Lowered to medium: Fel Missiles (Method: "use spare interrupts").
+--
 -- Hotfix cross-check (October 12, 2026): every Blizzard hotfix post from 12.1.0's release
 -- (August 11) through October 6, read via Wowhead's blue tracker / Blizzard's hotfix page
 -- and Icy Veins' weekly summaries. Changes that touch this file:
@@ -361,11 +369,11 @@ add("MurderRow", {
   requirements = {
     { id = "MR_SEDUCTION", need = "interrupt", alt = { "stop" }, severity = "high", minProviders = 2,
       source = "Seduction (Seductive Sayaad channel on a random player)", note = "Interrupt or CC.", confidence = V },
-    { id = "MR_FEL_MISSILES", need = "interrupt", alt = { "stop" }, severity = "high", minProviders = 2,
+    { id = "MR_FEL_MISSILES", need = "interrupt", alt = { "stop" }, severity = "medium", minProviders = 2,
       source = "Fel Missiles (Felonious Mage channel)", note = "Interrupt or CC the channel.", confidence = V },
-    { id = "MR_HEARTSTOP", need = "dispel_poison", alt = { "external_defensive" }, severity = "medium", minProviders = 1,
+    { id = "MR_HEARTSTOP", need = "dispel_poison", alt = { "external_defensive" }, severity = "high", minProviders = 1,
       source = "Heartstop Poison (Street Sneak, on the tank)", note = "Poison dispel or defensives.", confidence = V },
-    { id = "MR_CORRODING", need = "dispel_magic", severity = "medium", minProviders = 1,
+    { id = "MR_CORRODING", need = "dispel_magic", severity = "high", minProviders = 1,
       source = "Corroding Spittle (random player)", note = "Magic dispel, or the target uses a personal defensive.",
       confidence = V },
     { id = "MR_MIRROR_IMAGES", need = "interrupt", alt = { "aoe_stop" }, severity = "high", minProviders = 2,
@@ -377,16 +385,16 @@ add("MurderRow", {
       source = "Fel Crazed (Felonious Mage)", confidence = V },
     { id = "MR_HEALTH_FUNNEL", need = "interrupt", alt = { "stop" }, severity = "medium", minProviders = 1,
       source = "Health Funnel (Fel Invoker)", note = "Interrupt or CC.", confidence = V },
-    { id = "MR_SOOTHE", need = "soothe", severity = "medium", minProviders = 1,
+    { id = "MR_SOOTHE", need = "soothe", severity = "high", minProviders = 1,
       source = "Back to Work! (Keen Taskmaster), Fel Rage (Wrathguard Flayer)",
       note = "Fel Rage can also be interrupted.", confidence = V },
     { id = "MR_BLEEDS", need = "dispel_bleed", alt = { "external_defensive" }, severity = "medium", minProviders = 1,
       source = "Cutpurse, Glaive Toss, Sharp Nail, Flay", note = "Bleed cleanse or defensives.", confidence = V },
     { id = "MR_TANK", note = "Shield Bash stacks on the tank and Glaive Toss cleaves; defensive as stacks climb.", need = "external_defensive", category = "tank", severity = "medium", minProviders = 1,
       source = "Shield Bash stacks, Glaive Toss (Bribed Guard / Captain)", confidence = V },
-    { id = "MR_CURSE_OF_DOOM", need = "dispel_curse", severity = "medium", minProviders = 1,
+    { id = "MR_CURSE_OF_DOOM", need = "dispel_curse", severity = "high", minProviders = 1,
       source = "Curse of Doom (Corrupted Warlock)", note = "Curse (confirmed on Wowhead).", confidence = V },
-    { id = "MR_BLADE_DANCE", need = "group_defensive", severity = "low", minProviders = 1,
+    { id = "MR_BLADE_DANCE", need = "group_defensive", severity = "medium", minProviders = 1,
       source = "Blade Dance (Felmaster Lucsei)", note = "Group defensives or healing cooldowns.", confidence = V },
   },
 })
@@ -595,7 +603,7 @@ add("KingsRest", {
     -- calls it Shadowfrost Bolt: "use a Magic dispel or freedom to remove the effect".
     { id = "KR_SHADOW_BOLT", note = "Random-target bolt; kick it, and Magic dispel or free anyone it slows.", need = "dispel_magic", alt = { "freedom" }, severity = "medium", minProviders = 1,
       source = "Shadow Bolt (Risen Hexer, if not kicked)", confidence = V },
-    { id = "KR_FROST_SHOCK", note = "Random-target slow; Magic dispel or freedom removes it.", need = "dispel_magic", alt = { "freedom" }, severity = "low", minProviders = 1,
+    { id = "KR_FROST_SHOCK", note = "Random-target slow; Magic dispel or freedom removes it.", need = "dispel_magic", alt = { "freedom" }, severity = "medium", minProviders = 1,
       source = "Frost Shock slow (Spectral Shaman)", confidence = V },
     { id = "KR_SERPENT_STRIKE", note = "Random-target poison DoT; Poison dispel or a freedom effect.", need = "dispel_poison", alt = { "freedom" }, severity = "medium", minProviders = 1,
       source = "Serpent Strike DoT (Queen Patlaa)", confidence = V },
@@ -635,7 +643,7 @@ add("TempleOfSethraliss", {
       source = "Essence Disruption (Temple Disruptor channel into the Eye)", confidence = V },
     { id = "TOS_ARROW_BARRAGE", need = "stop", severity = "high", minProviders = 1,
       source = "Arrow Barrage (Sandswept Hunter channel)", note = "Use CC to stop it.", confidence = V },
-    { id = "TOS_POISON_SPIT", note = "Applies a poison DoT; keep interrupts on it, Poison dispel any that land.", need = "interrupt", severity = "medium", minProviders = 2,
+    { id = "TOS_POISON_SPIT", note = "Applies a poison DoT; keep interrupts on it, Poison dispel any that land.", need = "interrupt", severity = "high", minProviders = 2,
       source = "Poison Spit (Merektha's Toxic Vipers)", confidence = V },
     { id = "TOS_SPARE", need = "interrupt", severity = "medium", minProviders = 2,
       source = "Venom Bolt (Brood Tender)", note = "Spare interrupts.", confidence = V },
@@ -645,7 +653,7 @@ add("TempleOfSethraliss", {
       source = "Poisoned Cheap Shot (Shrouded Fang)", note = "Interrupt or Poison dispel the stun.", confidence = V },
     { id = "TOS_ADDLE_MIND", need = "dispel_curse", alt = { "interrupt" }, severity = "medium", minProviders = 1,
       source = "Addle Mind (Faithless Subjugator)", note = "Interrupt or Curse dispel the disorient.", confidence = V },
-    { id = "TOS_ACCUMULATE", note = "Stacks make Release Charge hit much harder; purge the stacks off.", need = "purge", severity = "medium", minProviders = 1,
+    { id = "TOS_ACCUMULATE", note = "Stacks make Release Charge hit much harder; purge the stacks off.", need = "purge", severity = "high", minProviders = 1,
       source = "Accumulate Charge (Agitated Nimbus)", confidence = V },
     { id = "TOS_TORMENTORS", need = "aoe_stop", severity = "medium", minProviders = 1,
       source = "Faithless Tormentor waves (Avatar of Sethraliss)",

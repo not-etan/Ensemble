@@ -2240,7 +2240,7 @@ do
   for i, row in ipairs(mr.dispels) do saved[i] = row.defensives; row.defensives = nil end
   local noDef
   for _, l in ipairs(nsF.Assignments:ChatLines(mr, "Murder Row", "full")) do if l:find("^Nobody can remove") then noDef = l end end
-  ok(noDef and not noDef:find("use defensives", 1, true) and noDef:find("Bleed (Cutpurse), Curse (Curse of Doom)", 1, true)
+  ok(noDef and not noDef:find("use defensives", 1, true) and noDef:find("Bleed (Cutpurse)", 1, true) and noDef:find("Curse (Curse of Doom)", 1, true)
     and noDef:find("nobody has a defensive for them.", 1, true),
     "no defensive in the group: said plainly: " .. tostring(noDef))
   for i, row in ipairs(mr.dispels) do row.defensives = saved[i] end
@@ -3203,9 +3203,10 @@ do
   local evEl = Fit:Evaluate(ctxT, { applicantID = 2, members = { { name = "Ele", specID = 262 } } })
   ok(evSh.critClose and evSh.critClose.kind == "partial" and evSh.critClose.closes[1].how == "Mass Dispel, long cooldown",
     "Temple: Shadow Priest partly closes Imbued Conduction (" .. tostring(evSh.critClose and evSh.critClose.closes[1].how) .. ")")
-  -- On the 1.6.5 ladder the Shadow Priest's own position (54) is already above the partial
-  -- floor (50): still Good, still well below the Elemental Shaman.
-  ok(evSh.critFloor == 50 and evSh.score >= evSh.critFloor and evSh.score < 60 and evSh.rating.key == "good",
+  -- On the 1.6.5 ladder the Shadow Priest's own position (54; 60 since 1.7.0's severity audit
+  -- raised Accumulate Charge, which its purge answers) is already above the partial floor (50):
+  -- still Good, still well below the Elemental Shaman.
+  ok(evSh.critFloor == 50 and evSh.score >= evSh.critFloor and evSh.score < 70 and evSh.rating.key == "good" and evEl.score > evSh.score + 20,
     "Temple: Shadow Priest Good, at or above its partial floor of 50 (raw " .. tostring(evSh.rawImmediate) .. ", score " .. evSh.score .. ")")
   ok(evEl.score == 100 and evSh.score < evEl.score, "Temple: Shadow below Elemental (" .. evSh.score .. " < " .. evEl.score .. ")")
   local both = Fit:EvaluateAll(ctxT, { { applicantID = 1, members = { { name = "Shadow", specID = 258 } } },
@@ -8416,16 +8417,17 @@ do
   local big, rest = AS:BigRows(plan)
   local order = {}
   for _, x in ipairs(big) do order[#order + 1] = x.kind .. ":" .. x.row.req.id end
-  ok(#big == 5 and #rest == 11 and table.concat(order, " ") == "dispel:TOS_IMBUED_CONDUCTION kick:TOS_ESSENCE_DISRUPTION kick:TOS_FLAME_SHOCK kick:TOS_LIGHTNING_BOLT other:TOS_ARROW_BARRAGE",
-    "the big ones: the critical dispel, then the high kicks, then the high stop (" .. #big .. " + " .. #rest .. ")")
-  ok(AS:RowVerb(big[1]) == "DISPEL" and AS:RowVerb(big[2]) == "KICK" and AS:RowVerb(big[5]) == "STOP"
-    and AS:OwnerNames(big[2]) == "Vengeance Demon Hunter, Retribution Paladin" and AS:OwnerNames(big[5]) == "anyone with CC", "owners: a kick's rotation without the order; a stop is anyone's")
+  ok(#big == 7 and #rest == 9 and table.concat(order, " ") == "dispel:TOS_IMBUED_CONDUCTION dispel:TOS_ACCUMULATE kick:TOS_ESSENCE_DISRUPTION kick:TOS_FLAME_SHOCK kick:TOS_LIGHTNING_BOLT kick:TOS_POISON_SPIT other:TOS_ARROW_BARRAGE",
+    "the big ones: the critical dispel, then the high purge, kicks and stop (" .. #big .. " + " .. #rest .. ")")
+  ok(AS:RowVerb(big[1]) == "DISPEL" and AS:RowVerb(big[2]) == "PURGE" and AS:RowVerb(big[3]) == "KICK" and AS:RowVerb(big[7]) == "STOP"
+    and AS:OwnerNames(big[3]) == "Vengeance Demon Hunter, Retribution Paladin" and AS:OwnerNames(big[7]) == "anyone with CC", "owners: a kick's rotation without the order; a stop is anyone's")
   local ess = AS:EssentialLines(plan, "Temple of Sethraliss", WT:LustChat(TOS))
-  ok(#ess == 6 and ess[1] == "[Ensemble] Temple of Sethraliss, the big ones:"
+  ok(#ess == 7 and ess[1] == "[Ensemble] Temple of Sethraliss, the big ones:"
     and ess[2] == "DISPEL Imbued Conduction (Magic): Restoration Shaman (no backup)"
-    and ess[3] == "KICK Essence Disruption + Lightning Bolt: Vengeance Demon Hunter, Retribution Paladin"
-    and ess[4] == "KICK Flame Shock: Restoration Shaman, Fire Mage"
-    and ess[5] == "STOP Arrow Barrage: anyone with CC" and ess[6]:find("^Lust: Merektha"), "the Essentials post: casts with the same owners share a line:\n  " .. table.concat(ess, "\n  "))
+    and ess[3] == "PURGE Accumulate Charge: Fire Mage"
+    and ess[4] == "KICK Essence Disruption + Lightning Bolt: Vengeance Demon Hunter, Retribution Paladin"
+    and ess[5] == "KICK Flame Shock + Poison Spit: Restoration Shaman, Fire Mage"
+    and ess[6] == "STOP Arrow Barrage: anyone with CC" and ess[7]:find("^Lust: Merektha"), "the Essentials post: casts with the same owners share a line:\n  " .. table.concat(ess, "\n  "))
   for _, l in ipairs(ess) do ok(#l <= 250 and not l:find("|", 1, true) and not l:find("1st", 1, true), "Essentials line plain, short, no ordinals (" .. #l .. ")") end
   ok(#AS:ChatLines(plan, "Temple of Sethraliss", "full") == 8 - 1, "the full post is the per-player post, unchanged (header, five players, priority)")
   -- Nobody can dispel the critical debuff: it is an uncovered-gap line, not an owner line.
@@ -8440,7 +8442,7 @@ do
   local function names(l) local t = {} for _, x in ipairs(l) do t[#t + 1] = x.cast end return table.concat(t, ", ") end
   local solo = A:Analyze({ { specID = 581, isPlayer = true } }, TOS, e.db.settings)
   local b = Brief:Build(TOS, solo, AS:Build(solo))
-  ok(b.solo and b.kick.abilities[1] == "Disrupt" and names(b.kick.mine) == "Essence Disruption, Flame Shock, Lightning Bolt" and names(b.kick.free) == "Poison Spit, Venom Bolt"
+  ok(b.solo and b.kick.abilities[1] == "Disrupt" and names(b.kick.mine) == "Essence Disruption, Flame Shock, Lightning Bolt, Poison Spit" and names(b.kick.free) == "Venom Bolt"
     and #b.kick.backup == 0 and b.kick.shared == nil, "brief, no group: every critical and high kick is yours first, the rest when free")
   ok(names(b.stop.mine) == "Arrow Barrage" and names(b.stop.also):find("A Knot of Snakes", 1, true) and b.defense.count == 4 and b.defense.label == "tank busters"
     and #b.notYours == 1 and b.notYours[1].cast == "Imbued Conduction" and b.notYours[1].why:find("you can't remove it", 1, true),
@@ -8452,7 +8454,7 @@ do
     and b.notYours[1].why:find("Restoration Shaman takes it", 1, true), "brief, in a group: yours with who shares it, when free, backups, and who takes what isn't yours")
   local rh = A:Analyze({ { specID = 581 }, { specID = 264, isPlayer = true }, { specID = 63 }, { specID = 70 }, { specID = 102 } }, TOS, e.db.settings)
   b = Brief:Build(TOS, rh, AS:Build(rh))
-  ok(b.dispel.mine[1].cast == "Imbued Conduction" and b.dispel.mine[1].noBackup and names(b.kick.mine) == "Flame Shock" and b.defense.label:find("heal through", 1, true),
+  ok(b.dispel.mine[1].cast == "Imbued Conduction" and b.dispel.mine[1].noBackup and names(b.kick.mine) == "Flame Shock, Poison Spit" and b.defense.label:find("heal through", 1, true),
     "brief for the healer: the critical dispel is theirs alone, and the tank busters to heal through")
   local rn = A:Analyze({ { specID = 257, isPlayer = true }, { specID = 581 } }, TOS, e.db.settings)
   b = Brief:Build(TOS, rn, AS:Build(rn))
@@ -8507,33 +8509,33 @@ do
   U:SetTab("plan"); RunTimers()
   local pl = U.pl
   local sheet, mine = dump(pl.list), dump(pl.mine)
-  ok(sheet:find("THE BIG ONES (5)", 1, true) and sheet:find("CRITICAL  Dispel (Magic)   Imbued Conduction (Imbued Stormcaller)\nResto Shaman\nNo backup dispeller.", 1, true)
+  ok(sheet:find("THE BIG ONES (7)", 1, true) and sheet:find("CRITICAL  Dispel (Magic)   Imbued Conduction (Imbued Stormcaller)\nResto Shaman\nNo backup dispeller.", 1, true)
     and sheet:find("HIGH  Kick   Essence Disruption (Temple Disruptor channel into the Eye)\nVeng Demon Hunter + Ret Paladin", 1, true)
     and sheet:find("HIGH  Stop   Arrow Barrage (Sandswept Hunter channel)\nAnyone with CC", 1, true), "the sheet: the big ones with owners:\n" .. sheet)
   ok(not sheet:find("1st", 1, true) and not sheet:find(" > Ret", 1, true) and not sheet:find("Kick: ", 1, true) and sheet:find("Two casts at once? Kick first:", 1, true),
     "owners instead of ordinals; the kick-first line stays")
-  ok(sheet:find("+ 11 more assignments (medium and low): Accumulate Charge, Addle Mind", 1, true), "the rest is counted and named")
+  ok(sheet:find("+ 9 more assignments (medium and low): Addle Mind, Poisoned Cheap Shot", 1, true), "the rest is counted and named")
   local own = button(pl.list, "Veng Demon Hunter + Ret Paladin")
   ok(own and own.tip:find("1st Vengeance Demon Hunter - Disrupt 15s", 1, true) and own.tip:find("Click to choose who takes it.", 1, true), "the exact order and cooldowns are on hover; clicking changes who takes it")
-  button(pl.list, "+ 11 more assignments"):Click(); RunTimers()
-  ok(dump(pl.list):find("MEDIUM  Purge   Accumulate Charge (Agitated Nimbus)\nFire Mage", 1, true) and dump(pl.list):find("- 11 more assignments", 1, true), "+ N more opens the rest with who takes each")
+  button(pl.list, "+ 9 more assignments"):Click(); RunTimers()
+  ok(dump(pl.list):find("MEDIUM  Dispel (Curse)   Addle Mind (Faithless Subjugator)", 1, true) and dump(pl.list):find("- 9 more assignments", 1, true), "+ N more opens the rest with who takes each")
   ok(mine:find("As Vengeance Demon Hunter.", 1, true) and mine:find("Yours to kick (Disrupt), shared with Ret Paladin", 1, true) and mine:find("When free: Venom Bolt", 1, true)
     and mine:find("Backup on Flame Shock, Poison Spit.", 1, true) and mine:find("Your defensives (4 tank busters)", 1, true) and mine:find("BLOODLUST", 1, true)
     and select(2, mine:gsub("1st of 2", "")) == 1 and mine:find("The exact order is under Everything.", 1, true), "Your plan: yours, shared with, when free, backups; the Bloodlust plan under it:\n" .. mine)
-  ok(pl.postEssBtn:IsEnabled() and pl.postEssBtn.text:GetText() == "Post essentials" and pl.postEssBtn.tooltip:find("KICK Flame Shock: Restoration Shaman, Fire Mage", 1, true)
-    and pl.postCount:GetText() == "6 lines in party chat" and pl.postPlanBtn.text:GetText() == "Post everything" and pl.postGapsBtn:IsEnabled(),
+  ok(pl.postEssBtn:IsEnabled() and pl.postEssBtn.text:GetText() == "Post essentials" and pl.postEssBtn.tooltip:find("KICK Flame Shock + Poison Spit: Restoration Shaman, Fire Mage", 1, true)
+    and pl.postCount:GetText() == "7 lines in party chat" and pl.postPlanBtn.text:GetText() == "Post everything" and pl.postGapsBtn:IsEnabled(),
     "three post buttons; the default one previews its text and says how long it is")
   ROSTER.party1 = { guid = "H", name = "Hal", class = "SHAMAN", role = "HEALER" }
   SENT = {}
   pl.postEssBtn:Click(); RunTimers()
-  ok(#SENT == 6 and SENT[1].channel == "PARTY" and SENT[1].msg == "[Ensemble] Temple of Sethraliss, the big ones:" and SENT[5].msg == "STOP Arrow Barrage: anyone with CC",
+  ok(#SENT == 7 and SENT[1].channel == "PARTY" and SENT[1].msg == "[Ensemble] Temple of Sethraliss, the big ones:" and SENT[6].msg == "STOP Arrow Barrage: anyone with CC",
     "Post essentials sends the Essentials post to party chat (" .. #SENT .. " lines)")
   SENT = {}
   pl.postPlanBtn:Click(); RunTimers()
   ok(#SENT == 8 and SENT[1].msg:find("assignments. Kick your own casts first", 1, true) and SENT[2].msg:find("^Lust: "), "Post everything sends the per-player post, as before")
   ROSTER.party1 = nil
   WT:HideRow(TOS, "TOS_ACCUMULATE", 3); RunTimers()
-  ok(dump(pl.list):find("1 trash row hidden by you isn't in the plan or its posts: Accumulate Charge.", 1, true) and dump(pl.list):find("10 more assignments", 1, true),
+  ok(dump(pl.list):find("1 trash row hidden by you isn't in the plan or its posts: Accumulate Charge.", 1, true) and dump(pl.list):find("THE BIG ONES (6)", 1, true) and dump(pl.list):find("9 more assignments", 1, true),
     "the Plan follows a trash change at once, and says what it left out")
   WT:ResetTrash(TOS); RunTimers()
   pl.viewSwitch.btns.everything:Click(); RunTimers()
@@ -8541,7 +8543,7 @@ do
     and not dump(pl.list):find("THE BIG ONES", 1, true) and e.db.settings.view.composition == "essentials", "Everything on the Plan tab is the full sheet with the exact order")
   e.db.currentComp = { 0, 0, 0, 0, 0 }
   pl.viewSwitch.btns.essentials:Click(); RunTimers()
-  ok(dump(pl.list):find("THE BIG ONES (5)", 1, true) and not dump(pl.list):find("Resto Shaman", 1, true) and not pl.postEssBtn:IsEnabled()
+  ok(dump(pl.list):find("THE BIG ONES (7)", 1, true) and not dump(pl.list):find("Resto Shaman", 1, true) and not pl.postEssBtn:IsEnabled()
     and pl.postEssBtn.tooltip == "Add players first." and pl.postCount:GetText() == "", "no players: the big ones from the data, no owners, posts off")
 
   -- Dungeon tab, layout 2A.
@@ -8558,7 +8560,7 @@ do
   ok(pp.bossBtn:IsShown() and pp.bestBtn.text:GetText() == "Best classes here" and pp.value == nil, "Open boss cards and Best classes here sit under the brief")
   ok(walk:find("TRASH BEFORE ADDERIS AND ASPIX\nHIGH  Kick   Lightning Bolt (Storm Adept, Imbued Stormcaller)\nHIGH  Stop   Arrow Barrage (Sandswept Hunter channel)\n+ 2 more: Serrated Charge, Sunder Slam, Lightning Bite, Venomous Slash, Tainted Strike", 1, true),
     "Essentials: the critical and high rows, one line each, the rest counted and named:\n" .. walk)
-  ok(walk:find("TRASH BEFORE GALVAZZT\nCRITICAL  Magic dispel   Imbued Conduction (Imbued Stormcaller)  (not your role's, but know it)\nDispel every one or it stuns on expiry.", 1, true)
+  ok(walk:find("TRASH BEFORE GALVAZZT\nHIGH  Purge   Accumulate Charge (Agitated Nimbus)\nCRITICAL  Magic dispel   Imbued Conduction (Imbued Stormcaller)  (not your role's, but know it)\nDispel every one or it stuns on expiry.", 1, true)
     and walk:find("Also here: Lightning Bolt (kick)", 1, true), "a critical row shows for every role; a need already shown is named on Also here")
   ok(not walk:find("Random-target bolt", 1, true) and walk:find("> Edit this section", 1, true) and walk:find("other roles: 2", 1, true),
     "explanations move to hover; each trash section can be edited; other roles' boss lines are counted")
@@ -8635,11 +8637,11 @@ do
   INSPECT_CACHE = { A = 264, B = 63, C = 70, D = 102 }
   e.Tracker:Rescan(); RunTimers(); RunTimers()
   BW.view = { dk = TOS, index = 3, phase = "trash" }; BW:Refresh()
-  ok(winText() == "[KICK] HIGH   Lightning Bolt (Storm Adept, Imbued Stormcaller)  yours with Cal\n[DISPEL] CRITICAL   Imbued Conduction (Imbued Stormcaller)  Ann no backup\n[] + 1 more: purge Accumulate Charge (Bob)\n[] Next: Galvazzt \194\183 no Bloodlust planned",
+  ok(winText() == "[KICK] HIGH   Lightning Bolt (Storm Adept, Imbued Stormcaller)  yours with Cal\n[DISPEL] CRITICAL   Imbued Conduction (Imbued Stormcaller)  Ann no backup\n[PURGE] HIGH   Accumulate Charge (Agitated Nimbus)  Bob\n[] Next: Galvazzt \194\183 no Bloodlust planned",
     "in a group: your row on top with who shares it, then the others with their owners:\n" .. winText())
   ok(BW.items[1].job and not BW.items[2].job, "your row is highlighted")
   WT:HideRow(TOS, "TOS_ACCUMULATE", 3); RunTimers()
-  ok(winText():find("[] 1 hidden by you: Accumulate Charge", 1, true) and not winText():find("+ 1 more", 1, true), "a hidden row leaves the window too, and stays counted")
+  ok(winText():find("[] 1 hidden by you: Accumulate Charge", 1, true) and not winText():find("[PURGE]", 1, true), "a hidden row leaves the window too, and stays counted")
   WT:ResetTrash(TOS); RunTimers()
   -- The Dungeon tab's brief follows the group while the tab is open.
   U:SetTab("dungeons"); RunTimers(); RunTimers()
@@ -8717,6 +8719,17 @@ do
   ok(fits(pp.roleBtns.YOU), "125%: \"You: Healer\" fits")
   U:SetTextSize(100); RunTimers()
   U:Hide()
+
+  -- The severity audit (November 17): severity decides what Essentials shows first.
+  local function sev(dk, id) for _, q in ipairs(e.Dungeons.list[dk].requirements) do if q.id == id then return q.severity end end end
+  local audit = { MurderRow = { MR_HEARTSTOP = "high", MR_SOOTHE = "high", MR_CURSE_OF_DOOM = "high", MR_CORRODING = "high",
+      MR_BLADE_DANCE = "medium", MR_FEL_MISSILES = "medium", MR_HEALTH_FUNNEL = "medium" },
+    TempleOfSethraliss = { TOS_ACCUMULATE = "high", TOS_POISON_SPIT = "high" }, KingsRest = { KR_FROST_SHOCK = "medium", KR_SOOTHE = "medium" } }
+  local auditOK, wrong = true, ""
+  for dk, rows in pairs(audit) do for id, want in pairs(rows) do
+    if sev(dk, id) ~= want then auditOK = false; wrong = wrong .. " " .. id .. "=" .. tostring(sev(dk, id)) end
+  end end
+  ok(auditOK, "the audited severities (nine changed; Health Funnel and Kings' Rest's soothe row kept):" .. wrong)
 
   -- The files, and What's new for this version.
   local function slurp(path) local f = io.open(path, "rb"); if not f then return nil end local t = f:read("*a"); f:close(); return t end
