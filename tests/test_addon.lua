@@ -8459,7 +8459,7 @@ do
   local rn = A:Analyze({ { specID = 257, isPlayer = true }, { specID = 581 } }, TOS, e.db.settings)
   b = Brief:Build(TOS, rn, AS:Build(rn))
   local kickNote = false
-  for _, x in ipairs(b.notYours) do if x.cast == "Lightning Bolt" and x.why:find("your spec has none", 1, true) then kickNote = true end end
+  for _, x in ipairs(b.notYours) do if x.cast == "Lightning Bolt" and x.why:find("Your spec has no kick.", 1, true) and x.why:find("Vengeance Demon Hunter kicks it", 1, true) then kickNote = true end end
   ok(b.kick.none and kickNote, "brief for a spec with no interrupt says so and names who has the kick")
   ok(Brief:Build(TOS, A:Analyze({ { specID = 264 } }, TOS, e.db.settings), plan) == nil and Brief:Build("Nope", r, plan) == nil, "no brief when you aren't in the group or the dungeon is unknown")
   ok(Brief.CountNames("Sunder Slam, Lightning Bite (Krolusk, big), Tainted Strike") == 3, "ability names are counted outside the brackets")
@@ -8570,7 +8570,8 @@ do
   ok(dump(pp.asks):find("MEDIUM  External   Sunder Slam", 1, true) and dump(pp.asks):find("- 2 more (medium and low)", 1, true), "+ N more opens that section's rest in full")
   pp.roleBtns.DPS:Click(); RunTimers()
   walk = dump(pp.asks)
-  ok(e.db.settings.walkRole == "DPS" and walk:find("CRITICAL  Magic dispel   Imbued Conduction", 1, true) and not walk:find("Sunder Slam", 1, true), "another role: its own rows, and still every critical one")
+  ok(e.db.settings.walkRole == "DPS" and walk:find("CRITICAL  Magic dispel   Imbued Conduction", 1, true) and not walk:find("External   Sunder Slam", 1, true)
+    and walk:find("for other roles (medium and low): Sunder Slam", 1, true), "another role: its own rows, still every critical one, the rest counted (1.7.0 review, R4)")
   pp.roleBtns.ALL:Click(); RunTimers()
   ok(dump(pp.asks):find("CRITICAL  Magic dispel   Imbued Conduction (Imbued Stormcaller)\nDispel every one", 1, true) and not dump(pp.asks):find("not your role's", 1, true), "All: nothing is marked as another role's")
   pp.viewSwitch.btns.everything:Click(); RunTimers()
@@ -8738,6 +8739,210 @@ do
   KEEP_VIEW = nil
   EnsembleDB = nil
   e.state.keyLevelOverride = nil
+  ROSTER, LISTING, APPLICANTS, INSPECT_CACHE = savedRoster, savedListing, savedApps, savedCache
+  OWNED_KEY, OWNED_LEVEL, CURRENT_AFFIXES = savedOwned, savedLevel, savedAffixes
+end
+
+-- 88. The 1.7.0 review fixes (November 17): stoppers posted as stops, the role filter never
+-- hides a critical row or an uncounted one, Your brief's big kicks, the group joined with the
+-- Dungeon tab open, hide and move into one section, the objectives turning to trash, and the nits.
+do
+  local savedRoster, savedListing, savedApps, savedCache = ROSTER, LISTING, APPLICANTS, INSPECT_CACHE
+  local savedOwned, savedLevel, savedAffixes = OWNED_KEY, OWNED_LEVEL, CURRENT_AFFIXES
+  local TOS = "TempleOfSethraliss"
+  local function clean(t) return (tostring(t or ""):gsub("|T.-|t", ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h", ""):gsub("|h", "")) end
+  local function dump(l) local t = {} for i = 1, l.used do t[#t + 1] = clean(l.pool[i]:GetText()) end return table.concat(t, "\n") end
+  local function count(hay, needle) local n, i = 0, 1 while true do local a, b = hay:find(needle, i, true) if not a then return n end n = n + 1; i = b + 1 end end
+  KEEP_VIEW = true
+  ROSTER = { player = { guid = "P", name = "Etan", class = "PALADIN", spec = 70, role = "DAMAGER" } }
+  LISTING, APPLICANTS, INSPECT_CACHE = nil, {}, {}
+  OWNED_KEY, OWNED_LEVEL, CURRENT_AFFIXES = nil, nil, {}
+  EnsembleDB = nil
+  local e = boot()
+  local A, AS, BC, BW, WT, UI, Brief = e.Analysis, e.Assignments, e.BossCards, e.BossWindow, e.Walkthrough, e.UI, e.Brief
+
+  -- R1: a row nobody can kick or dispel, owned by who can stop it, is posted as a STOP.
+  local function post(group, dk)
+    local r = A:Analyze(group, dk, e.db.settings)
+    return table.concat(AS:EssentialLines(AS:Build(r), dk, nil), "\n")
+  end
+  local war = { { specID = 73, isPlayer = true }, { specID = 70 }, { specID = 72 } }
+  local aof = post(war, "AltarOfFangs")
+  ok(aof:find("STOP Paralyzing Shots (instead of a Magic dispel): Retribution Paladin", 1, true) and not aof:find("Paralyzing Shots (Magic)", 1, true),
+    "R1: freedom instead of a Magic dispel is posted as a stop:\n" .. aof)
+  local kr = post(war, "KingsRest")
+  ok(kr:find("STOP Hex (instead of a Curse dispel): Protection Warrior, Retribution Paladin", 1, true) and not kr:find("DISPEL Hex", 1, true),
+    "R1: a curse nobody removes, kicked instead, is a stop:\n" .. kr)
+  local vs = post({ { specID = 257, isPlayer = true }, { specID = 256 } }, "VoidscarArena")
+  ok(vs:find("STOP Mending Void (instead of a kick): Holy Priest, Discipline Priest", 1, true) and not vs:find("KICK Mending Void", 1, true),
+    "R1: two priests stop the cast nobody can kick:\n" .. vs)
+  ok(AS.InsteadOf("kick") == "a kick" and AS.InsteadOf("dispel", "Magic") == "a Magic dispel" and AS.InsteadOf("dispel", "Purge") == "a purge"
+    and AS.InsteadOf(nil, "Soothe") == "a soothe" and AS.InsteadOf(nil, "kick") == "a kick", "R1: what a stop replaces, in words")
+  ok(not kr:find("Intervene, Blessing of Protection, Intervene", 1, true) and not table.concat(AS:ChatLines(AS:Build(A:Analyze(war, "KingsRest", e.db.settings)), "KR", "full"), "\n"):find("Intervene, Blessing of Protection, Intervene", 1, true),
+    "nit: two Warriors' Intervene is named once")
+  -- The boss window's trash page, as the Ret in that group.
+  local realMembers = BC.Members
+  BC.Members = function() return { { specID = 73 }, { specID = 70, isPlayer = true }, { specID = 72 } } end
+  BC:ClearPlanCache()
+  local para, bound, tankRow, claws, tankMine
+  for _, idx in ipairs(BC:Order("AltarOfFangs")) do
+    for _, row in ipairs(BW:TrashRows("AltarOfFangs", idx, "DPS", false)) do
+      local t = clean(row.text)
+      if t:find("Paralyzing Shots", 1, true) then para = row end
+      if t:find("Ravenous Claws", 1, true) then claws = row end
+      if t:find("Corrosive Fangs", 1, true) then tankRow = row; if row.kind == "mine" then tankMine = true end end
+    end
+  end
+  for _, idx in ipairs(BC:Order("KingsRest")) do
+    for _, row in ipairs(BW:TrashRows("KingsRest", idx, "DPS", false)) do
+      if clean(row.text):find("Bound by Shadow", 1, true) then bound = row end
+    end
+  end
+  ok(para and para.tag == "STOP" and clean(para.text):find("yours (instead of a Magic dispel)", 1, true), "R1: boss window: your stop instead of a dispel is tagged STOP")
+  ok(claws and claws.tag == "STOP" and clean(claws.text):find("(instead of a soothe)", 1, true), "R1: boss window: a soothe you stop instead")
+  ok(bound and bound.tag == "STOP" and clean(bound.text):find("(instead of a purge)", 1, true) and not clean(bound.text):find("PURGE", 1, true), "R1: boss window: a purge you stop instead")
+  ok(tankRow and not tankMine and clean(tankRow.text):find("Noxious Spray (Prot Warrior, Ret Paladin, Fury Warrior) [you can answer it]", 1, true),
+    "nit: tank busters anyone with an external answers aren't a DPS's job band: \"you can answer it\"")
+  BC.Members = realMembers; BC:ClearPlanCache()
+
+  -- R3: Your brief lists the big kicks someone else owns; "+ N more" is medium and low only.
+  local grp = { { specID = 581 }, { specID = 264 }, { specID = 63, isPlayer = true }, { specID = 70 }, { specID = 71 } }
+  local r = A:Analyze(grp, TOS, e.db.settings)
+  local plan = AS:Build(r)
+  local b = Brief:Build(TOS, r, plan)
+  local why = {}
+  for _, x in ipairs(b.notYours) do why[x.req.id] = x.why end
+  ok(why.TOS_ESSENCE_DISRUPTION and why.TOS_ESSENCE_DISRUPTION:find("kick it. Kick it when theirs is down.", 1, true) and why.TOS_POISON_SPIT and why.TOS_LIGHTNING_BOLT,
+    "R3: the high kicks others own are under Not yours, with who takes them")
+  local shown = {}
+  for _, list in ipairs({ b.kick.mine, b.kick.free, b.kick.backup, b.stop.mine, b.stop.also, b.dispel.mine, b.dispel.backup, b.defense.mine, b.notYours }) do
+    for _, x in ipairs(list) do shown[x.req.id] = true end
+  end
+  local bigHidden, smallCount = 0, 0
+  for _, x in ipairs(AS:Rows(plan)) do if not shown[x.row.req.id] then if x.big then bigHidden = bigHidden + 1 else smallCount = smallCount + 1 end end end
+  ok(bigHidden == 0 and b.restBig == 0 and b.rest == smallCount and b.rest > 0, "R3: every big row is in the brief; the count is only the medium and low ones")
+  -- Every spec, every dungeon, solo and in that group: no big row is left to the count.
+  local leak = ""
+  for _, dk in ipairs(e.Dungeons.order) do
+    for _, sp in ipairs({ 581, 264, 63, 70, 257, 102, 73 }) do
+      local g = { { specID = sp, isPlayer = true }, { specID = 104 }, { specID = 65 }, { specID = 253 } }
+      local rr = A:Analyze(g, dk, e.db.settings)
+      local bb = Brief:Build(dk, rr, AS:Build(rr))
+      if bb and bb.restBig > 0 then leak = leak .. " " .. dk .. "/" .. sp end
+      local rs = A:Analyze({ { specID = sp, isPlayer = true } }, dk, e.db.settings)
+      local bs = Brief:Build(dk, rs, AS:Build(rs))
+      if bs and bs.restBig > 0 then leak = leak .. " " .. dk .. "/" .. sp .. "(solo)" end
+    end
+  end
+  ok(leak == "", "R3: no brief leaves a critical or high row to the count:" .. leak)
+  local rd = A:Analyze({ { specID = 72, isPlayer = true }, { specID = 73 } }, "AltarOfFangs", e.db.settings)
+  local bd = Brief:Build("AltarOfFangs", rd, AS:Build(rd))
+  local tankNote = false
+  for _, x in ipairs(bd.notYours) do if x.why:find("A tank buster", 1, true) then tankNote = true end end
+  local hasBigTank = false
+  for _, x in ipairs(AS:Rows(AS:Build(rd))) do if x.big and e.Dungeons:CategoryOf(x.row.req) == "tank" then hasBigTank = true end end
+  ok((not hasBigTank) or tankNote, "R3: a DPS's brief names a big tank buster rather than counting it")
+  -- A stop-instead kick someone else owns.
+  local rp = A:Analyze({ { specID = 257 }, { specID = 256, isPlayer = true } }, "VoidscarArena", e.db.settings)
+  local bp = Brief:Build("VoidscarArena", rp, AS:Build(rp))
+  ok(#bp.stop.mine > 0 and bp.stop.mine[1].instead == "kick", "R3: your stop instead of a kick stays under Stop")
+
+  -- R2: the Everything walkthrough keeps other roles' critical rows and counts the rest.
+  UI:Show(); UI:SetTab("dungeons"); UI:SetPrimerPick(TOS)
+  e.db.settings.walkRole = "YOU"; e.db.settings.view.dungeons = "everything"
+  UI:RefreshPrimer()
+  local ev = dump(UI.pp.asks)
+  ok(ev:find("Imbued Conduction (Imbued Stormcaller)  CRITICAL  (not your role's, but know it)", 1, true),
+    "R2: Everything, filtered to a DPS, still shows the critical Magic dispel, marked:\n" .. ev)
+  ok(ev:find("+ 2 for other roles: Addle Mind (curse dispel), Sunder Slam (external)", 1, true) and not ev:find("EXTERNAL   Sunder Slam", 1, true),
+    "R2: the rows the filter leaves out are counted and named")
+  e.db.settings.walkRole = "ALL"; UI:RefreshPrimer()
+  local all = dump(UI.pp.asks)
+  ok(not all:find("for other roles", 1, true) and not all:find("not your role's", 1, true), "R2: All marks and counts nothing")
+
+  -- R4: Essentials: a big repeat from another role is on Also here, and the section isn't
+  -- called empty when big rows recur.
+  e.db.settings.walkRole = "YOU"; e.db.settings.view.dungeons = "essentials"
+  ROSTER.player = { guid = "P", name = "Etan", class = "WARRIOR", spec = 72, role = "DAMAGER" }
+  UI:SetPrimerPick("AltarOfFangs"); UI:RefreshPrimer()
+  local es = dump(UI.pp.asks)
+  local zul = es:match("TRASH BEFORE ZUL'JAN\n(.-)> Edit this section") or ""
+  ok(zul:find("Envenom DoTs (poison dispel, high, other roles)", 1, true) and not zul:find("Nothing critical or high", 1, true),
+    "R4: Trash before Zul'jan names the other role's high repeat and isn't called empty:\n" .. zul)
+  ok(es:find("for other roles (medium and low): Corrosive Fangs", 1, true), "R4: other roles' medium and low rows are counted")
+  ROSTER.player = { guid = "P", name = "Etan", class = "PALADIN", spec = 70, role = "DAMAGER" }
+
+  -- R5: joining a group with the Dungeon tab open: the brief follows the group.
+  UI:SetPrimerPick(TOS); UI:RefreshPrimer(); RunTimers()
+  ok(not e.Tracker.enabled and dump(UI.pp.brief):find("No group needed", 1, true), "R5: alone on the Dungeon tab: no tracker, a solo brief")
+  ROSTER.party1 = { guid = "A", name = "Ann", class = "SHAMAN", spec = 264, role = "HEALER" }
+  ROSTER.party2 = { guid = "B", name = "Bob", class = "MAGE", spec = 63, role = "DAMAGER" }
+  INSPECT_CACHE = { A = 264, B = 63 }
+  for _, fr in ipairs(ALLFRAMES) do
+    if fr._events and fr._events.GROUP_ROSTER_UPDATE and fr._scripts.OnEvent then pcall(fr._scripts.OnEvent, fr, "GROUP_ROSTER_UPDATE") end
+  end
+  RunTimers(); UI:RefreshPrimer()
+  ok(e.Tracker.enabled and not dump(UI.pp.brief):find("No group needed", 1, true), "R5: a group joined with the tab open turns the roster on and the brief names the group")
+  ROSTER.party1, ROSTER.party2 = nil, nil
+  for _, fr in ipairs(ALLFRAMES) do
+    if fr._events and fr._events.GROUP_ROSTER_UPDATE and fr._scripts.OnEvent then pcall(fr._scripts.OnEvent, fr, "GROUP_ROSTER_UPDATE") end
+  end
+  RunTimers()
+  ok(not e.Tracker.enabled, "R5: leaving the group with the tab open lets the roster go")
+  UI:Hide()
+
+  -- R6: hide a row in one section, then move it there from another: it shows, not also hidden.
+  ok(WT:HideRow(TOS, "TOS_LIGHTNING_BOLT", 3) and WT:MoveRow(TOS, "TOS_LIGHTNING_BOLT", 1, 3), "R6: hide in 3, move 1 -> 3")
+  local h3, s3 = false, false
+  for _, st in ipairs(WT:Build(TOS).steps) do
+    if st.kind == "trash" and st.boss == 3 then
+      for _, q in ipairs(st.reqs) do if q.id == "TOS_LIGHTNING_BOLT" then s3 = true end end
+      for _, q in ipairs(st.hidden) do if q.id == "TOS_LIGHTNING_BOLT" then h3 = true end end
+    end
+  end
+  local state3
+  for _, x in ipairs(WT:SectionRows(TOS, 3)) do if x.req.id == "TOS_LIGHTNING_BOLT" then state3 = x.state end end
+  ok(s3 and not h3 and state3 == "shown" and select(1, WT:TrashEditCounts(TOS)) == 0, "R6: the move shows it there and clears that hide")
+  WT:ResetTrash(TOS)
+  e.db.trashEdits[TOS] = { TOS_LIGHTNING_BOLT = { [1] = 3, [3] = 0 } }   -- a save from before the fix
+  WT.trashVersion = (WT.trashVersion or 0) + 1
+  h3, s3 = false, false
+  for _, st in ipairs(WT:Build(TOS).steps) do
+    if st.kind == "trash" and st.boss == 3 then
+      for _, q in ipairs(st.reqs) do if q.id == "TOS_LIGHTNING_BOLT" then s3 = true end end
+      for _, q in ipairs(st.hidden) do if q.id == "TOS_LIGHTNING_BOLT" then h3 = true end end
+    end
+  end
+  for _, x in ipairs(WT:SectionRows(TOS, 3)) do if x.req.id == "TOS_LIGHTNING_BOLT" then state3 = x.state end end
+  ok(s3 and not h3 and state3 == "movedIn", "R6: an older save holding both shows the row once, as moved in, not also hidden")
+  WT:ResetTrash(TOS)
+
+  -- R7: the boss on screen dies by its objective while the encounter still reads as in
+  -- progress: the window turns to the next boss's trash, not its card.
+  local realCrit, realIEIP = e.History.BossCriteria, IsEncounterInProgress
+  BC.state = { dk = TOS, killed = {} }; BC:NewRun()
+  local first = BC:Order(TOS)[1]
+  BC:Show(first, "boss")
+  IsEncounterInProgress = function() return true end
+  e.History.BossCriteria = function() return { { completed = true, enc = nil, name = BC:Boss(TOS, first).name } } end
+  BC:SyncObjectives()
+  ok(BC.state.killed[first] and BC.state.index ~= first and BC:Phase() == "trash", "R7: a kill seen through the objectives turns to the next boss's trash")
+  -- Catching up after a /reload mid-fight on the next boss keeps its card.
+  BC.state = { dk = TOS, killed = {} }; BC:NewRun()
+  local second = BC:Order(TOS)[2]
+  BC:Show(second, "boss")
+  BC:SyncObjectives()
+  ok(BC.state.index == second and BC:Phase() == "boss", "R7: catching up on an earlier kill while fighting the next boss keeps its card")
+  e.History.BossCriteria, IsEncounterInProgress = realCrit, realIEIP
+  BC:Leave()
+
+  -- Nit: the guide's chat line names the Plan's post buttons.
+  local function slurp(path) local f = io.open(path, "rb"); if not f then return nil end local t = f:read("*a"); f:close(); return t end
+  local guide = slurp(ADDON_DIR .. "/../docs/Guide.md") or ""
+  ok(not guide:find("Post assignments covers", 1, true) and not guide:find("matched the kill is matched", 1, true), "nit: the guide's stale button name and doubled words are gone")
+
+  KEEP_VIEW = nil
+  EnsembleDB = nil
   ROSTER, LISTING, APPLICANTS, INSPECT_CACHE = savedRoster, savedListing, savedApps, savedCache
   OWNED_KEY, OWNED_LEVEL, CURRENT_AFFIXES = savedOwned, savedLevel, savedAffixes
 end

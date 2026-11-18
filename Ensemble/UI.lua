@@ -1001,10 +1001,12 @@ function UI:SetTab(key)
     self.pages.applicants:Show()
   elseif key == "dungeons" and IsInGroup and IsInGroup() then
     -- Your brief names who shares each cast, so the roster is read while you're grouped
-    -- (checked when the tab opens; alone, the tab needs no tracker).
+    -- (checked when the tab opens, and again when the group changes; alone, it needs none).
+    self.dungeonsGrouped = true
     ns.Tracker:Enable()
     self.pages[key]:Show()
   else
+    self.dungeonsGrouped = false
     ns.Tracker:Disable()
     self.pages[key]:Show()
   end
@@ -5822,7 +5824,18 @@ function UI:WalkRoleWants(role, q)
 end
 
 -- One requirement line (and its mechanic note) in the walkthrough.
-function UI:WalkReq(L, q, explainOn, movedFrom)
+-- The rows a role filter leaves out of a section, counted and named on one line (1.7.0
+-- review, R2: nothing is hidden without a count). `where` names the section when it has no
+-- other line of its own.
+function UI:WalkOtherRoles(L, others, where)
+  if not others or #others == 0 then return end
+  local names = {}
+  for _, q in ipairs(others) do names[#names + 1] = ns.Assignments.CastName(q) .. " (" .. UD:CapShort(q.need):lower() .. ")" end
+  L:Add(HEX.muted .. (where and (where .. ": ") or "") .. "+ " .. #others .. " for other roles: " .. table.concat(names, ", ") .. "|r",
+    { indent = 8, size = 10, gap = 1, tooltip = "Rows your role filter leaves out. Set Show to All to see them in full." })
+end
+
+function UI:WalkReq(L, q, explainOn, movedFrom, notYours)
   local alts = {}
   for _, a in ipairs(q.alt or {}) do alts[#alts + 1] = UD:CapShort(a) end
   local sev = (q.severity == "critical" and HEX.bad) or (q.severity == "high" and HEX.warn) or HEX.muted
@@ -5832,7 +5845,8 @@ function UI:WalkReq(L, q, explainOn, movedFrom)
     .. (#alts > 0 and (HEX.muted .. " (or " .. table.concat(alts, " / ") .. ")|r") or "")
     .. (q.affix and (HEX.muted .. " (affix: " .. q.affix .. ")|r") or "")
     .. (q.confidence ~= "verified" and (HEX.warn .. " [unconfirmed]|r") or "")
-    .. (movedFrom and (HEX.accent .. "  moved here by you|r") or ""),
+    .. (movedFrom and (HEX.accent .. "  moved here by you|r") or "")
+    .. (notYours and (HEX.muted .. "  (not your role's, but know it)|r") or ""),
     { indent = 8, size = 11, gap = 1, tooltip = tip .. (movedFrom and ("\nThe guides list it before " .. movedFrom.name .. ".") or "") })
   if q.note and not (q.need == "interrupt" and q.note == "Interrupt every cast.") then
     L:Add(HEX.muted .. q.note .. "|r", { indent = 22, size = 10, gap = 2 })
@@ -5951,13 +5965,20 @@ function UI:RenderWalkthrough(L, key, explainOn)
       onClick = function() BC:ResetOrder(key) end, tooltip = "Back to the order the dungeon guides list" })
   end
   for _, st in ipairs(w.steps) do
-    local reqs = {}
-    for _, q in ipairs(st.reqs) do if self:WalkRoleWants(role, q) then reqs[#reqs + 1] = q end end
+    -- The role filter never hides a critical row (shown, marked "not your role's"); the other
+    -- roles' rows it does hide are counted and named (1.7.0 review, R2).
+    local reqs, notMine, others = {}, {}, {}
+    for _, q in ipairs(st.reqs) do
+      if self:WalkRoleWants(role, q) then reqs[#reqs + 1] = q
+      elseif q.severity == "critical" then reqs[#reqs + 1] = q; notMine[q] = true
+      else others[#others + 1] = q end
+    end
     if st.kind == "anywhere" then
       if #reqs > 0 then
         L:Header("Throughout the dungeon")
-        for _, q in ipairs(reqs) do self:WalkReq(L, q, explainOn) end
+        for _, q in ipairs(reqs) do self:WalkReq(L, q, explainOn, nil, notMine[q]) end
       end
+      if #reqs > 0 or #others > 0 then self:WalkOtherRoles(L, others, #reqs == 0 and "Throughout the dungeon" or nil) end
     elseif st.kind == "trash" then
       local lust = WT:LustAt(key, st)
       if #reqs > 0 or #lust > 0 then
@@ -5970,7 +5991,11 @@ function UI:RenderWalkthrough(L, key, explainOn)
         end
         L:Header(head)
         self:WalkLust(L, key, st)
-        for _, q in ipairs(reqs) do self:WalkReq(L, q, explainOn, st.moved and st.moved[q.id] and bosses[st.moved[q.id]]) end
+        for _, q in ipairs(reqs) do self:WalkReq(L, q, explainOn, st.moved and st.moved[q.id] and bosses[st.moved[q.id]], notMine[q]) end
+      end
+      if #others > 0 then
+        local head = st.boss and bosses[st.boss] and ("Trash before " .. bosses[st.boss].name) or "Trash after the last boss"
+        self:WalkOtherRoles(L, others, (#reqs == 0 and #lust == 0) and head or nil)
       end
       self:WalkTrashEdit(L, key, st, #reqs > 0 or #lust > 0)
     else
@@ -5992,7 +6017,8 @@ function UI:RenderWalkthrough(L, key, explainOn)
               { indent = 10, size = 11, gap = 1 })
           end
         end
-        for _, q in ipairs(reqs) do self:WalkReq(L, q, explainOn) end
+        for _, q in ipairs(reqs) do self:WalkReq(L, q, explainOn, nil, notMine[q]) end
+        self:WalkOtherRoles(L, others)
         L:Add(HEX.accent .. "> Edit card|r", { indent = 10, size = 10, gap = 1,
           onClick = function() UI:OpenBossEditor(key, i) end, tooltip = "Change this card. Reset to default any time." })
         L:Add(HEX.accent .. "> Post to chat|r", { indent = 10, size = 10, gap = 1,
@@ -7380,9 +7406,21 @@ ns:On("LOGIN", function() UI:ApplyTheme(true); UI:CreateMinimapButton(); pcall(U
 -- between your party and the planner while the window is open.
 local modeWatcher = CreateFrame("Frame")
 for _, ev in ipairs({ "GROUP_ROSTER_UPDATE", "LFG_LIST_ACTIVE_ENTRY_UPDATE" }) do pcall(modeWatcher.RegisterEvent, modeWatcher, ev) end
-modeWatcher:SetScript("OnEvent", function()
-  if not (UI.frame and UI.frame:IsShown()) or (ns.db.settings.compMode or "auto") ~= "auto" then return end
+modeWatcher:SetScript("OnEvent", function(_, ev)
+  if not (UI.frame and UI.frame:IsShown()) then return end
   local tab = UI.currentTab
+  -- The Dungeon tab reads the roster only while you're grouped: joining or leaving with the
+  -- tab open turns that on or off, so Your brief names the group (1.7.0 review, R5).
+  if tab == "dungeons" and ev == "GROUP_ROSTER_UPDATE" then
+    local grouped = (IsInGroup and IsInGroup()) and true or false
+    if grouped ~= (UI.dungeonsGrouped or false) then
+      UI.dungeonsGrouped = grouped
+      if grouped then ns.Tracker:Enable() else ns.Tracker:Disable() end
+      UI:QueueRefresh()
+    end
+    return
+  end
+  if (ns.db.settings.compMode or "auto") ~= "auto" then return end
   if (tab == "composition" or tab == "plan") and UI:CompMode() ~= ns.state.mode then UI:SetTab(tab) end
 end)
 -- Which events each tab shows. The open tab refreshes on them; every other tab skips the

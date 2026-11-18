@@ -103,6 +103,13 @@ function WT:Areas(dk)
         if movedIn[id] then movedIn[id][b] = nil end
       end
     end
+    -- A row moved into a section you hid it from shows there (the move is the newer intent),
+    -- so that section doesn't also count it as hidden (1.7.0 review, R6; saves from before
+    -- the fix can still hold both).
+    if hidden[id] then
+      for b in pairs(on) do hidden[id][b] = nil end
+      if next(hidden[id]) == nil then hidden[id] = nil end
+    end
     local out = {}
     for b in pairs(on) do out[#out + 1] = b end
     table.sort(out)
@@ -134,6 +141,9 @@ function WT:MoveRow(dk, id, section, to)
   local e = Edits(dk, true)
   e[id] = e[id] or {}
   e[id][section] = to
+  -- Moving it into a section the guides list it in, where you'd hidden it: the move shows it
+  -- there, so that hide goes (1.7.0 review, R6).
+  if e[id][to] == 0 then e[id][to] = nil end
   TrashChanged(dk)
   return true
 end
@@ -201,7 +211,9 @@ function WT:SectionRows(dk, section)
       local e = type(edits[q.id]) == "table" and edits[q.id] or {}
       if has(guide[q.id], section) then
         local to = e[section]
-        if to == 0 then out[#out + 1] = { req = q, state = "hidden", from = section }
+        if to == 0 and movedIn[q.id] and movedIn[q.id][section] then
+          out[#out + 1] = { req = q, state = "movedIn", from = movedIn[q.id][section], to = section }
+        elseif to == 0 then out[#out + 1] = { req = q, state = "hidden", from = section }
         elseif type(to) == "number" and to ~= section then out[#out + 1] = { req = q, state = "movedOut", from = section, to = to }
         else out[#out + 1] = { req = q, state = "shown", from = section } end
       elseif movedIn[q.id] and movedIn[q.id][section] then

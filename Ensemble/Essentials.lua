@@ -344,7 +344,7 @@ function UI:RenderBrief(L, b)
   if #st.mine + #st.also > 0 then
     head(solo and "Stop" or "Your stop", #st.abilities > 0 and ("(" .. table.concat(st.abilities, ", ") .. ")") or "")
     for _, e in ipairs(st.mine) do
-      local how = e.instead and (HEX.muted .. "  instead of a " .. (e.instead == "kick" and "kick" or (e.instead .. " dispel")) .. ", with " .. tostring(e.ability) .. "|r")
+      local how = e.instead and (HEX.muted .. "  instead of " .. ns.Assignments.InsteadOf(nil, e.instead) .. ", with " .. tostring(e.ability) .. "|r")
         or ((not solo and not e.aoe) and (HEX.muted .. ": anyone with CC|r") or "")
       L:Add(CastLine(e, dk) .. how, { indent = 8, size = 11, gap = 1, tooltip = tipOf(e) })
     end
@@ -390,8 +390,12 @@ function UI:RenderBrief(L, b)
     L:Space(5)
   end
 
-  if b.rest > 0 then
-    L:Add(HEX.muted .. "+ " .. b.rest .. " more (medium and low) that " .. (b.rest == 1 and "isn't" or "aren't") .. " yours: see the walkthrough or the Plan tab.|r", { size = 10, gap = 2 })
+  -- Every big row is listed above; if one ever isn't (restBig), the count says so rather than
+  -- calling it medium or low (1.7.0 review, R3).
+  local more = b.rest + (b.restBig or 0)
+  if more > 0 then
+    local what = (b.restBig or 0) > 0 and (" (" .. b.restBig .. " critical or high)") or " (medium and low)"
+    L:Add(HEX.muted .. "+ " .. more .. " more" .. what .. " that " .. (more == 1 and "isn't" or "aren't") .. " yours: see the walkthrough or the Plan tab.|r", { size = 10, gap = 2 })
   end
   if b.skipped > 0 then
     L:Add(HEX.muted .. b.skipped .. " trash row" .. (b.skipped == 1 and "" or "s") .. " hidden by you (left out here).|r", { size = 10, gap = 2 })
@@ -631,13 +635,18 @@ function UI:WalkEssNeeds(L, dk, st, reqs, others, skey, trash)
     elseif BIG[q.severity] then big[#big + 1] = q
     else rest[#rest + 1] = q end
   end
-  local otherCrit, otherHigh = {}, {}
+  -- Other roles' rows: critical in full, high named, a repeat of a big one on "Also here",
+  -- and the medium and low ones counted (1.7.0 review, R4: nothing hidden without a count).
+  local otherCrit, otherHigh, otherRest, otherAlso = {}, {}, {}, {}
   for _, q in ipairs(others or {}) do
-    if not st.also[q.id] then
-      if q.severity == "critical" then otherCrit[#otherCrit + 1] = q
-      elseif q.severity == "high" then otherHigh[#otherHigh + 1] = q end
-    end
+    if st.also[q.id] then
+      if BIG[q.severity] then also[#also + 1] = q; otherAlso[q] = true else otherRest[#otherRest + 1] = q end
+    elseif q.severity == "critical" then otherCrit[#otherCrit + 1] = q
+    elseif q.severity == "high" then otherHigh[#otherHigh + 1] = q
+    else otherRest[#otherRest + 1] = q end
   end
+  local alsoBig = false
+  for _, q in ipairs(also) do if BIG[q.severity] then alsoBig = true end end
   local open = self:IsOpen(skey, false)
   local function moved(q) return st.moved and st.moved[q.id] and bosses[st.moved[q.id]] end
   local function note(q)
@@ -645,7 +654,8 @@ function UI:WalkEssNeeds(L, dk, st, reqs, others, skey, trash)
   end
   for _, q in ipairs(big) do self:WalkEssRow(L, q, moved(q)); note(q) end
   for _, q in ipairs(otherCrit) do self:WalkEssRow(L, q, moved(q), true); note(q) end
-  if trash and #big + #otherCrit == 0 and (#rest + #also + #otherHigh) > 0 then
+  -- "Nothing critical or high" only when it's true: a big repeat on "Also here" is still here.
+  if trash and #big + #otherCrit == 0 and not alsoBig and (#rest + #also + #otherHigh + #otherRest) > 0 then
     L:Add(HEX.muted .. (#otherHigh > 0 and "Nothing critical or high for your role here." or "Nothing critical or high here.") .. "|r", { indent = 8, size = 11, gap = 1 })
   end
   if #rest > 0 then
@@ -664,9 +674,17 @@ function UI:WalkEssNeeds(L, dk, st, reqs, others, skey, trash)
     L:Add(HEX.muted .. "Other roles: " .. table.concat(names, ", ") .. "|r", { indent = 8, size = 10, gap = 1,
       tooltip = "High-severity needs your role doesn't handle. Set Show to All to see them in full." })
   end
+  if #otherRest > 0 then
+    local names = {}
+    for _, q in ipairs(otherRest) do names[#names + 1] = AllNames(q) end
+    L:Add(HEX.muted .. "+ " .. #otherRest .. " for other roles (medium and low): " .. table.concat(names, ", ") .. "|r", { indent = 8, size = 10, gap = 1,
+      tooltip = "Set Show to All to see them in full." })
+  end
   if #also > 0 then
     local names = {}
-    for _, q in ipairs(also) do names[#names + 1] = AllNames(q) .. " (" .. NeedWord(q):lower() .. ")" end
+    for _, q in ipairs(also) do
+      names[#names + 1] = AllNames(q) .. " (" .. NeedWord(q):lower() .. (otherAlso[q] and (", " .. q.severity .. ", other roles") or "") .. ")"
+    end
     L:Add(HEX.muted .. "Also here: " .. table.concat(names, ", ") .. "|r", { indent = 8, size = 10, gap = 1,
       tooltip = "Shown in full in the first section it happens in." })
   end

@@ -155,22 +155,30 @@ function BW:TrashRows(dk, i, role, all)
     local owners = e and AS.Owners(e.row) or {}
     local isMine, isBackup = false, e and e.row.backup and e.row.backup.index == me
     for _, w in ipairs(owners) do if w.index == me then isMine = true end end
-    if e and e.kind == "other" and q.need == "stop" then isMine = false end   -- a stop is anyone's
-    local wanted = all or isMine or q.severity == "critical" or UI:WalkRoleWants(role, q)
+    -- Rows anyone who has the ability answers (a stop, a freedom, tank defensives) aren't one
+    -- player's job: they stay ordinary rows, marked "you can answer it" (as Your brief says),
+    -- instead of a "yours with ..." job for every provider (1.7.0 review nit).
+    local youCan = false
+    if e and e.kind == "other" then youCan = isMine and q.need ~= "stop"; isMine = false end
+    -- Nobody can kick or dispel it: its owners stop it instead (1.7.0 review, R1).
+    local instead = e and (e.kind == "kick" or e.kind == "dispel") and AS.StopsInstead(e.row)
+    local insteadText = instead and (HEX.muted .. " (instead of " .. AS.InsteadOf(e.kind, e.kind == "dispel" and e.row.type or nil) .. ")|r") or ""
+    local tag = instead and "STOP" or TrashTag(q)
+    local wanted = all or isMine or youCan or q.severity == "critical" or UI:WalkRoleWants(role, q)
     local cast = ns.Analysis.Decorate(q.source or "", q.need, q.dungeon)
     local sev = BIG[q.severity] and (UI.SevTag(q.severity) .. "  ") or ""
     if not wanted then
       otherRoles = otherRoles + 1
     elseif isMine then
       local with = ShortNames(owners, me)
-      local tail = HEX.accent .. "  yours|r"
-      if e.kind == "dispel" then
+      local tail = HEX.accent .. "  yours|r" .. insteadText
+      if e.kind == "dispel" and not instead then
         tail = tail .. (e.row.backup and (HEX.muted .. ", backup |r" .. table.concat(ShortNames({ e.row.backup }, me), ""))
           or (q.severity == "critical" and (HEX.warn .. ", no backup: don't miss one|r") or ""))
       elseif #with > 0 then
         tail = tail .. HEX.muted .. " with |r" .. table.concat(with, HEX.muted .. ", |r")
       end
-      mine[#mine + 1] = { kind = "mine", tag = TrashTag(q), text = sev .. cast .. tail }
+      mine[#mine + 1] = { kind = "mine", tag = tag, text = sev .. cast .. tail }
     elseif TrashTag(q) == "TANK" and role == "TANK" and not BIG[q.severity] then
       -- Your own role's part of the section stays a row: the tank busters, for a tank.
       big[#big + 1] = { kind = "row", tag = "TANK", text = HEX.muted .. "Defensive: |r" .. cast }
@@ -179,19 +187,20 @@ function BW:TrashRows(dk, i, role, all)
       if grouped and e then
         local names = ShortNames(owners, nil)
         if e.kind == "other" and q.need == "stop" then tail = #names > 0 and (HEX.muted .. "  anyone with CC|r") or (HEX.bad .. "  nobody here can|r")
-        elseif #names > 0 then tail = "  " .. table.concat(names, HEX.muted .. " + |r")
-          .. ((e.kind == "dispel" and not e.row.backup and q.severity == "critical") and (HEX.warn .. " no backup|r") or "")
+        elseif #names > 0 then tail = "  " .. table.concat(names, HEX.muted .. " + |r") .. insteadText
+          .. ((e.kind == "dispel" and not instead and not e.row.backup and q.severity == "critical") and (HEX.warn .. " no backup|r") or "")
           .. (isBackup and (HEX.accent .. "  you back it up|r") or "")
+          .. (youCan and (HEX.accent .. "  you can answer it|r") or "")
         else tail = HEX.bad .. "  nobody here can|r" end
       end
-      big[#big + 1] = { kind = "row", tag = TrashTag(q), text = sev .. cast .. tail }
+      big[#big + 1] = { kind = "row", tag = tag, text = sev .. cast .. tail }
     else
       local who = ""
       if grouped and e then
         local names = AS:OwnerNames(e, function(l) return UI.ShortLabel(AS.ShortName(l)) end)
-        who = names and (" (" .. names .. ")") or " (nobody)"
+        who = names and (" (" .. names .. (instead and (", instead of " .. AS.InsteadOf(e.kind, e.kind == "dispel" and e.row.type or nil)) or "") .. ")") or " (nobody)"
       end
-      more[#more + 1] = TrashTag(q):lower() .. " " .. UI.ReqNames(q) .. who .. (isBackup and " [you back it up]" or "")
+      more[#more + 1] = tag:lower() .. " " .. UI.ReqNames(q) .. who .. (isBackup and " [you back it up]" or "") .. (youCan and " [you can answer it]" or "")
     end
   end
   for _, x in ipairs(mine) do rows[#rows + 1] = x end

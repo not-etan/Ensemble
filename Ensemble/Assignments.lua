@@ -324,7 +324,10 @@ function AS:Build(r, settings)
         for _, a in ipairs(req.alt or {}) do
           for _, p in ipairs(r.caps[a] or {}) do
             if DEFENSIVE[a] then
-              if #defs < 3 then defs[#defs + 1] = p.entry.name end
+              -- Each defensive once: two Warriors both bring Intervene (1.7.0 review nit).
+              local seen = false
+              for _, d in ipairs(defs) do if d == p.entry.name then seen = true end end
+              if #defs < 3 and not seen then defs[#defs + 1] = p.entry.name end
             else
               row.stoppers = row.stoppers or {}
               if #row.stoppers < 2 then
@@ -556,6 +559,21 @@ function AS.Owners(row)
   return row.who or {}
 end
 
+-- A kick or dispel row nobody can kick or dispel, owned by who can stop it instead (a stun
+-- for a kick, freedom for a Magic slow). Its owners stop it: posts and the boss window say
+-- STOP, never KICK or DISPEL (1.7.0 review, R1).
+function AS.StopsInstead(row)
+  return row.stoppers ~= nil and not (row.kickers and #row.kickers > 0) and not row.primary
+end
+
+-- What a stop-instead row replaces, in words: "a kick", "a Magic dispel", "a purge", "a soothe".
+function AS.InsteadOf(kind, dtype)
+  if kind == "kick" or dtype == nil or dtype == "kick" then return "a kick" end
+  if dtype == "Purge" then return "a purge" end
+  if dtype == "Soothe" then return "a soothe" end
+  return "a " .. dtype .. " dispel"
+end
+
 local BIG = { critical = true, high = true }
 AS.BIG = BIG
 local KIND_RANK = { dispel = 1, kick = 2, other = 3 }
@@ -590,6 +608,7 @@ end
 local STOP_NEED = { stop = true, aoe_stop = true }
 -- The word a row leads with: KICK, DISPEL, PURGE, SOOTHE, STOP, or the need's short name.
 function AS:RowVerb(e)
+  if (e.kind == "kick" or e.kind == "dispel") and AS.StopsInstead(e.row) then return "STOP" end
   if e.kind == "kick" then return "KICK" end
   if e.kind == "dispel" then return (e.row.type == "Purge" and "PURGE") or (e.row.type == "Soothe" and "SOOTHE") or "DISPEL" end
   if STOP_NEED[e.row.need] then return "STOP" end
@@ -663,9 +682,12 @@ function AS:EssentialLines(plan, dungeonName, lust)
       local g = byKey[key]
       if not g then g = { verb = verb, names = names, casts = {} }; byKey[key] = g; groups[#groups + 1] = g end
       local cast = e.row.cast
-      if verb == "DISPEL" then cast = cast .. " (" .. e.row.type .. ")" end
+      if verb == "DISPEL" then cast = cast .. " (" .. e.row.type .. ")"
+      elseif verb == "STOP" and e.kind ~= "other" then
+        cast = cast .. " (instead of " .. AS.InsteadOf(e.kind, e.kind == "dispel" and e.row.type or nil) .. ")"
+      end
       g.casts[#g.casts + 1] = cast
-      if e.kind == "dispel" and e.row.severity == "critical" and not e.row.backup then g.noBackup = true end
+      if e.kind == "dispel" and verb ~= "STOP" and e.row.severity == "critical" and not e.row.backup then g.noBackup = true end
     end
   end
   out[1] = "[Ensemble]" .. where .. ", the big ones" .. (#groups > 0 and ":" or ": nothing critical or high to assign.")

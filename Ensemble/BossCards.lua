@@ -672,7 +672,7 @@ function BC:SyncObjectives()
   local dk = self.state.dk
   if not dk or not (ns.History and ns.History.BossCriteria) then return false end
   local list = ns.History:BossCriteria()
-  local changed = false
+  local changed, shownDied = false, false
   for _, c in ipairs(list or {}) do
     if c.completed then
       local idx = self:IndexForEncounter(dk, c.enc, c.name)
@@ -680,12 +680,17 @@ function BC:SyncObjectives()
         self.state.killed[idx] = true
         self.matches.objectives = self.matches.objectives + 1
         changed = true
+        if idx == self.state.index then shownDied = true end
       end
     end
   end
   if changed then
     local nextIdx = self:FirstAlive(dk, self.state.killed)
-    self:Show(nextIdx, (self.state.killed[nextIdx] or EncounterRunning()) and "boss" or "trash")
+    -- The boss on screen just died: an encounter still "in progress" is that one ending
+    -- (the objective can complete before ENCOUNTER_END), so go to the next boss's trash
+    -- (1.7.0 review, R7). Catching up on older kills (a /reload mid-fight) keeps the rule.
+    local fighting = (not shownDied) and EncounterRunning()
+    self:Show(nextIdx, (self.state.killed[nextIdx] or fighting) and "boss" or "trash")
   end
   return changed
 end

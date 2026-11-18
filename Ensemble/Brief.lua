@@ -112,13 +112,27 @@ function Brief:Build(dk, r, plan)
       end
     elseif backup then
       b.kick.backup[#b.kick.backup + 1] = Entry(row)
-    elseif row.stoppers then
-      for _, st in ipairs(row.stoppers) do
-        if st.index == me then b.stop.mine[#b.stop.mine + 1] = Entry(row, { ability = st.ability, instead = "kick" }) end
+    else
+      local stopper
+      for _, st in ipairs(row.stoppers or {}) do if st.index == me then stopper = st end end
+      if stopper then
+        b.stop.mine[#b.stop.mine + 1] = Entry(row, { ability = stopper.ability, instead = "kick" })
+      elseif BIG[row.severity] then
+        -- A big kick that isn't yours is still worth knowing: who takes it, and whether you
+        -- could cover it (1.7.0 review, R3: it used to be only in the "+ N more" count).
+        local names = AS:OwnerNames({ kind = "kick", row = row })
+        local why
+        if AS.StopsInstead(row) then
+          why = "Nobody here can kick it; " .. names .. " stop" .. (#row.stoppers == 1 and "s" or "") .. " it instead."
+        elseif names then
+          why = names .. " " .. (#row.kickers == 1 and "kicks" or "kick") .. " it."
+            .. (b.kick.none and " Your spec has no kick." or " Kick it when theirs is down.")
+        else
+          why = b.kick.none and "Needs a kick; your spec has none." or "Needs a kick."
+          if not solo then why = why .. " Nobody here can kick it." end
+        end
+        b.notYours[#b.notYours + 1] = Entry(row, { why = why })
       end
-    elseif BIG[row.severity] and b.kick.none then
-      local names = AS:OwnerNames({ kind = "kick", row = row })
-      b.notYours[#b.notYours + 1] = Entry(row, { why = "Needs a kick; your spec has none." .. (names and (" " .. names .. " " .. (#row.kickers == 1 and "has" or "have") .. " it.") or " Nobody here can kick it.") })
     end
   end
   SortEntries(b.kick.mine); SortEntries(b.kick.free); SortEntries(b.kick.backup)
@@ -141,7 +155,9 @@ function Brief:Build(dk, r, plan)
       else
         local can = #(UD:Sources(m.profile, row.key, Settings()) or {}) > 0
         local verb = (row.type == "Purge" and "a purge") or (row.type == "Soothe" and "a soothe") or ("a " .. row.type .. " dispel")
-        local who = row.primary and (AS.ShortName(row.primary.label) .. " takes it.") or "Nobody here can: use defensives."
+        local who = row.primary and (AS.ShortName(row.primary.label) .. " takes it.")
+          or (AS.StopsInstead(row) and ("Nobody here can remove it; " .. AS:OwnerNames({ kind = "dispel", row = row }) .. " stop" .. (#row.stoppers == 1 and "s" or "") .. " it instead."))
+          or "Nobody here can: use defensives."
         if solo then who = can and "" or "Bring someone who can, or use defensives." end
         b.notYours[#b.notYours + 1] = Entry(row, { type = row.type,
           why = "Needs " .. verb .. (can and "." or "; you can't remove it.") .. (who ~= "" and (" " .. who) or "") })
@@ -168,6 +184,8 @@ function Brief:Build(dk, r, plan)
       if m.role == "TANK" or m.role == "HEALER" then
         b.defense.mine[#b.defense.mine + 1] = Entry(row)
         b.defense.count = b.defense.count + CountNames(req.source)
+      elseif BIG[row.severity] then
+        b.notYours[#b.notYours + 1] = Entry(row, { why = "A tank buster: the tank's defensives and the healer handle it." })
       end
     elseif req.need == "stop" or req.need == "aoe_stop" then
       if mine then
@@ -191,13 +209,19 @@ function Brief:Build(dk, r, plan)
   SortEntries(b.stop.mine); SortEntries(b.stop.also); SortEntries(b.defense.mine); SortEntries(b.notYours)
   b.defense.label = m.role == "TANK" and "tank busters" or "tank busters: heal through them or use an external"
 
-  -- What the brief doesn't spell out: the medium and low rows that aren't yours.
+  -- What the brief doesn't spell out: the medium and low rows that aren't yours. Every
+  -- critical and high row is listed above (yours, a backup, a stop, or "not yours"), so the
+  -- count never hides a big one; `restBig` would count any that slipped through (tests check 0).
   local shown = {}
   for _, list in ipairs({ b.kick.mine, b.kick.free, b.kick.backup, b.stop.mine, b.stop.also, b.dispel.mine, b.dispel.backup, b.defense.mine, b.notYours }) do
     for _, e in ipairs(list) do shown[e.req.id] = true end
   end
-  b.rest = 0
-  for _, e in ipairs(AS:Rows(plan)) do if not shown[e.row.req.id] then b.rest = b.rest + 1 end end
+  b.rest, b.restBig = 0, 0
+  for _, e in ipairs(AS:Rows(plan)) do
+    if not shown[e.row.req.id] then
+      if e.big then b.restBig = b.restBig + 1 else b.rest = b.rest + 1 end
+    end
+  end
 
   -- Bloodlust
   local WT = ns.Walkthrough
