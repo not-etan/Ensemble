@@ -4,7 +4,7 @@
 
 Learn the dungeon. Build the group. Time the key.
 
-Mythic+ companion for World of Warcraft: Midnight Season 2 (patch 12.1.5), from forming the group to the last boss.
+Mythic+ companion for World of Warcraft: Midnight Season 2 (patches 12.1.5 and 12.1.7), from forming the group to the last boss.
 It lists the specific utility gaps in a group (interrupts, battle rez, Bloodlust, dispels, CC), shows which raid buffs the group brings, checks the group against what a chosen Season 2 dungeon actually demands, rates Group Finder applicants and the listings you browse by how well they fit, plans kicks and dispels, and shows a boss card for every boss.
 
 Everything runs inside the game. The addon has no external data sources, no companion app and no update service: it only reads your party, your Group Finder listing and applicants, the Group Finder listings you browse, and its own built-in data files.

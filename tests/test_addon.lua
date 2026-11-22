@@ -8941,6 +8941,11 @@ do
   local guide = slurp(ADDON_DIR .. "/../docs/Guide.md") or ""
   ok(not guide:find("Post assignments covers", 1, true) and not guide:find("matched the kill is matched", 1, true), "nit: the guide's stale button name and doubled words are gone")
 
+  -- The TOC lists live 12.1.5 and 12.1.7 (December 1), so the addon isn't marked out of date.
+  local toc = slurp(ADDON_DIR .. "/Ensemble.toc") or ""
+  local iface = toc:match("## Interface:%s*([^\r\n]+)") or ""
+  ok(iface == "120105, 120107", "the TOC's interface line lists 12.1.5 and 12.1.7: " .. iface)
+
   KEEP_VIEW = nil
   EnsembleDB = nil
   ROSTER, LISTING, APPLICANTS, INSPECT_CACHE = savedRoster, savedListing, savedApps, savedCache
