@@ -971,11 +971,8 @@ function UI:CompMode()
   local m = ns.db.settings.compMode or "auto"
   if m == "planner" then return "builder" elseif m == "party" then return "live" end
   local inGroup = IsInGroup and IsInGroup()
-  local listed = false
-  if C_LFGList and C_LFGList.HasActiveEntryInfo then
-    local ok, has = pcall(C_LFGList.HasActiveEntryInfo)
-    listed = ok and has and true or false
-  end
+  -- A dungeon listing only (1.7.0, in-game fix): a raid or other listing while solo stays on the planner.
+  local listed = ns.Tracker and ns.Tracker:HostingDungeon() or false
   return (inGroup or listed) and "live" or "builder"
 end
 
@@ -1636,8 +1633,9 @@ function UI:RefreshComp()
   if live then
     local T = ns.Tracker
     local status
-    if not IsInGroup() and not T.hosting then status = "Not in a group and no active listing."
-    elseif T.hosting then status = "Hosting a Group Finder listing."
+    if T.hosting then status = "Hosting a Group Finder listing."
+    elseif T.listedOther then status = "Listed for something other than a dungeon: applicants aren't rated."
+    elseif not IsInGroup() then status = "Not in a group and no active listing."
     else status = "In a party (no active listing)." end
     if T.inRaid then status = status .. " Raid group: showing first 5." end
     cp.liveStatus:SetText(status)
@@ -4340,7 +4338,9 @@ function UI:RefreshApplicants()
 
   for _, c in ipairs(ap.cards) do c:Hide() end
   local msg
-  if not T.hosting then
+  if not T.hosting and T.listedOther then
+    msg = "Your listing isn't for a dungeon (a raid, quest, PvP or custom group), so Ensemble doesn't rate its applicants.\n\nList a Mythic+ dungeon and applicants appear here, each rated against your current party and the key above."
+  elseif not T.hosting then
     msg = "You're not hosting a Group Finder listing.\n\nList a group and applicants appear here, each rated against your current party and the key above."
   elseif #evals == 0 then
     msg = "No applicants yet. Ratings appear as soon as someone applies."
@@ -4772,6 +4772,12 @@ function UI:OnListingUpdate(event)
   local has = HasListing()
   local was = self.wasListed
   self.wasListed = has
+  -- Auto-fill and reserved slots follow a dungeon listing only (1.7.0, in-game fix): a raid, quest, PvP or
+  -- custom listing counts as no listing for them.
+  local hosting = has and ns.Tracker:HostingDungeon() or false
+  local wasHosting = self.wasHosting
+  if was == nil then wasHosting = nil end   -- the first look after a login or /reload
+  self.wasHosting = hosting
   -- The Dungeon tab's Auto follows your listing (1.6.5, S8: it only caught up on its next
   -- refresh): tell it when a listing starts, ends or changes dungeon.
   local okL, listedKey = pcall(function() return has and ns.Tracker.DetectListingDungeon and ns.Tracker:DetectListingDungeon() or nil end)
@@ -4779,14 +4785,15 @@ function UI:OnListingUpdate(event)
   if has ~= (was == true) or listedKey ~= self.listedKey then
     self.listedKey = listedKey
     if was ~= nil then
-      if ns.Activity then ns.Activity:Log("listing", has and ("listed" .. (listedKey and (": " .. listedKey) or "")) or "ended") end
+      if ns.Activity then ns.Activity:Log("listing", has and ("listed" .. (listedKey and (": " .. listedKey)
+        or (not hosting and " (not a dungeon)") or "")) or "ended") end
       ns:Fire("LISTING_CHANGED")
     end
   end
   -- Auto-fill is armed per listing (Settings > Fill group decides whether a new one arms it).
-  if ns.db and ns.FillGroup and has ~= (was == true) then ns.FillGroup:OnListingChanged(has, was == true) end
+  if ns.db and ns.FillGroup and hosting ~= (wasHosting == true) then ns.FillGroup:OnListingChanged(hosting, wasHosting == true) end
   -- Reserved slots end with the listing they were made for (1.5.0).
-  if ns.db and ns.Players then ns.Players:OnListing(has, was == true, was == nil) end
+  if ns.db and ns.Players then ns.Players:OnListing(hosting, wasHosting == true, wasHosting == nil) end
   if event == "PLAYER_ENTERING_WORLD" or was == nil then return end   -- baseline only
   if not has or was then return end
   if not ns.db or ns.db.settings.autoOpenOnListing == false then return end

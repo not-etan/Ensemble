@@ -407,10 +407,9 @@ function P:LiveComp()
   return comp
 end
 
+-- A dungeon listing (1.7.0, in-game fix): a raid or other listing has no reserved slots.
 function P:Listed()
-  if not (C_LFGList and C_LFGList.HasActiveEntryInfo) then return false end
-  local ok, has = pcall(C_LFGList.HasActiveEntryInfo)
-  return ok and has and true or false
+  return ns.Tracker and ns.Tracker:HostingDungeon() or false
 end
 
 -- The party changed: a named reservation clears when that player joins; all of them when the

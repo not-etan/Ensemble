@@ -520,12 +520,23 @@ local function CheckGroupFinder()
         or (okA and type(info) == "table" and DDv:KeyForInstanceMap(info.mapID) and "instance map")
         or "name"
       local key = DDv:KeyForActivity(id, okA and info or nil)
-      Add(key and "OK" or "WARN", string.format("activity %d \"%s\" (instance map %s) -> %s via %s", id, tostring(name),
-        tostring(okA and type(info) == "table" and info.mapID), tostring(key or "no dungeon match"), key and via or "-"))
+      local t = okA and type(info) == "table" and info or nil
+      Add((key or (t and t.isMythicPlusActivity)) and "OK" or "INFO", string.format(
+        "activity %d \"%s\" (instance map %s, category %s, Mythic+ %s) -> %s via %s", id, tostring(name),
+        tostring(t and t.mapID), tostring(t and t.categoryID), tostring(t and t.isMythicPlusActivity),
+        tostring(key or "no dungeon match"), key and via or "-"))
     end
   else
     Add("FAIL", "GetActiveEntryInfo returned no table")
   end
+  -- Only a dungeon listing counts as hosting (1.7.0, in-game fix): the rest of the section doesn't apply.
+  local kind, why = ns.Tracker:ListingKind()
+  if kind ~= "dungeon" then
+    Add("SKIP", "Group Finder: your listing isn't for a dungeon (raid, quest, PvP or custom), applicants not rated, not checked")
+    return
+  end
+  Add(why == "unreadable" and "WARN" or "OK", "listing counts as a dungeon: " .. tostring(why)
+    .. (why == "unreadable" and " (the game gave no activity to read, so the host features stay on)" or ""))
   local okA, apps = pcall(C_LFGList.GetApplicants)
   if not okA or type(apps) ~= "table" then Add("FAIL", "GetApplicants failed"); return end
   if #apps == 0 then Add("SKIP", "applicants: none right now, not checked"); return end
@@ -649,7 +660,9 @@ local function CheckFill()
   Add(sv and "OK" or "WARN", "suggested item level for a +12: " .. tostring(sv or "none")
     .. (src == "game" and " (from the game)" or src == "table" and " (from Ensemble's table for this season)" or ""))
   local okH, has = pcall(C_LFGList.HasActiveEntryInfo)
-  if okH and has then
+  if okH and has and not ns.Tracker:HostingDungeon() then
+    Add("SKIP", "listing minimums: your listing isn't for a dungeon, not checked")
+  elseif okH and has then
     local okE, entry = pcall(C_LFGList.GetActiveEntryInfo)
     if okE and type(entry) == "table" then
       local r, i = entry.requiredDungeonScore, entry.requiredItemLevel

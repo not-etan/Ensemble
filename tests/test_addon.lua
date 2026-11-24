@@ -8952,5 +8952,91 @@ do
   OWNED_KEY, OWNED_LEVEL, CURRENT_AFFIXES = savedOwned, savedLevel, savedAffixes
 end
 
+-- 89. 1.7.0 in-game fix (November 23): only a dungeon listing counts as hosting. A raid, quest, PvP or custom listing
+-- keeps the Applicant fit panel, the Applicants tab, Composition's applicants, Fill group,
+-- Auto-fill, reserved slots and the tooltip lines quiet (found in game November 23, 2026).
+do
+  local savedRoster, savedListing, savedApps, savedCache = ROSTER, LISTING, APPLICANTS, INSPECT_CACHE
+  local savedInfo = LISTING_INFO
+  ROSTER = { player = { guid = "P", name = "Etan", class = "DEMONHUNTER", spec = 581, role = "TANK" } }
+  APPLICANTS = { [1] = { { name = "Mia-Realm", class = "MAGE", role = "DAMAGER", spec = 63, score = 2800 } },
+                 [2] = { { name = "Bo-Realm", class = "PRIEST", role = "HEALER", spec = 257, score = 2700 } } }
+  LISTING, LISTING_INFO, INSPECT_CACHE = nil, nil, {}
+  EnsembleDB = nil
+  local e = boot()
+  local T, UI, FG = e.Tracker, e.UI, e.FillGroup
+  local RAID = "The Venomous Abyss (Heroic)"
+
+  -- What kind of listing it is.
+  ok(T:ListingKind() == nil and not T:HostingDungeon(), "no listing: no kind")
+  LISTING = "Voidscar Arena (Mythic Keystone)"
+  local k, why = T:ListingKind()
+  ok(k == "dungeon" and why == "dungeon match", "a Season dungeon listing is a dungeon: " .. tostring(why))
+  LISTING, LISTING_INFO = RAID, { categoryID = 3, isMythicPlusActivity = false }
+  k, why = T:ListingKind()
+  ok(k == "other" and why == "activity" and not T:HostingDungeon(), "a raid listing isn't")
+  LISTING_INFO = nil
+  ok(T:ListingKind() == "other", "nor is a listing the game describes with no category or Mythic+ flag")
+  LISTING, LISTING_INFO = "Some Future Dungeon", { isMythicPlusActivity = true }
+  k, why = T:ListingKind()
+  ok(k == "dungeon" and why == "Mythic+ activity", "a Mythic+ key for a dungeon our data doesn't know counts (the game's flag)")
+  LISTING_INFO = { categoryID = 2 }
+  k, why = T:ListingKind()
+  ok(k == "dungeon" and why == "dungeon category", "... or the game's Dungeons category")
+  LISTING_INFO = false
+  k, why = T:ListingKind()
+  ok(k == "dungeon" and why == "unreadable", "an activity the game doesn't describe keeps the host features on, as before")
+
+  -- Raid listing with applicants and the Group Finder open: nothing of Ensemble's shows.
+  e.db.settings.fill.autoArm = true
+  LISTING, LISTING_INFO = nil, nil
+  UI:OnListingUpdate("PLAYER_ENTERING_WORLD")
+  LISTING, LISTING_INFO = RAID, { categoryID = 3 }
+  UI:OnListingUpdate("LFG_LIST_ACTIVE_ENTRY_UPDATE"); RunTimers()
+  ok(not FG.armed, "a new raid listing doesn't arm Auto-fill")
+  ok(not (UI.frame and UI.frame:IsShown()), "a raid listing doesn't open the window")
+  PVEFrame:Show(); RunTimers()
+  T:Rescan(); RunTimers(); UI:RefreshFinderPanel()
+  ok(not T.hosting and T.listedOther and #T.applicants == 0, "raid listing: not hosting, no applicants read")
+  ok(not (UI.fp and UI.fp:IsShown()), "raid listing: the Applicant fit panel stays hidden")
+  ok(FG:Current() == nil and UI:FillAlertPlan() == nil, "raid listing: no Fill plan, no Auto-fill alert")
+  local tipLines, oldAdd = {}, GameTooltip.AddLine
+  GameTooltip.AddLine = function(_, t) tipLines[#tipLines + 1] = t end
+  UI:AddApplicantTooltip({ applicantID = 1 })
+  GameTooltip.AddLine = oldAdd
+  ok(#tipLines == 0, "raid listing: no Ensemble lines on Blizzard's applicant tooltip")
+  ok(not e.Players:Listed(), "raid listing: reserved slots don't belong to it (a reservation keeps waiting for a dungeon listing)")
+  UI:Show("applicants"); RunTimers()
+  ok(UI.ap.empty:IsShown() and tostring(UI.ap.empty:GetText()):find("isn't for a dungeon", 1, true), "Applicants tab says why it's empty")
+  ok(UI:CompMode() == "builder", "alone with a raid listing, Composition stays on the planner")
+  ROSTER.party1 = { guid = "Q", name = "Kai", class = "MAGE", spec = 63, role = "DAMAGER" }
+  T:Rescan(); RunTimers()
+  UI:Show("composition"); RunTimers()
+  ok(UI:CompMode() == "live" and UI.cp.liveStatus:GetText():find("other than a dungeon", 1, true), "in the raid group, Composition's status names the listing")
+  ok(not UI.cp.appPanel:IsShown(), "... and shows no applicants under the slots")
+  ROSTER.party1 = nil; T:Rescan(); RunTimers()
+  ok(e.Report:Build():find("Hosting: no (listed for something other than a dungeon", 1, true), "the report: not hosting, and why")
+  ok(e.Verify:Build():find("[SKIP] Group Finder: your listing isn't for a dungeon", 1, true), "the checks skip the host part")
+  UI:Hide()
+
+  -- Relist for a dungeon: everything comes back, Auto-fill arms.
+  LISTING, LISTING_INFO = "Voidscar Arena (Mythic Keystone)", nil
+  UI:OnListingUpdate("LFG_LIST_ACTIVE_ENTRY_UPDATE"); RunTimers()
+  T:Rescan(); RunTimers(); UI:RefreshFinderPanel()
+  ok(T.hosting and not T.listedOther and #T.applicants == 2, "dungeon listing: hosting, applicants read")
+  ok(UI.fp and UI.fp:IsShown(), "dungeon listing: the panel shows")
+  ok(FG.armed, "switching from the raid listing to a dungeon one arms Auto-fill")
+  ok(e.Verify:Build():find("listing counts as a dungeon: dungeon match", 1, true), "the checks say how the listing was told apart")
+  -- Back to the raid listing: Auto-fill disarms and the panel goes.
+  LISTING, LISTING_INFO = RAID, { categoryID = 3 }
+  UI:OnListingUpdate("LFG_LIST_ACTIVE_ENTRY_UPDATE"); RunTimers()
+  T:Rescan(); RunTimers(); UI:RefreshFinderPanel()
+  ok(not FG.armed and not UI.fp:IsShown(), "changed to a raid listing: Auto-fill off, panel hidden")
+  PVEFrame:Hide(); RunTimers()
+
+  EnsembleDB = nil
+  ROSTER, LISTING, APPLICANTS, INSPECT_CACHE, LISTING_INFO = savedRoster, savedListing, savedApps, savedCache, savedInfo
+end
+
 print(string.format("%d passed, %d failed", passes, fails))
 return fails

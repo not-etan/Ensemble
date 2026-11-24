@@ -26,7 +26,7 @@ Copy the `Ensemble` folder into `World of Warcraft/_retail_/Interface/AddOns/` s
 
 ### Composition
 
-- **Your party or the planner:** in a party, or with a Group Finder listing, the slots fill with your real group; otherwise they're the planner, where you pick specs yourself. The mode button in the bar (Automatic, Planner, My party) overrides the automatic choice. "Copy party" puts your current party into the planner.
+- **Your party or the planner:** in a party, or with a Group Finder listing for a dungeon, the slots fill with your real group; otherwise they're the planner, where you pick specs yourself. The mode button in the bar (Automatic, Planner, My party) overrides the automatic choice. "Copy party" puts your current party into the planner.
 - **Planner:** click a slot (tank / healer / 3 DPS) to pick a spec. Everything updates instantly. **Hover a spec in the slot menu** to preview what it would change before you pick it ("+ covers Poison dispel for Cytotoxin, + raid buff synergy, - adds a gap: ..., Net: +32 points"), including what it replaces. In an empty planner it shows only what the spec covers on its own. **Saved players** (Settings > Saved players) who play the slot's role are listed at the top of the menu: pick one and the slot gets their spec (their default first) with their name on it. **Pick a friend or guildmate...** (the second entry) opens a list of your friends, Battle.net friends and guild, showing only classes that can fill that slot's role (tick "Show offline" to plan with someone who isn't on); pick a name, then their spec. Picking someone doesn't save them.
 - **Saving:** name a comp and **Save**; the **Saved** menu beside it loads, deletes or imports comps (a share string from **Export**). Loading a comp switches to the planner. A saved comp keeps who was in each slot, so "our usual team" loads in one click. Share strings carry specs only, never names.
 - **Your party:** the roster fills in automatically. Specs show as "spec pending" until they can be read; the dungeon follows your listing or the dungeon you're in. A reserved slot (see *Reserve a slot* under Applicants) shows as "Reserved: Elemental Shaman (Ann)" and counts in Needs like a player; suggestions leave it alone.
@@ -64,7 +64,7 @@ Every tooltip also names the type in words, so color is never the only signal.
 
 ### Applicants
 
-While you host a listing, every applicant (or premade applying together) gets a color-coded fit rating against your current party and the key you're running. The rating answers one question: **how good a pick is this person for this slot?**
+While you host a dungeon listing, every applicant (or premade applying together) gets a color-coded fit rating against your current party and the key you're running. The rating answers one question: **how good a pick is this person for this slot?** A listing for anything else (a raid, a quest, PvP or a custom group) gets none of this: no ratings, no panel by the Group Finder, no Fill group or Auto-fill, and the Applicants tab says why it's empty.
 
 | Rating | Color | Fit score |
 |---|---|---|

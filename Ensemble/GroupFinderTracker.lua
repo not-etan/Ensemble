@@ -18,7 +18,8 @@ local Tracker = {
   enabled = false,
   members = {},     -- ordered list for the comp (see Rescan)
   applicants = {},  -- current Group Finder applicants (hosting only)
-  hosting = false,
+  hosting = false,      -- a dungeon listing (1.7.0 in-game fix: not a raid, quest, PvP or custom one)
+  listedOther = false,  -- a listing that isn't for a dungeon
   inRaid = false,
 }
 ns.Tracker = Tracker
@@ -136,7 +137,7 @@ function Tracker:Release(owner)
   ns.state.autoDungeon = nil
   -- Nothing is listening anymore, so the roster would go stale: the next owner starts from an
   -- empty one instead of the previous group's (1.6.5, B3: a key could be saved with it).
-  self.members, self.applicants, self.hosting = {}, {}, false
+  self.members, self.applicants, self.hosting, self.listedOther = {}, {}, false, false
   self.lastSig = nil
 end
 
@@ -276,6 +277,45 @@ local function DetectListingDungeon()
 end
 
 function Tracker:DetectListingDungeon() return DetectListingDungeon() end
+
+-- What kind of listing you have (1.7.0, in-game fix): nil (none), "dungeon" (a Season dungeon, or an
+-- activity the game marks Mythic+) or "other" (a raid, quest, PvP or custom listing). Only a
+-- dungeon listing counts as hosting: the Applicant fit panel, the Applicants tab, Fill group,
+-- Auto-fill and the tooltip lines all stay quiet on any other. Second return: how it was told
+-- ("dungeon match", "Mythic+ activity", "dungeon category", "activity", or "unreadable" when the
+-- game gave no activity to read; that keeps the host features on, as before, rather than
+-- guess). The Mythic+ flag and the category catch a key for a dungeon our data doesn't know yet.
+-- GetActivityInfoTable(id).isMythicPlusActivity and .categoryID (2 = Dungeons): unconfirmed in
+-- 12.1.5 (/ens report's Group Finder checks show both for your listing).
+local DUNGEON_CATEGORY = 2
+local function ListingKind()
+  if not (C_LFGList and C_LFGList.HasActiveEntryInfo) then return nil end
+  local okHas, has = pcall(C_LFGList.HasActiveEntryInfo)
+  if not okHas or not has then return nil end
+  local ok, entry = pcall(C_LFGList.GetActiveEntryInfo)
+  if not ok or type(entry) ~= "table" then return "dungeon", "unreadable" end
+  local ids = entry.activityIDs or (entry.activityID and { entry.activityID }) or {}
+  local readAny = false
+  for _, id in ipairs(ids) do
+    local info
+    if C_LFGList.GetActivityInfoTable then
+      local okInfo, t = pcall(C_LFGList.GetActivityInfoTable, id)
+      if okInfo and type(t) == "table" then info = t end
+    end
+    if ns.Dungeons:KeyForActivity(id, info) then return "dungeon", "dungeon match" end
+    if info then
+      readAny = true
+      if info.isMythicPlusActivity == true then return "dungeon", "Mythic+ activity" end
+      if info.categoryID == DUNGEON_CATEGORY then return "dungeon", "dungeon category" end
+    end
+  end
+  if not readAny then return "dungeon", "unreadable" end
+  return "other", "activity"
+end
+
+function Tracker:ListingKind() return ListingKind() end
+-- A listing the host features work on (see ListingKind).
+function Tracker:HostingDungeon() return ListingKind() == "dungeon" end
 
 -- Confirmed working in 12.1.0 (build 69933), specID is the 16th return (a 17th boolean follows): C_LFGList.GetApplicants,
 -- C_LFGList.GetApplicantInfo(id) -> table{numMembers, applicationStatus,...},
@@ -433,11 +473,10 @@ function Tracker:Rescan()
   end)
   self.members = members
 
-  self.hosting = false
-  if C_LFGList and C_LFGList.HasActiveEntryInfo then
-    local ok, has = pcall(C_LFGList.HasActiveEntryInfo)
-    self.hosting = ok and has and true or false
-  end
+  -- Hosting = a dungeon listing; a raid, quest, PvP or custom listing is "listedOther" (1.7.0, in-game fix).
+  local kind = ListingKind()
+  self.hosting = kind == "dungeon"
+  self.listedOther = kind == "other"
   self.applicants = self.hosting and ReadApplicants() or {}
   -- How long each application has been waiting. The game doesn't say when someone applied,
   -- so this is when the addon first saw them (a /reload restarts the count).
@@ -481,7 +520,7 @@ end
 function Tracker:Signature()
   -- Leader/assistant matters too: the Applicants tab's Invite button depends on it.
   local lead = UnitIsGroupLeader and (UnitIsGroupLeader("player") or (UnitIsGroupAssistant and UnitIsGroupAssistant("player")))
-  local t = { self.hosting and "H" or "-", self.inRaid and "R" or "-", lead and "L" or "-" }
+  local t = { self.hosting and "H" or (self.listedOther and "O" or "-"), self.inRaid and "R" or "-", lead and "L" or "-" }
   for _, m in ipairs(self.members) do
     t[#t + 1] = table.concat({ tostring(m.guid), m.name, tostring(m.classFile), tostring(m.specID), m.role,
       m.pending and "p" or "", m.isPlayer and "me" or "" }, ":")

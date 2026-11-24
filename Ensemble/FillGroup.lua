@@ -1323,10 +1323,9 @@ end
 ---------------------------------------------------------------------------
 FG.armed = false
 
+-- A dungeon listing only (1.7.0, in-game fix): Auto-fill never arms on a raid, quest, PvP or custom one.
 local function Hosting()
-  if not (C_LFGList and C_LFGList.HasActiveEntryInfo) then return false end
-  local ok, has = pcall(C_LFGList.HasActiveEntryInfo)
-  return ok and has and true or false
+  return ns.Tracker and ns.Tracker:HostingDungeon() or false
 end
 
 function FG:SetArmed(v)

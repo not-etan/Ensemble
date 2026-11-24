@@ -304,7 +304,11 @@ function Report:RightNow(add)
   if C_LFGList and C_LFGList.HasActiveEntryInfo then listing = Safe(C_LFGList.HasActiveEntryInfo) and true or false end
   local FG = ns.FillGroup
   local reservedN = (db and type(db.reserved) == "table" and type(db.reserved.list) == "table") and #db.reserved.list or 0
-  if listing then
+  local kind = listing and T and Safe(T.ListingKind, T) or nil
+  if listing and kind == "other" then
+    add("Hosting: no (listed for something other than a dungeon: host features off)"
+      .. (reservedN > 0 and (" | reserved slots: " .. reservedN) or ""))
+  elseif listing then
     local apps = T and Safe(T.GetApplicantGroups, T)
     local view = set.applicantView or {}
     add(string.format("Hosting: yes | %s application(s) | sort %s%s | Fill plan: %s | Auto-fill: %s | reserved slots: %d",

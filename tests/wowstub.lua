@@ -114,7 +114,14 @@ C_LFGList = {
     if not id then id = 5000 + #ACTIVITY_NAMES + 1; ACTIVITY_NAMES[#ACTIVITY_NAMES + 1] = LISTING; ACTIVITY_BY_NAME[LISTING] = id end
     return { activityIDs = { id }, requiredDungeonScore = LISTING_MIN_RATING, requiredItemLevel = LISTING_MIN_ILVL }
   end,
-  GetActivityInfoTable = function(id) return { fullName = ACTIVITY_NAMES[id - 5000] } end,
+  -- LISTING_INFO: extra activity fields for the listing (a raid's categoryID = 3, the Mythic+ flag), or false
+  -- for an activity the game doesn't describe.
+  GetActivityInfoTable = function(id)
+    if LISTING_INFO == false then return nil end
+    local t = { fullName = ACTIVITY_NAMES[id - 5000] }
+    for k, v in pairs(LISTING_INFO or {}) do t[k] = v end
+    return t
+  end,
   GetApplicants = function() local ids = {} for id in pairs(APPLICANTS) do ids[#ids+1] = id end table.sort(ids) return ids end,
   GetApplicantInfo = function(id) local a = APPLICANTS[id]; return a and { numMembers = #a, applicationStatus = (APPLICANT_STATUS and APPLICANT_STATUS[id]) or "applied" } end,
   GetApplicantMemberInfo = function(id, m)
