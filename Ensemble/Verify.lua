@@ -529,7 +529,7 @@ local function CheckGroupFinder()
   else
     Add("FAIL", "GetActiveEntryInfo returned no table")
   end
-  -- Only a dungeon listing counts as hosting (1.7.0, in-game fix): the rest of the section doesn't apply.
+  -- Only a dungeon listing counts as hosting (1.7.1): the rest of the section doesn't apply.
   local kind, why = ns.Tracker:ListingKind()
   if kind ~= "dungeon" then
     Add("SKIP", "Group Finder: your listing isn't for a dungeon (raid, quest, PvP or custom), applicants not rated, not checked")

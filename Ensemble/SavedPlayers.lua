@@ -407,7 +407,7 @@ function P:LiveComp()
   return comp
 end
 
--- A dungeon listing (1.7.0, in-game fix): a raid or other listing has no reserved slots.
+-- A dungeon listing (1.7.1): a raid or other listing has no reserved slots.
 function P:Listed()
   return ns.Tracker and ns.Tracker:HostingDungeon() or false
 end

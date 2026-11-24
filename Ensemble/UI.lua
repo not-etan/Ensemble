@@ -971,7 +971,7 @@ function UI:CompMode()
   local m = ns.db.settings.compMode or "auto"
   if m == "planner" then return "builder" elseif m == "party" then return "live" end
   local inGroup = IsInGroup and IsInGroup()
-  -- A dungeon listing only (1.7.0, in-game fix): a raid or other listing while solo stays on the planner.
+  -- A dungeon listing only (1.7.1): a raid or other listing while solo stays on the planner.
   local listed = ns.Tracker and ns.Tracker:HostingDungeon() or false
   return (inGroup or listed) and "live" or "builder"
 end
@@ -4772,7 +4772,7 @@ function UI:OnListingUpdate(event)
   local has = HasListing()
   local was = self.wasListed
   self.wasListed = has
-  -- Auto-fill and reserved slots follow a dungeon listing only (1.7.0, in-game fix): a raid, quest, PvP or
+  -- Auto-fill and reserved slots follow a dungeon listing only (1.7.1): a raid, quest, PvP or
   -- custom listing counts as no listing for them.
   local hosting = has and ns.Tracker:HostingDungeon() or false
   local wasHosting = self.wasHosting

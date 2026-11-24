@@ -1323,7 +1323,7 @@ end
 ---------------------------------------------------------------------------
 FG.armed = false
 
--- A dungeon listing only (1.7.0, in-game fix): Auto-fill never arms on a raid, quest, PvP or custom one.
+-- A dungeon listing only (1.7.1): Auto-fill never arms on a raid, quest, PvP or custom one.
 local function Hosting()
   return ns.Tracker and ns.Tracker:HostingDungeon() or false
 end

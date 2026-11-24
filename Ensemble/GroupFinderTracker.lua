@@ -18,7 +18,7 @@ local Tracker = {
   enabled = false,
   members = {},     -- ordered list for the comp (see Rescan)
   applicants = {},  -- current Group Finder applicants (hosting only)
-  hosting = false,      -- a dungeon listing (1.7.0 in-game fix: not a raid, quest, PvP or custom one)
+  hosting = false,      -- a dungeon listing (1.7.1: not a raid, quest, PvP or custom one)
   listedOther = false,  -- a listing that isn't for a dungeon
   inRaid = false,
 }
@@ -278,12 +278,12 @@ end
 
 function Tracker:DetectListingDungeon() return DetectListingDungeon() end
 
--- What kind of listing you have (1.7.0, in-game fix): nil (none), "dungeon" (a Season dungeon, or an
+-- What kind of listing you have (1.7.1): nil (none), "dungeon" (a Season dungeon, or an
 -- activity the game marks Mythic+) or "other" (a raid, quest, PvP or custom listing). Only a
 -- dungeon listing counts as hosting: the Applicant fit panel, the Applicants tab, Fill group,
 -- Auto-fill and the tooltip lines all stay quiet on any other. Second return: how it was told
 -- ("dungeon match", "Mythic+ activity", "dungeon category", "activity", or "unreadable" when the
--- game gave no activity to read; that keeps the host features on, as before, rather than
+-- game gave no activity to read; that keeps the host features on, as before 1.7.1, rather than
 -- guess). The Mythic+ flag and the category catch a key for a dungeon our data doesn't know yet.
 -- GetActivityInfoTable(id).isMythicPlusActivity and .categoryID (2 = Dungeons): unconfirmed in
 -- 12.1.5 (/ens report's Group Finder checks show both for your listing).
@@ -473,7 +473,7 @@ function Tracker:Rescan()
   end)
   self.members = members
 
-  -- Hosting = a dungeon listing; a raid, quest, PvP or custom listing is "listedOther" (1.7.0, in-game fix).
+  -- Hosting = a dungeon listing; a raid, quest, PvP or custom listing is "listedOther" (1.7.1).
   local kind = ListingKind()
   self.hosting = kind == "dungeon"
   self.listedOther = kind == "other"

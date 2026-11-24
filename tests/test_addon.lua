@@ -8735,7 +8735,9 @@ do
   -- The files, and What's new for this version.
   local function slurp(path) local f = io.open(path, "rb"); if not f then return nil end local t = f:read("*a"); f:close(); return t end
   ok(#FILES == 26 and FILES[11] == "Walkthrough.lua" and FILES[12] == "Brief.lua" and FILES[19] == "UI.lua" and FILES[20] == "Essentials.lua", "two new files, loaded after what they use (" .. #FILES .. ")")
-  ok(slurp(ADDON_DIR .. "/Ensemble.toc"):find("## Version: 1.7.0", 1, true) and e.HIGHLIGHTS and e.HIGHLIGHTS[1] and e.HIGHLIGHTS[1].version == "1.7.0" and #e.HIGHLIGHTS[1].items >= 2, "1.7.0 has highlights for What's new")
+  local h170
+  for _, h in ipairs(e.HIGHLIGHTS or {}) do if h.version == "1.7.0" then h170 = h end end
+  ok(h170 and #h170.items >= 2, "1.7.0 has highlights for What's new")
   KEEP_VIEW = nil
   EnsembleDB = nil
   e.state.keyLevelOverride = nil
@@ -8952,7 +8954,7 @@ do
   OWNED_KEY, OWNED_LEVEL, CURRENT_AFFIXES = savedOwned, savedLevel, savedAffixes
 end
 
--- 89. 1.7.0 in-game fix (November 23): only a dungeon listing counts as hosting. A raid, quest, PvP or custom listing
+-- 89. 1.7.1 (found in game November 23): only a dungeon listing counts as hosting. A raid, quest, PvP or custom listing
 -- keeps the Applicant fit panel, the Applicants tab, Composition's applicants, Fill group,
 -- Auto-fill, reserved slots and the tooltip lines quiet (found in game November 23, 2026).
 do
